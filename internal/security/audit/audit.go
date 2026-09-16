@@ -108,17 +108,16 @@ func NewSecurityAuditor(opts Options) *SecurityAuditor {
 		osContext: osCtx,
 	}
 
+	auditor.userChecker = checker.NewUserChecker(osCtx)
+	auditor.permissionChecker = checker.NewPermissionChecker(osCtx, opts.FilePermsPath)
+
 	switch runtime.GOOS {
 	case "windows":
 		auditor.sshChecker = checker.NewWindowsSSHChecker(osCtx)
 		auditor.firewallChecker = checker.NewWindowsFirewallChecker(osCtx)
-		auditor.userChecker = checker.NewWindowsUserChecker(osCtx)
-		auditor.permissionChecker = checker.NewWindowsPermissionChecker(osCtx, opts.FilePermsPath)
 	default:
 		auditor.sshChecker = checker.NewUnixSSHChecker(osCtx)
 		auditor.firewallChecker = checker.NewUnixFirewallChecker(osCtx)
-		auditor.userChecker = checker.NewUnixUserChecker(osCtx)
-		auditor.permissionChecker = checker.NewUnixPermissionChecker(osCtx, opts.FilePermsPath)
 	}
 
 	return auditor

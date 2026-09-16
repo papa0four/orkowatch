@@ -7,16 +7,16 @@ import (
 	"github.com/papa0four/orkowatch/internal/security/types"
 )
 
-// emitFinding looks up key in the registry for osCtx and, if found, appends
-// the resulting types.Finding to result.Findings. It reports whether the
-// lookup succeeded, so callers needing per-run deduplication or loop control
-// can act on the outcome themselves. This is the single construction path
-// for every types.Finding built from a registry definition; the struct
-// literal appears nowhere else in the checker package.
-func emitFinding(result *types.AuditResult, osCtx registry.OSContext, key registry.FindingKey) bool {
+// emitFinding appends the types.Finding defined for key under osCtx to
+// result.Findings. This is the single construction path for every
+// types.Finding built from a registry definition; the struct literal appears
+// nowhere else in the checker package. A key with no definition is a defect
+// in the checker or the data file, not a host condition, so it panics rather
+// than letting a detected condition report clean.
+func emitFinding(result *types.AuditResult, osCtx registry.OSContext, key registry.FindingKey) {
 	def, ok := registry.Lookup(osCtx, key)
 	if !ok {
-		return false
+		panic("checker: no registry definition for finding key " + string(key) + " on platform " + string(osCtx.Platform))
 	}
 	result.Findings = append(result.Findings, types.Finding{
 		Title:       def.Title,
@@ -27,22 +27,15 @@ func emitFinding(result *types.AuditResult, osCtx registry.OSContext, key regist
 		Resolution:  def.Resolution,
 		References:  def.ToReferences(),
 	})
-	return true
 }
 
-// emitFindingOnce behaves like emitFinding but only emits key once per seen.
-// seen is marked only on a successful emission, never on a failed lookup, so
-// a registry miss can never permanently suppress a finding that would
-// otherwise have fired on a later match within the same run. This is the
-// single dedup idiom for once-per-Check findings in the checker package;
-// callers do not declare their own bool flags or ad hoc seen maps.
-func emitFindingOnce(result *types.AuditResult, osCtx registry.OSContext, key registry.FindingKey, seen map[registry.FindingKey]struct{}) bool {
+// emitFindingOnce emits key at most once per seen. This is the single dedup
+// idiom for once-per-Check findings in the checker package; callers do not
+// declare their own bool flags or ad hoc seen maps.
+func emitFindingOnce(result *types.AuditResult, osCtx registry.OSContext, key registry.FindingKey, seen map[registry.FindingKey]struct{}) {
 	if _, dup := seen[key]; dup {
-		return false
+		return
 	}
-	if !emitFinding(result, osCtx, key) {
-		return false
-	}
+	emitFinding(result, osCtx, key)
 	seen[key] = struct{}{}
-	return true
 }

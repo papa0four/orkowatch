@@ -23,65 +23,11 @@ func WriteText(w io.Writer, result *Result, minSeverity string) error {
 
 	v := result.View(minSeverity)
 	ew := render.NewErrWriter(w)
-	var shownFindings int
 
 	for _, check := range v.Results {
-		ew.Printf("Check: %s\n", check.Name)
-		ew.Printf("Status: %s\n", check.Status)
-		if check.Description != "" {
-			ew.Printf("Description: %s\n", check.Description)
+		if err := writeCheck(ew, check, minSeverity); err != nil {
+			return err
 		}
-		if check.Status == types.StatusSkipped {
-			ew.Printf("\n")
-			continue
-		}
-		ew.Printf("Duration: %s\n", check.Duration)
-
-		shownFindings += len(check.Findings)
-		if len(check.Findings) > 0 {
-			ew.Printf("Findings:\n")
-			for _, finding := range check.Findings {
-				if ew.Err() == nil {
-					if err := render.FindingLine(w, "", finding.Severity, finding.Title); err != nil {
-						return err
-					}
-				}
-				if len(finding.Categories) > 0 {
-					ew.Printf("  Categories: %s\n", strings.Join(finding.Categories, ", "))
-				}
-				if finding.Description != "" {
-					ew.Printf("  Description: %s\n", finding.Description)
-				}
-				if finding.Impact != "" {
-					ew.Printf("  Impact: %s\n", finding.Impact)
-				}
-				if finding.Resolution != "" {
-					ew.Printf("  Resolution: %s\n", finding.Resolution)
-				}
-				if len(finding.References) > 0 {
-					ew.Printf("  References:\n")
-					for _, ref := range finding.References {
-						writeReference(ew, ref)
-					}
-				}
-			}
-		} else {
-			ew.Printf("Findings:\n%s No findings at or above %s severity\n",
-				types.SymbolOK, strings.ToUpper(minSeverity))
-		}
-
-		if len(check.Details) > 0 {
-			ew.Printf("Raw Diagnostic Output:\n")
-			for _, detail := range check.Details {
-				if detail == "" {
-					ew.Printf("\n")
-					continue
-				}
-				ew.Printf("  %s\n", detail)
-			}
-		}
-
-		ew.Printf("\n")
 	}
 
 	if err := enrichment.Block(w, enrichment.Data{
@@ -89,12 +35,11 @@ func WriteText(w io.Writer, result *Result, minSeverity string) error {
 		Err:        result.EnrichmentError,
 		References: result.References,
 		Result:     result.Enrichment,
-		Verbose:    true,
 	}); err != nil {
 		return err
 	}
 
-	if err := render.SuppressionNotice(w, v.Summary.TotalFindings-shownFindings,
+	if err := render.SuppressionNotice(w, v.FindingsSuppressed,
 		v.Summary.TotalFindings, minSeverity); err != nil {
 		return err
 	}
@@ -104,13 +49,88 @@ func WriteText(w io.Writer, result *Result, minSeverity string) error {
 		PassedChecks:  v.Summary.PassedChecks,
 		SkippedChecks: v.Summary.SkippedChecks,
 		TotalFindings: v.Summary.TotalFindings,
-		Shown:         shownFindings,
+		Shown:         v.Summary.TotalFindings - v.FindingsSuppressed,
 		Critical:      v.Summary.CriticalFindings,
 		High:          v.Summary.HighFindings,
 		Medium:        v.Summary.MediumFindings,
 		Low:           v.Summary.LowFindings,
 		Duration:      result.Duration,
 	})
+}
+
+// writeCheck renders one check: its header, then for a check that ran, its
+// duration, findings and raw diagnostic output. A skipped check ends after
+// the header because it produced nothing else.
+func writeCheck(ew *render.ErrWriter, check CheckView, minSeverity string) error {
+	ew.Printf("Check: %s\n", check.Name)
+	ew.Printf("Status: %s\n", check.Status)
+	if check.Description != "" {
+		ew.Printf("Description: %s\n", check.Description)
+	}
+	if check.Status == types.StatusSkipped {
+		ew.Printf("\n")
+		return ew.Err()
+	}
+	ew.Printf("Duration: %s\n", check.Duration)
+
+	ew.Printf("Findings:\n")
+	if len(check.Findings) == 0 {
+		ew.Printf("%s No findings at or above %s severity\n",
+			types.SymbolOK, strings.ToUpper(minSeverity))
+	}
+	for _, finding := range check.Findings {
+		if err := writeFinding(ew, finding); err != nil {
+			return err
+		}
+	}
+
+	if len(check.Details) > 0 {
+		ew.Printf("Raw Diagnostic Output:\n")
+		writeDetails(ew, check.Details)
+	}
+
+	ew.Printf("\n")
+	return ew.Err()
+}
+
+// writeFinding renders one finding as its severity line followed by each
+// populated field, indented beneath it.
+func writeFinding(ew *render.ErrWriter, finding FindingView) error {
+	if err := render.FindingLine(ew, "", finding.Severity, finding.Title); err != nil {
+		return err
+	}
+	if len(finding.Categories) > 0 {
+		ew.Printf("  Categories: %s\n", strings.Join(finding.Categories, ", "))
+	}
+	if finding.Description != "" {
+		ew.Printf("  Description: %s\n", finding.Description)
+	}
+	if finding.Impact != "" {
+		ew.Printf("  Impact: %s\n", finding.Impact)
+	}
+	if finding.Resolution != "" {
+		ew.Printf("  Resolution: %s\n", finding.Resolution)
+	}
+	if len(finding.References) > 0 {
+		ew.Printf("  References:\n")
+		for _, ref := range finding.References {
+			writeReference(ew, ref)
+		}
+	}
+	return ew.Err()
+}
+
+// writeDetails renders a check's raw diagnostic lines. An empty detail is a
+// section break the checker placed deliberately and is written as a blank
+// line rather than an indented empty one.
+func writeDetails(ew *render.ErrWriter, details []string) {
+	for _, detail := range details {
+		if detail == "" {
+			ew.Printf("\n")
+			continue
+		}
+		ew.Printf("  %s\n", detail)
+	}
 }
 
 // writeReference writes a single reference as "Type: Title", appending the

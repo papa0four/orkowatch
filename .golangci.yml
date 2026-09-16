@@ -43,20 +43,6 @@ linters:
           severity: warning
           disabled: false
 
-  # Known complexity debt, waived per symbol rather than per file so that new
-  # code in these same files is still held to the thresholds above. Each entry
-  # is deleted as its function is split; an empty block is the exit criterion.
-  exclusions:
-    rules:
-      - linters: [gocognit]
-        text: 'WriteText|Block|scanFilesystem|getPlatformSoftwareList'
-
-      - linters: [gocognit]
-        text: 'getMacOSUsers|getBSDUsers|getLinuxUsers|analyzeUsers|checkAuthConfig|checkSecurityConcerns'
-
-      - linters: [nestif]
-        text: 'if elevated|if len\(check\.Findings\) > 0|if u\.osType'
-
 formatters:
   enable:
     - gofmt

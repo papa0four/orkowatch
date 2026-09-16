@@ -7,10 +7,20 @@ package softwarelist
 import (
 	"context"
 	"fmt"
-	"os"
 
 	"golang.org/x/sys/windows/registry"
 )
+
+const (
+	uninstallPath   = `Software\Microsoft\Windows\CurrentVersion\Uninstall`
+	uninstallPath32 = `Software\Wow6432Node\Microsoft\Windows\CurrentVersion\Uninstall`
+)
+
+// uninstallHive names one registry location that records installed software.
+type uninstallHive struct {
+	root registry.Key
+	path string
+}
 
 // getPlatformSoftwareList reads installed software directly from the Windows
 // registry. Four locations are checked for complete coverage:
@@ -28,17 +38,7 @@ import (
 // accepted for cross-platform signature parity; the registry API offers no
 // cancellation point.
 func getPlatformSoftwareList(ctx context.Context) ([]SoftwareEntry, error) {
-	const (
-		uninstallPath   = `Software\Microsoft\Windows\CurrentVersion\Uninstall`
-		uninstallPath32 = `Software\Wow6432Node\Microsoft\Windows\CurrentVersion\Uninstall`
-	)
-
-	type registryTarget struct {
-		root registry.Key
-		path string
-	}
-
-	targets := []registryTarget{
+	hives := []uninstallHive{
 		{registry.LOCAL_MACHINE, uninstallPath},
 		{registry.LOCAL_MACHINE, uninstallPath32},
 		{registry.CURRENT_USER, uninstallPath},
@@ -48,47 +48,20 @@ func getPlatformSoftwareList(ctx context.Context) ([]SoftwareEntry, error) {
 	seen := make(map[string]bool)
 	var entries []SoftwareEntry
 
-	for _, target := range targets {
-		k, err := registry.OpenKey(target.root, target.path,
-			registry.ENUMERATE_SUB_KEYS|registry.QUERY_VALUE)
-		if err != nil {
-			continue
+	for _, hive := range hives {
+		if err := ctx.Err(); err != nil {
+			return nil, err
 		}
-
-		subkeys, readErr := k.ReadSubKeyNames(-1)
-		if closeErr := k.Close(); closeErr != nil {
-			fmt.Fprintf(os.Stderr, "[!] WARNING: failed to close registry key %s: %v\n", target.path, closeErr)
-		}
-		if readErr != nil {
-			continue
-		}
-
-		for _, sub := range subkeys {
-			sk, err := registry.OpenKey(target.root,
-				target.path+`\`+sub, registry.QUERY_VALUE)
-			if err != nil {
+		for _, sub := range subkeyNames(hive) {
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
+			entry, ok := readUninstallEntry(hive.root, hive.path+`\`+sub)
+			if !ok || seen[entry.Name] {
 				continue
 			}
-
-			name, _, err := sk.GetStringValue("DisplayName")
-			if err != nil || name == "" {
-				if closeErr := sk.Close(); closeErr != nil {
-					fmt.Fprintf(os.Stderr, "[!] WARNING: failed to close registry subkey %s: %v\n", sub, closeErr)
-				}
-				continue
-			}
-
-			version, _, _ := sk.GetStringValue("DisplayVersion") //nolint:errcheck // version is optional; missing or unreadable value is treated as empty
-			if closeErr := sk.Close(); closeErr != nil {
-				fmt.Fprintf(os.Stderr, "[!] WARNING: failed to close registry subkey %s: %v\n", sub, closeErr)
-			}
-
-			if seen[name] {
-				continue
-			}
-
-			seen[name] = true
-			entries = append(entries, SoftwareEntry{Name: name, Version: version})
+			seen[entry.Name] = true
+			entries = append(entries, entry)
 		}
 	}
 
@@ -97,4 +70,39 @@ func getPlatformSoftwareList(ctx context.Context) ([]SoftwareEntry, error) {
 	}
 
 	return nil, fmt.Errorf("no software entries readable from any registry uninstall hive; verify registry access or rerun as Administrator")
+}
+
+// subkeyNames enumerates the subkeys of a hive, or nothing when it cannot be
+// opened or read. A hive that does not exist is normal on a host that never
+// installed software of that class.
+func subkeyNames(hive uninstallHive) []string {
+	k, err := registry.OpenKey(hive.root, hive.path, registry.ENUMERATE_SUB_KEYS|registry.QUERY_VALUE)
+	if err != nil {
+		return nil
+	}
+	defer k.Close() //nolint:errcheck // read-only registry handle; close error does not affect the inventory
+
+	names, err := k.ReadSubKeyNames(-1)
+	if err != nil {
+		return nil
+	}
+	return names
+}
+
+// readUninstallEntry reads one uninstall subkey into a SoftwareEntry. A key
+// without a display name is not an installed product and reports false.
+func readUninstallEntry(root registry.Key, path string) (SoftwareEntry, bool) {
+	sk, err := registry.OpenKey(root, path, registry.QUERY_VALUE)
+	if err != nil {
+		return SoftwareEntry{}, false
+	}
+	defer sk.Close() //nolint:errcheck // read-only registry handle; close error does not affect the inventory
+
+	name, _, err := sk.GetStringValue("DisplayName")
+	if err != nil || name == "" {
+		return SoftwareEntry{}, false
+	}
+
+	version, _, _ := sk.GetStringValue("DisplayVersion") //nolint:errcheck // version is optional; missing or unreadable value is treated as empty
+	return SoftwareEntry{Name: name, Version: version}, true
 }

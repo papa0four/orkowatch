@@ -27,7 +27,7 @@ func uacEnabled() (bool, error) {
 	if err != nil {
 		return false, fmt.Errorf("open %s: %w", uacPolicyKey, err)
 	}
-	defer key.Close() // nolint:errcheck // read-only registry handle; close error does not affect scan results
+	defer key.Close() //nolint:errcheck // read-only registry handle; close error does not affect scan results
 
 	value, _, err := key.GetIntegerValue(uacPolicyValue)
 	if err != nil {

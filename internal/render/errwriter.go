@@ -22,6 +22,20 @@ func NewErrWriter(w io.Writer) *ErrWriter {
 	return &ErrWriter{w: w}
 }
 
+// Write forwards p to the underlying writer unless a previous write failed,
+// in which case it returns that error and writes nothing. It makes an
+// ErrWriter usable wherever a renderer takes an io.Writer, so a caller that
+// tracks the first error through ew can hand ew itself to such a renderer
+// instead of writing around it.
+func (ew *ErrWriter) Write(p []byte) (int, error) {
+	if ew.err != nil {
+		return 0, ew.err
+	}
+	n, err := ew.w.Write(p)
+	ew.err = err
+	return n, err
+}
+
 // Printf formats to the underlying writer unless a previous write failed,
 // in which case it is a no-op.
 func (ew *ErrWriter) Printf(format string, args ...any) {

@@ -164,7 +164,7 @@ func (s *UnixSSHChecker) Check(ctx context.Context) types.AuditResult {
 	for _, path := range s.ConfigPaths {
 		if file, err = os.Open(path); err == nil { // #nosec G304 -- paths hardcoded in NewUnixSSHChecker; file contents parsed defensively for two known fields only
 			configPath = path
-			defer file.Close() // nolint:errcheck // read-only file; close error does not affect scan results
+			defer file.Close() //nolint:errcheck // read-only file; close error does not affect scan results
 			break
 		}
 	}
@@ -288,7 +288,7 @@ func (s *WindowsSSHChecker) checkSSHDConfig(result *types.AuditResult) {
 			fmt.Sprintf("%s ERROR: Cannot read OpenSSH configuration: %v", types.SymbolError, err))
 		return
 	}
-	defer file.Close() // nolint:errcheck // read-only file; close error does not affect scan results
+	defer file.Close() //nolint:errcheck // read-only file; close error does not affect scan results
 
 	config, err := parseSSHDConfig(file)
 	if err != nil {

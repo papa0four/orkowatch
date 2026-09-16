@@ -41,6 +41,10 @@ const (
 	// user's. Windows has no effective/invoking split, but the same bound
 	// covers its cwd-plus-home allowlist roots.
 	maxOperatorHomes = 2
+
+	// maxHostnameLen is the longest a single DNS label can be (RFC 1035
+	// section 2.3.4), which is the most os.Hostname can return.
+	maxHostnameLen = 63
 )
 
 // Sentinel errors returned by Write for unsafe destinations.
@@ -50,20 +54,24 @@ var (
 	ErrElevatedWriteDenied = errors.New("elevated write outside allowlisted roots requires explicit confirmation")
 	ErrNotRegularFile      = errors.New("destination exists and is not a regular file")
 	ErrElevatedExposedDir  = errors.New("elevated write refused: destination directory is writable by other users")
-)
 
-// formats is the canonical ordered format set paired with its filename
-// extension. ParseFormat, FormatNames, and Extension all derive from it,
-// so the set is enumerated once. The first entry supplies the fallback
-// extension for an unrecognized Format.
-var formats = []struct {
-	name Format
-	ext  string
-}{
-	{FormatText, "txt"},
-	{FormatJSON, "json"},
-	{FormatYAML, "yaml"},
-}
+	// formats is the canonical ordered format set paired with its filename
+	// extension. ParseFormat, FormatNames, and Extension all derive from it,
+	// so the set is enumerated once. The first entry supplies the fallback
+	// extension for an unrecognized Format.
+	formats = []struct {
+		name Format
+		ext  string
+	}{
+		{FormatText, "txt"},
+		{FormatJSON, "json"},
+		{FormatYAML, "yaml"},
+	}
+
+	// hostnameRe matches every character that is not safe in a filename on
+	// all supported platforms; ResolveHostname replaces each with a hyphen.
+	hostnameRe = regexp.MustCompile(`[^a-zA-Z0-9\-.]`)
+)
 
 // Write validates path through the full guard pipeline and writes data to it.
 func Write(path string, data []byte, opts Options) error {
@@ -72,7 +80,8 @@ func Write(path string, data []byte, opts Options) error {
 		return fmt.Errorf("resolve path: %w", err)
 	}
 
-	// Resolve the parent against the real filesystem s
+	// Resolve the parent against the real filesystem so a symlinked
+	// directory is judged by where it leads
 	parent := filepath.Dir(abs)
 	realParent, err := canonicalParent(parent)
 	if err != nil {
@@ -95,27 +104,38 @@ func Write(path string, data []byte, opts Options) error {
 		return fmt.Errorf("determine privilege: %w", err)
 	}
 	if elevated {
-		// Refuse a root write into a directory other users can control
-		exposed, err := parentWritableByOthers(realParent)
-		if err != nil {
-			return fmt.Errorf("inspect destination directory: %w", err)
-		}
-		if exposed {
-			return fmt.Errorf("%w: %s", ErrElevatedExposedDir, realParent)
-		}
-
-		if !opts.AllowElevatedWrite {
-			allowed, err := withinAllowlist(target)
-			if err != nil {
-				return err
-			}
-			if !allowed {
-				return ErrElevatedWriteDenied
-			}
+		if err := guardElevatedWrite(target, realParent, opts); err != nil {
+			return err
 		}
 	}
 
 	return openAndWrite(target, data)
+}
+
+// guardElevatedWrite applies the refusals that exist only because the process
+// is privileged: a root write must not land in a directory other users can
+// control, and outside the allowlisted roots it needs the operator's explicit
+// confirmation.
+func guardElevatedWrite(target, realParent string, opts Options) error {
+	exposed, err := parentWritableByOthers(realParent)
+	if err != nil {
+		return fmt.Errorf("inspect destination directory: %w", err)
+	}
+	if exposed {
+		return fmt.Errorf("%w: %s", ErrElevatedExposedDir, realParent)
+	}
+
+	if opts.AllowElevatedWrite {
+		return nil
+	}
+	allowed, err := withinAllowlist(target)
+	if err != nil {
+		return err
+	}
+	if !allowed {
+		return ErrElevatedWriteDenied
+	}
+	return nil
 }
 
 // ValidateDir confirms path is an existing directory a report can be written
@@ -158,14 +178,10 @@ func DefaultPath(dir, hostname, codes string, format Format) string {
 // fingerprinting was skipped or failed, so it cannot depend on fingerprint
 // data existing.
 func ResolveHostname() string {
-	// hostnameRe retains only characters safe in filenames across all supported
-	// platforms; anything else becomes a hyphen.
-	hostnameRe := regexp.MustCompile(`[^a-zA-Z0-9\-.]`)
-
 	if h, err := os.Hostname(); err == nil && h != "" {
 		sanitized := hostnameRe.ReplaceAllString(h, "-")
-		if len(sanitized) > 63 {
-			sanitized = sanitized[:63]
+		if len(sanitized) > maxHostnameLen {
+			sanitized = sanitized[:maxHostnameLen]
 		}
 		if sanitized != "" {
 			return sanitized
@@ -191,7 +207,7 @@ func ResolveHostname() string {
 	return "unknown"
 }
 
-// ParseFormat resolve s to a canonical Format, resporting whether it names a
+// ParseFormat resolves s to a canonical Format, reporting whether it names a
 // supported encoding
 func ParseFormat(s string) (Format, bool) {
 	for _, spec := range formats {

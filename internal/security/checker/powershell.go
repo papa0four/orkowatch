@@ -1,3 +1,5 @@
+//go:build windows
+
 // internal/security/checker/powershell.go
 
 package checker

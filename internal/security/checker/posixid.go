@@ -1,11 +1,10 @@
-// internal/security/checker/passwd.go
+//go:build linux || darwin || freebsd || openbsd || netbsd
+
+// internal/security/checker/posixid.go
 
 package checker
 
-import (
-	"strconv"
-	"strings"
-)
+import "strconv"
 
 const (
 	// decimalBase and idBitSize describe the numeric identifiers in a POSIX
@@ -26,21 +25,4 @@ func parseUnixID(field string) (uint32, bool) {
 		return 0, false
 	}
 	return uint32(id), true
-}
-
-// addGroupMembers records the members listed in POSIX group-database entries
-// into members. An entry is name:password:gid:comma-separated-members; a line
-// with fewer fields is skipped rather than treated as a group with no members.
-func addGroupMembers(output []byte, members map[string]bool) {
-	for _, line := range strings.Split(string(output), "\n") {
-		fields := strings.Split(line, ":")
-		if len(fields) < groupFieldCount {
-			continue
-		}
-		for _, member := range strings.Split(fields[groupFieldMembers], ",") {
-			if name := strings.TrimSpace(member); name != "" {
-				members[name] = true
-			}
-		}
-	}
 }

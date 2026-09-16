@@ -17,14 +17,14 @@ type Data struct {
 	Err        error
 	References types.ReferenceExtraction
 	Result     *Result
-	Verbose    bool
 }
 
-// Block writes the six-state enrichment text rendering: not
-// requested (nothing), unavailable, no CWE references, no data returned,
-// per-CWE matches with optional verbose detail, and per-CWE failures.
-// Reference parsing errors are appended in every rendered state. The first
-// write error, if any, is returned.
+// Block writes the enrichment text rendering: nothing when enrichment was
+// not requested, otherwise one of unavailable, no CWE references, or the
+// per-CWE entries and failures projected by Entries and Failures, so text
+// and structured output describe the same set in the same order. Reference
+// parsing errors are appended in every rendered state. The first write
+// error, if any, is returned.
 func Block(w io.Writer, d Data) error {
 	if !d.Requested {
 		return nil
@@ -33,79 +33,78 @@ func Block(w io.Writer, d Data) error {
 	ew := render.NewErrWriter(w)
 	ew.Printf("Enrichment:\n")
 
-	if d.Err != nil {
+	switch {
+	case d.Err != nil:
 		ew.Printf("  Unavailable: %v\n\n", d.Err)
-		referenceErrors(ew, d.References)
-		return ew.Err()
-	}
-
-	if len(d.References.CWEs) == 0 {
+	case len(d.References.CWEs) == 0:
 		ew.Printf("  No CWE references found in current findings.\n\n")
-		referenceErrors(ew, d.References)
-		return ew.Err()
+	default:
+		writeEntries(ew, Entries(d.References.CWEs, d.Result))
+		writeFailures(ew, Failures(d.Result))
+		ew.Printf("\n")
 	}
 
-	if d.Result == nil {
-		ew.Printf("  No enrichment data returned.\n\n")
-		referenceErrors(ew, d.References)
-		return ew.Err()
+	referenceErrors(ew, d.References)
+	return ew.Err()
+}
+
+// writeEntries writes one block per enriched CWE, or a single line when no
+// CWE produced data.
+func writeEntries(ew *render.ErrWriter, entries []EntryView) {
+	if len(entries) == 0 {
+		ew.Printf("  No enrichment data returned.\n")
+		return
 	}
 
-	rendered := 0
-	for _, cwe := range d.References.CWEs {
-		entry, ok := d.Result.Successes[cwe]
-		if !ok {
-			continue
-		}
-		rendered++
-		ew.Printf("  %s", cwe)
+	for _, entry := range entries {
+		ew.Printf("  %s", entry.CWEID)
 		if entry.WeaknessName != "" {
 			ew.Printf(" - %s", entry.WeaknessName)
 		}
 		ew.Printf("\n")
 
-		if entry.Status == StatusNoMatches || len(entry.MatchedCVEs) == 0 {
+		if entry.NoMatches {
 			ew.Printf("    No CVE matches in queried sources.\n")
 			continue
 		}
-
-		for _, match := range entry.MatchedCVEs {
-			symbol, label := types.SeverityFormat(match.CVSSSeverity)
-			ew.Printf("    %s %s  %s (%.1f) [%s]\n",
-				symbol, label, match.CVEID, match.CVSSBaseScore, match.Source)
-			if d.Verbose {
-				if match.Description != "" {
-					ew.Printf("      Description: %s\n", match.Description)
-				}
-				if match.KnownExploited {
-					ew.Printf("      Known Exploited: yes\n")
-				}
-				if match.PatchAvailable {
-					ew.Printf("      Patch Available: yes\n")
-				}
-			}
+		for _, match := range entry.Matches {
+			writeMatch(ew, match)
 		}
 	}
+}
 
-	if rendered == 0 {
-		ew.Printf("  No enrichment data returned.\n")
+// writeMatch writes one CVE match as its severity line followed by each
+// populated detail, indented beneath it.
+func writeMatch(ew *render.ErrWriter, match MatchView) {
+	symbol, label := types.SeverityFormat(match.CVSSSeverity)
+	ew.Printf("    %s %s  %s (%.1f) [%s]\n",
+		symbol, label, match.CVEID, match.CVSSBaseScore, match.Source)
+	if match.Description != "" {
+		ew.Printf("      Description: %s\n", match.Description)
+	}
+	if match.KnownExploited {
+		ew.Printf("      Known Exploited: yes\n")
+	}
+	if match.PatchAvailable {
+		ew.Printf("      Patch Available: yes\n")
+	}
+}
+
+// writeFailures writes the failed lookups as an indented block, or nothing
+// when every lookup succeeded.
+func writeFailures(ew *render.ErrWriter, failures []FailureView) {
+	if len(failures) == 0 {
+		return
 	}
 
-	if len(d.Result.Failures) > 0 {
-		ew.Printf("\n  Failed enrichments:\n")
-		for _, cwe := range sortedFailureKeys(d.Result.Failures) {
-			failure := d.Result.Failures[cwe]
-			ew.Printf("    %s [%s]: %s", cwe, failure.Source, failure.Reason)
-			if failure.Retryable {
-				ew.Printf(" (retryable)")
-			}
-			ew.Printf("\n")
+	ew.Printf("\n  Failed enrichments:\n")
+	for _, failure := range failures {
+		ew.Printf("    %s [%s]: %s", failure.CWEID, failure.Source, failure.Reason)
+		if failure.Retryable {
+			ew.Printf(" (retryable)")
 		}
+		ew.Printf("\n")
 	}
-
-	ew.Printf("\n")
-	referenceErrors(ew, d.References)
-	return ew.Err()
 }
 
 // referenceErrors writes reference parsing errors as an indented block,

@@ -379,7 +379,7 @@ func detectLinuxFamilies() []Distro {
 	if err != nil {
 		return []Distro{DistroGeneric}
 	}
-	defer file.Close() // nolint:errcheck // read-only file; no data at risk
+	defer file.Close() //nolint:errcheck // read-only file; no data at risk
 
 	var id, idLike string
 	scanner := bufio.NewScanner(file)

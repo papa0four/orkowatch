@@ -328,7 +328,7 @@ users.domain_account_no_local_password:
     - "NIST SP 800-53 Rev 5 IA-2 (Identification and Authentication)"
     - "NIST SP 800-53 Rev 5 SC-8 (Transmission Confidentiality and Integrity)"
 
-users.unknown_principal_no_password:
+users.unknown_principal_no_local_password:
   title: "Account with undetermined principal source has no local password hash"
   severity: "MEDIUM"
   cvss_score: 5.5
