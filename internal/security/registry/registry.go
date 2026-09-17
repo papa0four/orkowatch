@@ -84,7 +84,6 @@ const (
 	DistroNetBSD  Distro = "netbsd"
 
 	// Non-Linux Platforms
-	DistroNone    Distro = ""
 	DistroUnknown Distro = "unknown"
 
 	// Reference type classifications produced by ToReferences.

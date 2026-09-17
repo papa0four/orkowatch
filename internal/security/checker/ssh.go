@@ -280,7 +280,7 @@ func (s *WindowsSSHChecker) checkSSHDConfig(result *types.AuditResult) {
 	switch {
 	case errors.Is(err, os.ErrNotExist):
 		result.Details = append(result.Details,
-			fmt.Sprintf("%s WARNING: OpenSSH configuration file not found", types.SymbolWarning))
+			fmt.Sprintf("%s WARNING: OpenSSH configuration file not found: %s", types.SymbolWarning, s.ConfigPath))
 		emitFinding(result, s.osCtx, "ssh.config_missing")
 		return
 	case err != nil:
