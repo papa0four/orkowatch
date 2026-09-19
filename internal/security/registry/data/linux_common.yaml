@@ -494,7 +494,7 @@ permissions.critical_path_not_root_owned:
   severity: "HIGH"
   cvss_score: 7.8
   cvss_vector: "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H"
-  cwe: "CWE-732"
+  cwe: "CWE-282"
   description: >
     A file or directory the system relies on for authentication, privilege
     assignment or service configuration is owned by an account other than
@@ -516,7 +516,8 @@ permissions.critical_path_not_root_owned:
   references:
     - "CIS Distribution Independent Linux Benchmark v2.0.0 §6.1"
     - "NIST SP 800-53 Rev 5 AC-3 (Access Enforcement)"
-    - "https://cwe.mitre.org/data/definitions/732.html"
+    - "https://cwe.mitre.org/data/definitions/282.html"
+"
 
 permissions.path_exceeds_expected_mode:
   title: "File or directory permissions exceed expected mode"
