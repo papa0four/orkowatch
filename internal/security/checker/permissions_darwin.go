@@ -14,9 +14,9 @@ import (
 // platformCriticalPaths lists the paths macOS adds to the common set.
 func platformCriticalPaths() []criticalPath {
 	return []criticalPath{
-		{"/private/etc", "System configuration directory", permStandardDir, true},
-		{"/System", "System directory", permStandardDir, true},
-		{"/usr/local/bin", "User-installed binaries", permStandardDir, true},
+		{"/private/etc", "System configuration directory", permStandardDir},
+		{"/System", "System directory", permStandardDir},
+		{"/usr/local/bin", "User-installed binaries", permStandardDir},
 	}
 }
 

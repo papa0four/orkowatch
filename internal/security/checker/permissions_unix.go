@@ -50,12 +50,11 @@ type (
 		scanRoot string
 	}
 
-	// criticalPath represents a path that needs permission checking
+	// criticalPath is a path whose mode must not exceed expected.
 	criticalPath struct {
 		path        string
 		description string
 		expected    os.FileMode
-		recursive   bool
 	}
 
 	// identityCache reports whether numeric owners and groups resolve to a real
@@ -161,7 +160,7 @@ func (p *UnixPermissionChecker) Check(ctx context.Context) types.AuditResult {
 
 	if p.scanRoot == "" {
 		for _, cpath := range p.paths {
-			if err := p.checkPathPermissions(ctx, cpath, &result); err != nil {
+			if err := p.checkPathPermissions(cpath, &result); err != nil {
 				result.Details = append(result.Details,
 					fmt.Sprintf("%s Error checking %s: %v",
 						types.SymbolError, cpath.path, err))
@@ -202,17 +201,17 @@ func (p *UnixPermissionChecker) effectiveRoot() string {
 // to protect; platformCriticalPaths adds the platform's own.
 func commonCriticalPaths() []criticalPath {
 	return []criticalPath{
-		{"/etc/passwd", "Password file", permStandardFile, false},
-		{"/etc/shadow", "Shadow password file", permOwnerReadOnly, false},
-		{"/etc/group", "Group file", permStandardFile, false},
-		{"/etc/sudoers", "Sudo configuration", permSudoers, false},
-		{"/etc/ssh/sshd_config", "SSH daemon configuration", permOwnerReadWrite, false},
-		{"/var/log", "Log directory", permStandardDir, true},
-		{"/home", "User home directories", permStandardDir, true},
+		{"/etc/passwd", "Password file", permStandardFile},
+		{"/etc/shadow", "Shadow password file", permOwnerReadOnly},
+		{"/etc/group", "Group file", permStandardFile},
+		{"/etc/sudoers", "Sudo configuration", permSudoers},
+		{"/etc/ssh/sshd_config", "SSH daemon configuration", permOwnerReadWrite},
+		{"/var/log", "Log directory", permStandardDir},
+		{"/home", "User home directories", permStandardDir},
 	}
 }
 
-func (p *UnixPermissionChecker) checkPathPermissions(ctx context.Context, cp criticalPath, result *types.AuditResult) error {
+func (p *UnixPermissionChecker) checkPathPermissions(cp criticalPath, result *types.AuditResult) error {
 	info, err := os.Stat(cp.path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -229,33 +228,12 @@ func (p *UnixPermissionChecker) checkPathPermissions(ctx context.Context, cp cri
 			fmt.Sprintf("%s WARNING: %s (%s) has permissions %v, expected %v",
 				types.SymbolWarning, cp.path, cp.description, mode.Perm(), cp.expected))
 		emitFinding(result, p.osCtx, "permissions.path_exceeds_expected_mode")
-	} else {
-		result.Details = append(result.Details,
-			fmt.Sprintf("%s %s has correct permissions: %v",
-				types.SymbolOK, cp.path, mode.Perm()))
+		return nil
 	}
 
-	if cp.recursive && info.IsDir() {
-		return filepath.Walk(cp.path, func(path string, info os.FileInfo, err error) error {
-			// Abort the walk as soon as the caller's deadline expires;
-			// returning the ctx error stops filepath.Walk immediately.
-			if ctxErr := ctx.Err(); ctxErr != nil {
-				return ctxErr
-			}
-			if err != nil {
-				return nil // Skip files we can't access
-			}
-
-			mode := info.Mode()
-			if mode&bitWorldWritable != 0 { // World-writable
-				result.Details = append(result.Details,
-					fmt.Sprintf("%s WARNING: %s is world-writable: %v",
-						types.SymbolWarning, path, mode.Perm()))
-			}
-			return nil
-		})
-	}
-
+	result.Details = append(result.Details,
+		fmt.Sprintf("%s %s has correct permissions: %v",
+			types.SymbolOK, cp.path, mode.Perm()))
 	return nil
 }
 

@@ -64,7 +64,10 @@ type (
 		Duration    time.Duration // How long the check took
 	}
 
-	// Finding represents a specific security finding
+	// Finding represents a specific security finding. Metadata carries
+	// structured evidence a checker attaches beyond the registry definition;
+	// the first writer is the persistence checker tracked as #52, and no
+	// renderer projects it until one exists.
 	Finding struct {
 		Title       string
 		Description string

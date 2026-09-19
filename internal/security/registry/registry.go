@@ -83,7 +83,8 @@ const (
 	DistroOpenBSD Distro = "openbsd"
 	DistroNetBSD  Distro = "netbsd"
 
-	// Non-Linux Platforms
+	// DistroUnknown is the resolution of an os-release identifier no family
+	// claims.
 	DistroUnknown Distro = "unknown"
 
 	// Reference type classifications produced by ToReferences.

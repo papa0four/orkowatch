@@ -33,7 +33,7 @@ ssh.server_not_running:
     - "NIST SP 800-53 Rev 5 CM-7 (Least Functionality)"
     - "https://cwe.mitre.org/data/definitions/16.html"
 
-ssh.config_missing:
+ssh.config_not_found:
   title: "OpenSSH configuration file not found"
   severity: "MEDIUM"
   cvss_score: 5.5
