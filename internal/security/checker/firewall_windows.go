@@ -20,7 +20,7 @@ type (
 		checkIdentity
 	}
 
-	// firewallProfile is holds the name of one Windows Firewall profile and
+	// firewallProfile holds the name of one Windows Firewall profile and
 	// determines whether it is on.
 	firewallProfile struct {
 		name   string
@@ -113,7 +113,7 @@ func (f *WindowsFirewallChecker) Check(ctx context.Context) types.AuditResult {
 
 // parseWindowsFirewallStatus reads the per-profile state from netsh output.
 // Each profile's section is headed "<Name> Profile Settings:" and carries a
-// "State ON|OFF" line; the state is read from that line's value field rather
+// "State  ON|OFF" line; the state is read from that line's value field rather
 // than searched for as a substring. Profiles are returned in the fixed order
 // of firewallProfileNames. The headings are English literals, so a localized
 // netsh reports no profiles at all rather than wrong ones.

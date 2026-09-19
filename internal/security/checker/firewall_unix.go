@@ -22,14 +22,14 @@ type (
 
 	// firewallState is what a manager reported about its own enforcement.
 	// The zero value is firewallUnknown, so a state parser that does not
-	//recognize its input reports that it could not tell rather than
-	//producing a clean result the host does not support.
+	// recognize its input reports that it could not tell rather than
+	// producing a clean result the host does not support.
 	firewallState uint8
 
 	// firewallTool is one firewall manager: the command that reports
 	// whether it is enforcing, the parser for that report, the finding
 	// emitted when it is installed but not enforcing, and how to list the
-	// rule it holds. rulesArgs is empty for a manager whose state query
+	// rules it holds. rulesArgs is empty for a manager whose state query
 	// already lists them, in which case the same output is parsed twice.
 	// disabledKey is empty on platforms with no definition for the
 	// condition, in which case the state is reported and no finding fires.
@@ -206,7 +206,7 @@ func (f *UnixFirewallChecker) reportRules(ctx context.Context, tool firewallTool
 // parseIptablesState judges ingress filtering from iptables -S, whose output
 // states every chain policy and every rule one per line. A default ACCEPT
 // policy on INPUT with no INPUT rules admits all ingress traffic, which is
-// the absense of a host firewall however many rules other chains hold.
+// the absence of a host firewall however many rules other chains hold.
 func parseIptablesState(output []byte) firewallState {
 	var policy string
 	var inputRules int
@@ -235,7 +235,7 @@ func parseIptablesState(output []byte) firewallState {
 }
 
 // parseIptablesRules keeps the policy and rule lines of iptables -S. Each
-// already names its cahin, so the listing needs no reassembly and carries no
+// already names its chain, so the listing needs no reassembly and carries no
 // column headers to discard.
 func parseIptablesRules(output []byte) []string {
 	return filterLines(output, func(line string) bool {
@@ -243,7 +243,7 @@ func parseIptablesRules(output []byte) []string {
 	})
 }
 
-// p[arseUfwState reads the Status field ufw reports, measured on Ubuntu
+// parseUfwState reads the Status field ufw reports, measured on Ubuntu
 // 22.04 as the single line "Status: inactive" when ufw is off.
 func parseUfwState(output []byte) firewallState {
 	for _, line := range strings.Split(string(output), "\n") {

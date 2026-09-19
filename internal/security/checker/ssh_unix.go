@@ -11,8 +11,8 @@ import (
 	"github.com/papa0four/orkowatch/internal/security/types"
 )
 
-// sshdConfigPath is where OpenSSH readds its server configuration on every
-// Unix-like platform; macOS resolves it through the /private symlink
+// sshdConfigPath is where OpenSSH reads its server configuration on every
+// Unix-like platform; macOS resolves it through the /private symlink.
 const sshdConfigPath = "/etc/ssh/sshd_config"
 
 // UnixSSHChecker implements SSHChecker for Unix-like systems

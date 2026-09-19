@@ -55,7 +55,7 @@ func (s *WindowsSSHChecker) Check(ctx context.Context) types.AuditResult {
 }
 
 // reportSSHDPresence records whether the OpenSSH server is present and, when a
-// service is registered, its state. The binary isa fallback for hosts where
+// service is registered, its state. The binary is a fallback for hosts where
 // the server is installed but the service is not registered. It reports whether
 // the configuration is worth reading.
 func (s *WindowsSSHChecker) reportSSHDPresence(ctx context.Context, result *types.AuditResult) bool {
@@ -71,7 +71,7 @@ func (s *WindowsSSHChecker) reportSSHDPresence(ctx context.Context, result *type
 		case "Stopped":
 			result.Details = append(result.Details,
 				fmt.Sprintf("%s OpenSSH Server is installed but not running", types.SymbolWarning))
-			emitFinding(result, s.osCtx, "ssh.server_not_ruinning")
+			emitFinding(result, s.osCtx, "ssh.server_not_running")
 		default:
 			result.Details = append(result.Details,
 				fmt.Sprintf("%s OpenSSH Server service state: %s", types.SymbolInfo, serviceStatus))
@@ -81,7 +81,7 @@ func (s *WindowsSSHChecker) reportSSHDPresence(ctx context.Context, result *type
 
 	if _, err := os.Stat(sshdBinaryPath); err == nil {
 		result.Details = append(result.Details,
-			fmt.Sprintf("%s OpenSSH binary found (service not detected)", types.SymbolInfo))
+			fmt.Sprintf("%s OpenSSH Server binary found (service not detected)", types.SymbolInfo))
 		return true
 	}
 

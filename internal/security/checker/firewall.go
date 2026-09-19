@@ -17,9 +17,9 @@ type FirewallChecker interface {
 	Check(ctx context.Context) types.AuditResult
 }
 
-// filterLines returns the trimmed lined of output that keep accepts. Every
+// filterLines returns the trimmed lines of output that keep accepts. Every
 // firewall tool's rule listing is reduced this way; only the predicate
-// differs between them
+// differs between them.
 func filterLines(output []byte, keep func(string) bool) []string {
 	lines := make([]string, 0)
 	for _, line := range strings.Split(string(output), "\n") {

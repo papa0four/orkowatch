@@ -16,7 +16,8 @@ import (
 )
 
 type (
-	// SSHChecker defines interface for SSH configuration checking
+	// SSHChecker is the SSH configuration check as the audit sees it. Each
+	// platform supplies NewSSHChecker under its own build constraint.
 	SSHChecker interface {
 		Name() string
 		Description() string
@@ -32,8 +33,8 @@ type (
 	}
 
 	// sshDirective describes one boolean sshd_config directive for reporting.
-	//absentDetail and absentKey are empty on platforms with no finding defined
-	// for the directive being unset, in which case its absence is not reported.
+	// absentKey is empty on platforms with no finding defined for the
+	// directive being unset, in which case its absence is not reported.
 	sshDirective struct {
 		found        bool
 		unsafe       bool
@@ -54,7 +55,7 @@ type (
 )
 
 // sshDirectiveField is the minimum whitespace-separated fields in a usable
-// sshd_config  line: the directive and its value.
+// sshd_config line: the directive and its value.
 const sshDirectiveField = 2
 
 // parseSSHDConfig reads an sshd_config stream, recording the two directives the
@@ -114,7 +115,7 @@ func checkSSHDConfig(result *types.AuditResult, osCtx registry.OSContext, path s
 	defer file.Close() //nolint:errcheck // read-only file; close error does not affect scan results
 
 	result.Details = append(result.Details,
-		fmt.Sprintf("%s Configuration file: %s", types.SymbolOK, path))
+		fmt.Sprintf("%s Configuration file: %s", types.SymbolInfo, path))
 
 	config, err := parseSSHDConfig(file)
 	if err != nil {
@@ -148,14 +149,14 @@ func checkSSHDConfig(result *types.AuditResult, osCtx registry.OSContext, path s
 	return nil
 }
 
-// reportSSHDirective records a directive's state and emit the matching
+// reportSSHDirective records a directive's state and emits the matching
 // finding. An absent directive is a third condition rather than a variant of
 // either value, because sshd applies its own default to what the file does not
 // say, and that default is not visible in the configuration being audited.
 func reportSSHDirective(result *types.AuditResult, osCtx registry.OSContext, d sshDirective) {
 	switch {
 	case !d.found:
-		if d.absentDetail == "" {
+		if d.absentKey == "" {
 			return
 		}
 		result.Details = append(result.Details,
