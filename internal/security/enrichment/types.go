@@ -16,18 +16,45 @@ type (
 	Status string
 )
 
+// Enrichment source and status vocabulary. Only StatusNoMatches has a reader
+// today; the rest have no producer, their designated consumers being the
+// enrichment adapters (#89-#93), which share these values so that a result
+// names its origin and its outcome identically whichever adapter produced it.
 const (
-	// Enrichment adapter source identifiers, one per adapter in #89 through #93.
-	SourceNVD   Source = "NVD"
-	SourceKEV   Source = "CISA-KEV"
-	SourceEPSS  Source = "EPSS"
-	SourceGHSA  Source = "GHSA"
+	// SourceNVD identifies the NIST National Vulnerability Database.
+	SourceNVD Source = "NVD"
+
+	// SourceKEV identifies CISA's Known Exploited Vulnerabilities catalog,
+	// which records the CVEs observed in active exploitation and so
+	// populates CVEMatch.KnownExploited.
+	SourceKEV Source = "CISA-KEV"
+
+	// SourceEPSS identifies the Exploit Prediction Scoring System, whose
+	// score populates CVEMatch.ExploitPredictionScore.
+	SourceEPSS Source = "EPSS"
+
+	// SourceGHSA identifies the GitHub Security Advisory database.
+	SourceGHSA Source = "GHSA"
+
+	// SourceMITRE identifies MITRE's CWE catalog, which is the origin of
+	// weakness names and descriptions rather than of CVE matches.
 	SourceMITRE Source = "MITRE-CWE"
 
-	// Enrichment status values.
-	StatusEnriched         Status = "ENRICHED"
-	StatusFailed           Status = "FAILED"
-	StatusNoMatches        Status = "NO_MATCHES"
+	// StatusEnriched marks a CWE whose lookup returned data.
+	StatusEnriched Status = "ENRICHED"
+
+	// StatusFailed marks a CWE whose lookup did not complete. The reason is
+	// carried by the corresponding Failure rather than by this value.
+	StatusFailed Status = "FAILED"
+
+	// StatusNoMatches marks a CWE whose lookup completed and returned no
+	// CVEs. Distinct from StatusFailed: the sources answered, and the answer
+	// was empty.
+	StatusNoMatches Status = "NO_MATCHES"
+
+	// StatusNoSourcesQueried marks a CWE that was never looked up because no
+	// adapter was available to query, the condition ErrNoEnricherConfigured
+	// reports to the caller.
 	StatusNoSourcesQueried Status = "NO_SOURCES_QUERIED"
 )
 
