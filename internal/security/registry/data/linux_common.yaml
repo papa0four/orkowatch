@@ -168,6 +168,87 @@ firewall.no_active_manager:
     - "NIST SP 800-53 Rev 5 SC-7 (Boundary Protection)"
     - "https://cwe.mitre.org/data/definitions/284.html"
 
+firewall.ufw_inactive:
+  title: "UFW firewall is installed but not enforcing"
+  severity: "HIGH"
+  cvss_score: 8.2
+  cvss_vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:L/A:H"
+  cwe: "CWE-284"
+  description: >
+    Uncomplicated Firewall (UFW) is installed and reports its status as
+    inactive, so no host-based packet filtering is enforced on any network
+    interface despite the tool being present. UFW is available on every
+    major distribution, not only those that ship it by default.
+  impact: >
+    All listening services are reachable on all interfaces without
+    restriction. UFW being inactive despite installation suggests the
+    firewall was intentionally disabled or never enabled after
+    installation, leaving the host without a host-based network control
+    layer.
+  resolution: >
+    Enable UFW and configure a default-deny policy: ufw default deny
+    incoming && ufw default allow outgoing && ufw enable. Add explicit
+    allow rules for required services before enabling to avoid lockout:
+    ufw allow ssh.
+  references:
+    - "CIS Distribution Independent Linux Benchmark v2.0.0 §3.5"
+    - "NIST SP 800-53 Rev 5 SC-7 (Boundary Protection)"
+    - "https://cwe.mitre.org/data/definitions/284.html"
+
+firewall.firewalld_not_running:
+  title: "firewalld is installed but not running"
+  severity: "HIGH"
+  cvss_score: 8.2
+  cvss_vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:L/A:H"
+  cwe: "CWE-284"
+  description: >
+    The firewalld daemon is installed but is not running, so the zone
+    policy it manages is not being enforced. No host-based packet
+    filtering is applied by firewalld on any interface. firewalld is
+    available on every major distribution, not only those that ship it by
+    default.
+  impact: >
+    Every service bound to a network interface is reachable without the
+    zone restrictions firewalld would otherwise apply. A configured zone
+    policy that is not running provides no protection while giving the
+    appearance of a managed firewall.
+  resolution: >
+    Start and enable the daemon: systemctl enable --now firewalld. Confirm
+    the active zone and its permitted services afterwards with
+    firewall-cmd --list-all, and narrow the zone to the services the host
+    actually offers.
+  references:
+    - "CIS Distribution Independent Linux Benchmark v2.0.0 §3.5"
+    - "NIST SP 800-53 Rev 5 SC-7 (Boundary Protection)"
+    - "https://cwe.mitre.org/data/definitions/284.html"
+
+firewall.iptables_default_accept:
+  title: "iptables INPUT chain accepts by default with no ingress rules"
+  severity: "HIGH"
+  cvss_score: 8.6
+  cvss_vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:L/I:L/A:H"
+  cwe: "CWE-284"
+  description: >
+    The iptables INPUT chain has a default policy of ACCEPT and holds no
+    rules, so every packet arriving at the host is permitted. A secure
+    posture requires either a default DROP or REJECT policy with explicit
+    allow rules, or an INPUT chain whose rules decide what is admitted.
+    Rules in other chains do not constrain ingress to the host itself.
+  impact: >
+    Any service listening on any interface is reachable unless explicitly
+    blocked, and none is. New services started on the host become
+    network-accessible without any firewall change, which inverts the
+    intended deny-by-default security model.
+  resolution: >
+    Set a default DROP policy on the INPUT chain: iptables -P INPUT DROP.
+    Add explicit ACCEPT rules for required traffic before applying the
+    default drop to avoid lockout, and persist the result through the
+    distribution's iptables restore mechanism so it survives reboot.
+  references:
+    - "CIS Distribution Independent Linux Benchmark v2.0.0 §3.5"
+    - "NIST SP 800-53 Rev 5 SC-7 (Boundary Protection)"
+    - "https://cwe.mitre.org/data/definitions/284.html"
+
 # -------------------------
 # User checker findings
 # -------------------------
