@@ -20,8 +20,7 @@ type (
 		checkIdentity
 	}
 
-	// firewallProfile holds the name of one Windows Firewall profile and
-	// determines whether it is on.
+	// firewallProfile is one Windows Firewall profile and whether it is on.
 	firewallProfile struct {
 		name   string
 		active bool
@@ -35,7 +34,7 @@ var firewallProfileNames = []string{"Domain", "Private", "Public"}
 // NewFirewallChecker returns the firewall checker for Windows hosts.
 func NewFirewallChecker(osCtx registry.OSContext) *WindowsFirewallChecker {
 	return &WindowsFirewallChecker{checkIdentity: checkIdentity{
-		domain:   "Firewall COnfiguration",
+		domain:   "Firewall Configuration",
 		analyzes: "firewall configuration and rules",
 		osCtx:    osCtx,
 	}}

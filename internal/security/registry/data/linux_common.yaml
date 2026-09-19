@@ -489,6 +489,35 @@ users.no_password_login_shell:
 # Permissions checker findings
 # -------------------------
 
+permissions.critical_path_not_root_owned:
+  title: "Critical system path is not owned by root"
+  severity: "HIGH"
+  cvss_score: 7.8
+  cvss_vector: "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H"
+  cwe: "CWE-732"
+  description: >
+    A file or directory the system relies on for authentication, privilege
+    assignment or service configuration is owned by an account other than
+    root. Ownership is what a permission mode cannot express: a mode that
+    is correct for a root-owned path grants the same access to whoever
+    owns it, and the owner of a file may change its mode at will
+    regardless of what the current mode allows.
+  impact: >
+    The owning account can rewrite the file's contents and relax its
+    permissions without privilege escalation. For an authentication or
+    sudo configuration file this is a direct path to root; for a service
+    configuration it allows the service to be redirected or disabled.
+  resolution: >
+    Restore root ownership: chown root <path>, keeping the group the
+    distribution assigns, since some paths are group-owned by a dedicated
+    group such as shadow or syslog by design. Investigate how ownership
+    changed before restoring it, because the change itself indicates
+    either a misapplied administrative action or unauthorized access.
+  references:
+    - "CIS Distribution Independent Linux Benchmark v2.0.0 §6.1"
+    - "NIST SP 800-53 Rev 5 AC-3 (Access Enforcement)"
+    - "https://cwe.mitre.org/data/definitions/732.html"
+
 permissions.path_exceeds_expected_mode:
   title: "File or directory permissions exceed expected mode"
   severity: "MEDIUM"

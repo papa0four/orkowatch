@@ -20,7 +20,7 @@ type UnixSSHChecker struct {
 	checkIdentity
 }
 
-// NewSSHChecker returns the SSH configuration checker for Unix-Like hosts.
+// NewSSHChecker returns the SSH configuration checker for Unix-like hosts.
 func NewSSHChecker(osCtx registry.OSContext) *UnixSSHChecker {
 	return &UnixSSHChecker{checkIdentity: checkIdentity{
 		domain:   "SSH Configuration",

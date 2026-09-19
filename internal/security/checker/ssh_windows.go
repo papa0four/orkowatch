@@ -15,7 +15,7 @@ import (
 	"github.com/papa0four/orkowatch/internal/security/types"
 )
 
-// sshdCOnfigPath is where the OpenSSH Server feature reads its configuration.
+// sshdConfigPath is where the OpenSSH Server feature reads its configuration.
 const sshdConfigPath = `C:\ProgramData\ssh\sshd_config`
 
 // WindowsSSHChecker implements SSHChecker for Windows systems
@@ -23,7 +23,7 @@ type WindowsSSHChecker struct {
 	checkIdentity
 }
 
-// NewSSHChecker returns the SSH Configuration checker for Windows hosts.
+// NewSSHChecker returns the SSH configuration checker for Windows hosts.
 func NewSSHChecker(osCtx registry.OSContext) *WindowsSSHChecker {
 	return &WindowsSSHChecker{checkIdentity: checkIdentity{
 		domain:   "SSH Configuration",

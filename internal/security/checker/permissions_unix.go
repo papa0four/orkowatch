@@ -19,13 +19,14 @@ import (
 
 // Expected file and directory permission modes
 const (
-	permStandardFile   os.FileMode = 0644
-	permOwnerReadOnly  os.FileMode = 0400
-	permSudoers        os.FileMode = 0440
-	permOwnerReadWrite os.FileMode = 0600
-	permStandardDir    os.FileMode = 0755
-	permPrivateDir     os.FileMode = 0700
-	permReadOnlyDir    os.FileMode = 0555
+	permStandardFile        os.FileMode = 0644
+	permOwnerWriteGroupRead os.FileMode = 0640
+	permSudoers             os.FileMode = 0440
+	permOwnerReadWrite      os.FileMode = 0600
+	permStandardDir         os.FileMode = 0755
+	permGroupWritableDir    os.FileMode = 0775
+	permPrivateDir          os.FileMode = 0700
+	permReadOnlyDir         os.FileMode = 0555
 
 	// Permission bit masks
 	bitWorldWritable os.FileMode = 0002
@@ -50,7 +51,13 @@ type (
 		scanRoot string
 	}
 
-	// criticalPath is a path whose mode must not exceed expected.
+	// criticalPath is a path whose mode must not exceed expected and which
+	// every supported distribution ships owned by root. expected is the most
+	// permissive acceptable mode rather than the mode any one distribution
+	// ships, because the test admits anything stricter: /etc/shadow is 0640
+	// root:shadow on Debian family and 0000 root:root on RHEL family, and
+	// one expectation of 0640 is correct for both. Ownership carries the
+	// difference a mode cannot express, which is why it is checked too.
 	criticalPath struct {
 		path        string
 		description string
@@ -159,8 +166,9 @@ func (p *UnixPermissionChecker) Check(ctx context.Context) types.AuditResult {
 	}
 
 	if p.scanRoot == "" {
+		seen := make(map[registry.FindingKey]struct{})
 		for _, cpath := range p.paths {
-			if err := p.checkPathPermissions(cpath, &result); err != nil {
+			if err := p.checkPathPermissions(cpath, &result, seen); err != nil {
 				result.Details = append(result.Details,
 					fmt.Sprintf("%s Error checking %s: %v",
 						types.SymbolError, cpath.path, err))
@@ -202,16 +210,21 @@ func (p *UnixPermissionChecker) effectiveRoot() string {
 func commonCriticalPaths() []criticalPath {
 	return []criticalPath{
 		{"/etc/passwd", "Password file", permStandardFile},
-		{"/etc/shadow", "Shadow password file", permOwnerReadOnly},
+		{"/etc/shadow", "Shadow password file", permOwnerWriteGroupRead},
 		{"/etc/group", "Group file", permStandardFile},
 		{"/etc/sudoers", "Sudo configuration", permSudoers},
 		{"/etc/ssh/sshd_config", "SSH daemon configuration", permOwnerReadWrite},
-		{"/var/log", "Log directory", permStandardDir},
+		{"/var/log", "Log directory", permGroupWritableDir},
 		{"/home", "User home directories", permStandardDir},
 	}
 }
 
-func (p *UnixPermissionChecker) checkPathPermissions(cp criticalPath, result *types.AuditResult) error {
+// checkPathPermissions reports every way cp departs from what a critical
+// system path must be. Both conditions are evaluated: a path can be both too
+// permissive and wrongly owned, and reporting only the first would hide the
+// second. Each finding is emitted at most once per run through seen, because
+// the definitions describe the condition rather than the path.
+func (p *UnixPermissionChecker) checkPathPermissions(cp criticalPath, result *types.AuditResult, seen map[registry.FindingKey]struct{}) error {
 	info, err := os.Stat(cp.path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -222,19 +235,54 @@ func (p *UnixPermissionChecker) checkPathPermissions(cp criticalPath, result *ty
 		return err
 	}
 
-	mode := info.Mode()
-	if mode.Perm() > cp.expected {
+	problems := p.reportPathMode(cp, info, result, seen) + p.reportPathOwner(cp, info, result, seen)
+	if problems == 0 {
 		result.Details = append(result.Details,
-			fmt.Sprintf("%s WARNING: %s (%s) has permissions %v, expected %v",
-				types.SymbolWarning, cp.path, cp.description, mode.Perm(), cp.expected))
-		emitFinding(result, p.osCtx, "permissions.path_exceeds_expected_mode")
-		return nil
+			fmt.Sprintf("%s %s has correct permissions and ownership: %s root",
+				types.SymbolOK, cp.path, formatMode(info.Mode())))
+	}
+	return nil
+}
+
+// reportPathMode reports a mode that grants access the expectation withholds,
+// returning how many problems it found. The test is a bitmask rather than a
+// numeric comparison: a mode is too permissive when it sets any bit the
+// expectation does not, which a greater-than test misses whenever the extra
+// access is numerically smaller, as 0044 is against an expected 0600. A
+// stricter mode is never a finding.
+func (p *UnixPermissionChecker) reportPathMode(cp criticalPath, info os.FileInfo, result *types.AuditResult, seen map[registry.FindingKey]struct{}) int {
+	mode := info.Mode()
+	if mode.Perm()&^cp.expected == 0 {
+		return 0
 	}
 
 	result.Details = append(result.Details,
-		fmt.Sprintf("%s %s has correct permissions: %v",
-			types.SymbolOK, cp.path, mode.Perm()))
-	return nil
+		fmt.Sprintf("%s WARNING: %s (%s) has permissions %s, expected no more than %s",
+			types.SymbolWarning, cp.path, cp.description, formatMode(mode), formatMode(cp.expected)))
+	emitFindingOnce(result, p.osCtx, "permissions.path_exceeds_expected_mode", seen)
+	return 1
+}
+
+// reportPathOwner reports a critical path not owned by root, returning how
+// many problems it found. Ownership is what makes a permissive-looking mode
+// safe or unsafe: /etc/shadow at 0640 is the Debian design when root owns it
+// and an exposure when an unprivileged account does.
+func (p *UnixPermissionChecker) reportPathOwner(cp criticalPath, info os.FileInfo, result *types.AuditResult, seen map[registry.FindingKey]struct{}) int {
+	uid, _, _, ok := fileIdentity(info)
+	switch {
+	case !ok:
+		result.Details = append(result.Details,
+			fmt.Sprintf("%s %s ownership could not be determined", types.SymbolWarning, cp.path))
+		return 1
+	case uid != rootUID:
+		result.Details = append(result.Details,
+			fmt.Sprintf("%s WARNING: %s (%s) is owned by uid %d, expected root",
+				types.SymbolWarning, cp.path, cp.description, uid))
+		emitFindingOnce(result, p.osCtx, "permissions.critical_path_not_root_owned", seen)
+		return 1
+	default:
+		return 0
+	}
 }
 
 // scanFilesystem walks the effective root once, collecting setuid, group- and
@@ -333,7 +381,55 @@ func fileIdentity(info fs.FileInfo) (uid, gid uint32, dev uint64, ok bool) {
 // The identifiers stay numeric deliberately: for an unowned entry they are the
 // values that failed to resolve, and a name would be misleading.
 func describeEntry(path string, info fs.FileInfo, uid, gid uint32) string {
-	return fmt.Sprintf("%v uid=%d gid=%d %s", info.Mode(), uid, gid, path)
+	return fmt.Sprintf("%s uid=%d gid=%d %s", formatMode(info.Mode()), uid, gid, path)
+}
+
+// formatMode renders mode the way ls does: a type character followed by nine
+// permission characters, with the setuid, setgid and sticky bits shown in the
+// execute position of their triad and capitalized when execute is not set.
+// Go's own FileMode.String prefixes those bits instead, rendering a setuid
+// binary as "urwxr-xr-x" where an operator reading a security report expects
+// "-rwsr-xr-x".
+func formatMode(mode fs.FileMode) string {
+	out := []byte("----------")
+
+	switch {
+	case mode&fs.ModeDir != 0:
+		out[0] = 'd'
+	case mode&fs.ModeSymlink != 0:
+		out[0] = 'l'
+	}
+
+	const permChars = "rwxrwxrwx"
+	perm := mode.Perm()
+	for i := range permChars {
+		if perm&(1<<(len(permChars)-1-i)) != 0 {
+			out[i+1] = permChars[i]
+		}
+	}
+
+	special := []struct {
+		pos   int
+		bit   fs.FileMode
+		withX byte
+		noX   byte
+	}{
+		{3, fs.ModeSetuid, 's', 'S'},
+		{6, fs.ModeSetgid, 's', 'S'},
+		{9, fs.ModeSticky, 't', 'T'},
+	}
+	for _, sp := range special {
+		if mode&sp.bit == 0 {
+			continue
+		}
+		if out[sp.pos] == 'x' {
+			out[sp.pos] = sp.withX
+			continue
+		}
+		out[sp.pos] = sp.noX
+	}
+
+	return string(out)
 }
 
 // reportScan records each category the traversal found.
