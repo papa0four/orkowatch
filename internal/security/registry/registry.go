@@ -46,8 +46,17 @@ type (
 		Families []Distro
 	}
 
-	// FindingDefinition is a registry map for types.Finding
+	// FindingDefinition is the authored form of a finding: everything the
+	// registry knows about a condition, independent of the host it is found
+	// on. Title, Severity, Description, Impact, Resolution and References
+	// are projected into types.Finding at emission. CVSSScore, CVSSVector
+	// and CWE are not, and have no reader yet: they are the static baseline
+	// the enrichment adapters in #89 through #93 consume, where CVSS becomes
+	// the value a live score overrides through types.EffectiveSeverity, and
+	// CWE becomes the structured lookup key that types.CWEReferences
+	// currently recovers by parsing the reference list.
 	FindingDefinition struct {
+
 		Title       string   `yaml:"title"`
 		Severity    string   `yaml:"severity"`
 		CVSSScore   float64  `yaml:"cvss_score"`
