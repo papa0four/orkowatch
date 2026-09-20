@@ -517,7 +517,6 @@ permissions.critical_path_not_root_owned:
     - "CIS Distribution Independent Linux Benchmark v2.0.0 §6.1"
     - "NIST SP 800-53 Rev 5 AC-3 (Access Enforcement)"
     - "https://cwe.mitre.org/data/definitions/282.html"
-"
 
 permissions.path_exceeds_expected_mode:
   title: "File or directory permissions exceed expected mode"
