@@ -56,7 +56,6 @@ type (
 	// CWE becomes the structured lookup key that types.CWEReferences
 	// currently recovers by parsing the reference list.
 	FindingDefinition struct {
-
 		Title       string   `yaml:"title"`
 		Severity    string   `yaml:"severity"`
 		CVSSScore   float64  `yaml:"cvss_score"`
