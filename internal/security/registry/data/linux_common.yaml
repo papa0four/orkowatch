@@ -535,10 +535,14 @@ permissions.path_exceeds_expected_mode:
     authentication, sudo, or service configuration. The specific impact
     depends on which path is affected.
   resolution: >
-    Restore expected permissions using chmod. For common critical files:
-    chmod 644 /etc/passwd, chmod 000 /etc/shadow, chmod 440 /etc/sudoers.
-    Use the CIS benchmark for the specific distribution to verify
-    expected modes for all critical paths.
+    Restore the expected mode with chmod, following the distribution's own
+    convention rather than one fixed value: /etc/passwd 644, /etc/sudoers
+    440, and for /etc/shadow the mode the distribution ships, which is 640
+    where a dedicated shadow group reads it on behalf of unprivileged PAM
+    helpers and more restrictive where root alone reads it. A mode stricter
+    than the expectation is never reported, so tightening further is always
+    safe. Consult the CIS benchmark for the specific distribution before
+    relaxing any path.
   references:
     - "CIS Distribution Independent Linux Benchmark v2.0.0 §6.1"
     - "NIST SP 800-53 Rev 5 AC-3 (Access Enforcement)"
