@@ -97,7 +97,6 @@ func (p *WindowsPermissionChecker) Check(ctx context.Context) types.AuditResult 
 	return result
 }
 
-
 // checkWindowsPermissions reports the ACL grants on one path. seen spans the
 // whole check rather than one path, because a definition describes the
 // condition rather than the path that carries it, so a grant found on several
