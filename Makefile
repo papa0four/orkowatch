@@ -17,7 +17,7 @@
 #   - gosec            go install github.com/securego/gosec/v2/cmd/gosec@latest
 #   - govulncheck      go install golang.org/x/vuln/cmd/govulncheck@latest
 #   - gitleaks         go install github.com/gitleaks/gitleaks/v8/cmd/gitleaks@latest
-#   - checkmake        https://github.com/mrtazz/checkmake
+#   - checkmake        https://github.com/checkmake/checkmake
 #   - syft             https://github.com/anchore/syft
 #   - grype            https://github.com/anchore/grype
 #   - shfmt            https://github.com/mvdan/sh/releases
@@ -36,9 +36,8 @@
 #
 # Every target carries a "## <target>: <description>" line directly above it.
 # help renders those in file order under their "##@ <Section>" headings, so a
-# new target appears without editing help. makefile-check fails when a target
-# in PHONY_TARGETS has no such line, so a target cannot go undocumented and
-# therefore cannot go missing from help.
+# new target appears without editing help. makefile-check fails when any target
+# defined in this file has no such line, so a target cannot go undocumented and
 # =============================================================================
 
 BINARY_NAME := owatch
@@ -96,21 +95,15 @@ SUPPORTED_TARGETS := \
 # file without repeating identical work per architecture. sort also dedupes.
 SUPPORTED_GOOS := $(sort $(foreach t,$(SUPPORTED_TARGETS),$(word 1,$(subst /, ,$(t)))))
 
-# The full target set, declared once so .PHONY and the makefile-check
-# documentation backstop cannot disagree about what exists.
-PHONY_TARGETS := \
-	build build-all check-platforms \
-	install uninstall \
-	fmt fmt-check vet lint lint-platforms govulncheck gosec test check \
-	makefile-check gitleaks syft-grype \
-	shell-lint ps-lint \
-	docs clean help
-
 # =============================================================================
 # Targets
 # =============================================================================
 
-.PHONY: $(PHONY_TARGETS)
+# Written out rather than built from a variable: checkmake parses this file
+# textually and does not expand variables, so a computed list reads to it as no
+# phony declaration at all. checkmake's minphony and phonydeclared rules are
+# what keep this list complete; makefile-check keeps help coverage complete.
+.PHONY: build build-all check-platforms install uninstall fmt fmt-check vet lint lint-platforms govulncheck gosec test check makefile-check gitleaks syft-grype shell-lint ps-lint docs clean help
 
 ##@ Build
 
@@ -248,7 +241,7 @@ makefile-check:
 	@$(MAKE) -n build > /dev/null && echo "[+] Makefile dry run OK." || (echo "[-] Makefile dry run failed." && exit 1)
 	@echo "[*] Checking every target is documented..."
 	@missing=""; \
-	for t in $(PHONY_TARGETS); do \
+		for t in $$(grep -E '^[a-zA-Z0-9_-]+:([^=]|$$)' $(firstword $(MAKEFILE_LIST)) | sed 's/:.*//'); do \
 		grep -qE "^## $$t:" $(firstword $(MAKEFILE_LIST)) || missing="$$missing $$t"; \
 	done; \
 	if [ -n "$$missing" ]; then \
