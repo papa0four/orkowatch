@@ -165,18 +165,20 @@ func (p *UnixPermissionChecker) Check(ctx context.Context) types.AuditResult {
 		Details:     make([]string, 0),
 	}
 
-	if p.scanRoot == "" {
-		seen := make(map[registry.FindingKey]struct{})
-		for _, cpath := range p.paths {
-			if err := p.checkPathPermissions(cpath, &result, seen); err != nil {
-				result.Details = append(result.Details,
-					fmt.Sprintf("%s Error checking %s: %v",
-						types.SymbolError, cpath.path, err))
-			}
-		}
+	root, rootErr := p.effectiveRoot()
+	if rootErr != nil {
+		result.Status = types.StatusError
+		result.Description = fmt.Sprintf("Scan root could not be resolved: %v", rootErr)
+		result.Details = append(result.Details,
+			fmt.Sprintf("%s Scan root could not be resolved: %v", types.SymbolError, rootErr))
+		return result
 	}
 
-	scan, err := p.scanFilesystem(ctx)
+	result.Details = append(result.Details,
+		fmt.Sprintf("%s Scanning %s", types.SymbolInfo, root))
+	p.checkCriticalPaths(root, &result)
+
+	scan, err := p.scanFilesystem(ctx, root)
 	p.reportScan(&result, scan)
 
 	switch {
@@ -197,12 +199,62 @@ func (p *UnixPermissionChecker) Check(ctx context.Context) types.AuditResult {
 	return result
 }
 
-// effectiveRoot resolves the find scan root; operator supplied
-func (p *UnixPermissionChecker) effectiveRoot() string {
-	if p.scanRoot == "" {
-		return "/"
+// effectiveRoot resolves the scan root to a real path: the operator's when one
+// was supplied, the filesystem root otherwise. Symlinks are evaluated because
+// the traversal and the critical-path scope both compare against this value,
+// and filepath.WalkDir does not follow a symlinked root, so an unresolved one
+// would scan a single entry instead of the tree it names.
+func (p *UnixPermissionChecker) effectiveRoot() (string, error) {
+	root := p.scanRoot
+	if root == "" {
+		root = "/"
 	}
-	return p.scanRoot
+	resolved, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return "", fmt.Errorf("resolve scan root %s: %w", root, err)
+	}
+	return resolved, nil
+}
+
+// checkCriticalPaths evaluates every critical path lying at or beneath root.
+// A supplied scan root narrows which paths are in scope; it never removes the
+// expectation from a path that is in scope, because a mode and ownership
+// expectation is a property of the path rather than of how the run was
+// invoked.
+func (p *UnixPermissionChecker) checkCriticalPaths(root string, result *types.AuditResult) {
+	seen := make(map[registry.FindingKey]struct{})
+	var checked int
+
+	for _, cpath := range p.paths {
+		if !pathWithin(cpath.path, root) {
+			continue
+		}
+		checked++
+		if err := p.checkPathPermissions(cpath, result, seen); err != nil {
+			result.Details = append(result.Details,
+				fmt.Sprintf("%s Error checking %s: %v",
+					types.SymbolError, cpath.path, err))
+		}
+	}
+
+	if checked == 0 {
+		result.Details = append(result.Details,
+			fmt.Sprintf("%s No critical system paths lie within %s",
+				types.SymbolInfo, root))
+	}
+}
+
+// pathWithin reports whether target lies at or beneath base, comparing on path
+// boundaries so a sibling is not mistaken for a child.
+func pathWithin(target, base string) bool {
+	if target == base {
+		return true
+	}
+	rel, err := filepath.Rel(base, target)
+	if err != nil {
+		return false
+	}
+	return rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
 // commonCriticalPaths lists the paths every Unix-like platform is expected
@@ -291,9 +343,7 @@ func (p *UnixPermissionChecker) reportPathOwner(cp criticalPath, info os.FileInf
 // pass cheaper than the three it replaces. The walk stays on the root's
 // filesystem: pseudo-filesystems and network mounts are out of scope and can
 // be pathologically slow to traverse.
-func (p *UnixPermissionChecker) scanFilesystem(ctx context.Context) (fsScan, error) {
-	root := p.effectiveRoot()
-
+func (p *UnixPermissionChecker) scanFilesystem(ctx context.Context, root string) (fsScan, error) {
 	rootInfo, err := os.Lstat(root)
 	if err != nil {
 		return fsScan{}, fmt.Errorf("stat scan root %s: %w", root, err)
