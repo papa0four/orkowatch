@@ -38,6 +38,7 @@
 # help renders those in file order under their "##@ <Section>" headings, so a
 # new target appears without editing help. makefile-check fails when any target
 # defined in this file has no such line, so a target cannot go undocumented and
+# therefore cannot go missing from help.
 # =============================================================================
 
 BINARY_NAME := owatch

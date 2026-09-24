@@ -66,39 +66,48 @@ func (p *WindowsPermissionChecker) Check(ctx context.Context) types.AuditResult 
 		Findings:    make([]types.Finding, 0),
 	}
 
+	seen := make(map[registry.FindingKey]struct{})
+
 	if p.scanRoot != "" {
-		if err := p.checkWindowsPermissions(ctx, p.scanRoot, true, &result); err != nil {
+		result.Details = append(result.Details,
+			fmt.Sprintf("%s Scanning %s", types.SymbolInfo, p.scanRoot))
+		if err := p.checkWindowsPermissions(ctx, p.scanRoot, true, &result, seen); err != nil {
 			result.Details = append(result.Details,
 				fmt.Sprintf("%s Error checking %s: %v",
 					types.SymbolError, p.scanRoot, err))
 		}
-		result.Status = types.StatusCompleted
-		return result
-	}
-
-	for _, path := range p.Paths {
-		if err := p.checkWindowsPermissions(ctx, path, false, &result); err != nil {
-			result.Details = append(result.Details,
-				fmt.Sprintf("%s Error checking %s: %v",
-					types.SymbolError, path, err))
+	} else {
+		result.Details = append(result.Details,
+			fmt.Sprintf("%s Scanning %d default system paths",
+				types.SymbolInfo, len(p.Paths)))
+		for _, path := range p.Paths {
+			if err := p.checkWindowsPermissions(ctx, path, false, &result, seen); err != nil {
+				result.Details = append(result.Details,
+					fmt.Sprintf("%s Error checking %s: %v",
+						types.SymbolError, path, err))
+			}
 		}
 	}
 
-	// Check for potentially insecure shares
-	p.checkNetworkShares(ctx, &result)
+	// Shares are a host-wide condition rather than a property of the scanned
+	// tree, so they are enumerated whether or not a path narrowed the run.
+	p.checkNetworkShares(ctx, &result, seen)
 
 	result.Status = types.StatusCompleted
 	return result
 }
 
-func (p *WindowsPermissionChecker) checkWindowsPermissions(ctx context.Context, path string, recursive bool, result *types.AuditResult) error {
+
+// checkWindowsPermissions reports the ACL grants on one path. seen spans the
+// whole check rather than one path, because a definition describes the
+// condition rather than the path that carries it, so a grant found on several
+// paths is one finding with several detail lines.
+func (p *WindowsPermissionChecker) checkWindowsPermissions(ctx context.Context, path string, recursive bool, result *types.AuditResult, seen map[registry.FindingKey]struct{}) error {
 	const scan string = "ACL traversal"
 	output, skipped, err := runICACLS(ctx, path, recursive)
 	if err != nil {
 		return fmt.Errorf("failed to check permissions: %w", err)
 	}
-
-	seen := make(map[registry.FindingKey]struct{})
 
 	// Analyze permissions
 	lines := strings.Split(string(output), "\n")
@@ -130,7 +139,7 @@ func (p *WindowsPermissionChecker) checkWindowsPermissions(ctx context.Context, 
 	return nil
 }
 
-func (p *WindowsPermissionChecker) checkNetworkShares(ctx context.Context, result *types.AuditResult) {
+func (p *WindowsPermissionChecker) checkNetworkShares(ctx context.Context, result *types.AuditResult, seen map[registry.FindingKey]struct{}) {
 	cmd := exec.CommandContext(ctx, "net", "share")
 	output, err := cmd.Output()
 	if err != nil {
@@ -142,8 +151,6 @@ func (p *WindowsPermissionChecker) checkNetworkShares(ctx context.Context, resul
 
 	shares := strings.Split(string(output), "\n")
 	result.Details = append(result.Details, "", "Network Shares:")
-
-	seen := make(map[registry.FindingKey]struct{})
 
 	for _, share := range shares {
 		share = strings.TrimSpace(share)
