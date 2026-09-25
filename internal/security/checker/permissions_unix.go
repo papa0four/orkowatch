@@ -17,7 +17,11 @@ import (
 	"github.com/papa0four/orkowatch/internal/security/types"
 )
 
-// Expected file and directory permission modes
+// Expected file and directory permission modes: the shared vocabulary every
+// platform's critical paths draw from, declared together so a platform picks an
+// expectation rather than inventing one inline. Not every value is referenced on
+// every platform. permPrivateDir is used by Linux and the BSDs, permReadOnlyDir
+// only by Linux, and a constant no build references compiles away.
 const (
 	permStandardFile        os.FileMode = 0644
 	permOwnerWriteGroupRead os.FileMode = 0640
@@ -123,10 +127,16 @@ func localIDs(path string) map[uint32]bool {
 	return ids
 }
 
-// resolves reports whether both identifiers map to a known principal.
-func (c *identityCache) resolves(ctx context.Context, uid, gid uint32) bool {
-	return c.known(ctx, c.users, identityKindUser, uid) &&
-		c.known(ctx, c.groups, identityKindGroup, gid)
+// resolution reports separately whether the owner and the group map to a known
+// principal. Both are always looked up rather than short-circuiting on the
+// first failure, because an entry owned by root whose group is a container's
+// is not an entry with no owner, and saying so requires knowing which one
+// failed. The extra lookups are bounded by distinct indentifiers rather than by
+// entries because the cache memoizes per identifier.
+func (c *identityCache) resolution(ctx context.Context, uid, gid uint32) (userKnown, groupKnown bool) {
+	userKnown = c.known(ctx, c.users, identityKindUser, uid)
+	groupKnown = c.known(ctx, c.groups, identityKindGroup, gid)
+	return userKnown, groupKnown
 }
 
 // known consults the cache, falling back to the name service for identifiers
@@ -412,8 +422,9 @@ func (w *fsWalk) classify(ctx context.Context, path string, info fs.FileInfo, ui
 		}
 	}
 
-	if !w.ids.resolves(ctx, uid, gid) {
-		w.scan.unowned = append(w.scan.unowned, describeEntry(path, info, uid, gid))
+	if userKnown, groupKnown := w.ids.resolution(ctx, uid, gid); !userKnown || !groupKnown {
+		w.scan.unowned = append(w.scan.unowned,
+			describeEntry(path, info, uid, gid)+unresolved(userKnown, groupKnown))
 	}
 }
 
@@ -428,10 +439,29 @@ func fileIdentity(info fs.FileInfo) (uid, gid uint32, dev uint64, ok bool) {
 }
 
 // describeEntry renders one entry with its mode and numeric owner and group.
-// The identifiers stay numeric deliberately: for an unowned entry they are the
-// values that failed to resolve, and a name would be misleading.
+// The identifiers stay numeric deliberately: when one of them failed to
+// resolve it is the value that failed, and a name would be misleading.
 func describeEntry(path string, info fs.FileInfo, uid, gid uint32) string {
 	return fmt.Sprintf("%s uid=%d gid=%d %s", formatMode(info.Mode()), uid, gid, path)
+}
+
+// unresolved names which identifiers the name service could not account for,
+// so a root-owned entry carrying a group that only exists inside a container
+// is not reported as an entry with no owner at all. An entry whose owner and
+// group both resolved is named by neither, rather than by whichever branch
+// happens to fall through: the label states what was checked and found, and
+// never asserts a failure it did not observe.
+func unresolved(userKnown, groupKnown bool) string {
+	switch {
+	case !userKnown && !groupKnown:
+		return " (user and group unresolved)"
+	case !userKnown:
+		return " (user unresolved)"
+	case !groupKnown:
+		return " (group unresolved)"
+	default:
+		return ""
+	}
 }
 
 // formatMode renders mode the way ls does: a type character followed by nine
