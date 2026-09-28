@@ -34,6 +34,9 @@ const (
 
 	// Permission bit masks
 	bitWorldWritable os.FileMode = 0002
+	bitOwnerExecute  os.FileMode = 0100
+	bitGroupExecute  os.FileMode = 0010
+	bitOtherExecute  os.FileMode = 0001
 
 	// Account databases consulted before the name service, and the
 	// colon-delimited field holding each numeric identifier.
@@ -86,15 +89,45 @@ type (
 	}
 
 	// fsWalk carries the state one filesystem traversal accumulates. rootDev
-	// bounds the walk to the filesystem the root lives on.
+	// bounds the walk to the filesystem the root lives on, and reach is the
+	// chain of directories currently open above the entry being visited.
 	fsWalk struct {
 		ids     *identityCache
 		rootDev uint64
+		reach   []reachFrame
 		scan    fsScan
 	}
 
+	// reachFrame is one open directory and the reachability it confers on its
+	// contents. WalkDir visits a directory before its contents and keeps a
+	// subtree contiguous, so a stack bounded by tree depth tracks the chain
+	// where a map would be bounded by directory count.
+	reachFrame struct {
+		dir   string
+		reach reachability
+	}
+
+	// reachability is whether a principal other than root can traverse to an
+	// entry. The zero value is reachNonRoot so an entry the walk failed to
+	// judge is over-reported rather than quietly excused.
+	reachability uint8
+
 	// identityKind selects which account database a lookup consults.
 	identityKind string
+)
+
+const (
+	// reachNonRoot means some principal other than root can traverse every
+	// directory leading to the entry. It is the zero value deliberately: a
+	// path the walk did not judge is reported as reachable, because naming a
+	// reachable entry unreachable would hide an exposure while the reverse
+	// only adds noise.
+	reachNonRoot reachability = iota
+
+	// reachRootOnly means no principal other than root can traverse the
+	// chain, judged from mode bits alone. Whether a POSIX ACL grants what the
+	// bits withhold is not asked yet.
+	reachRootOnly
 )
 
 // newIdentityCache seeds the cache from the local account databases. Anything
@@ -404,28 +437,90 @@ func (w *fsWalk) visit(ctx context.Context, path string, d fs.DirEntry, err erro
 		return nil
 	}
 
-	w.classify(ctx, path, info, uid, gid)
+	reach := w.reachOf(path)
+	if d.IsDir() {
+		w.descend(path, reach, info.Mode(), uid, gid)
+	}
+
+	w.classify(ctx, path, info, uid, gid, reach)
 	return nil
 }
 
 // classify records the entry under each category it belongs to. Setuid and
 // world-writable apply to regular files only; ownership applies to every
 // entry.
-func (w *fsWalk) classify(ctx context.Context, path string, info fs.FileInfo, uid, gid uint32) {
+func (w *fsWalk) classify(ctx context.Context, path string, info fs.FileInfo, uid, gid uint32, reach reachability) {
 	mode := info.Mode()
+	label := reach.suffix()
+
 	if mode.IsRegular() {
 		if mode&(os.ModeSetuid|os.ModeSetgid) != 0 {
-			w.scan.suid = append(w.scan.suid, describeEntry(path, info, uid, gid))
+			w.scan.suid = append(w.scan.suid, describeEntry(path, info, uid, gid)+label)
 		}
 		if mode.Perm()&bitWorldWritable != 0 {
-			w.scan.worldWrite = append(w.scan.worldWrite, describeEntry(path, info, uid, gid))
+			w.scan.worldWrite = append(w.scan.worldWrite, describeEntry(path, info, uid, gid)+label)
 		}
 	}
 
 	if userKnown, groupKnown := w.ids.resolution(ctx, uid, gid); !userKnown || !groupKnown {
 		w.scan.unowned = append(w.scan.unowned,
-			describeEntry(path, info, uid, gid)+unresolved(userKnown, groupKnown))
+			describeEntry(path, info, uid, gid)+unresolved(userKnown, groupKnown)+label)
 	}
+}
+
+// reachOf returns what the directory chain above path confers, discarding the
+// frames the walk has left. An entry is only as reachable as the directories
+// that must be traversed to arrive at it, whatever its own mode says.
+func (w *fsWalk) reachOf(path string) reachability {
+	for len(w.reach) > 0 {
+		top := w.reach[len(w.reach)-1]
+		if path != top.dir && pathWithin(path, top.dir) {
+			return top.reach
+		}
+		w.reach = w.reach[:len(w.reach)-1]
+	}
+	return reachNonRoot
+}
+
+// descend records what dir confers on its contents. A directory only root can
+// traverse makes everything beneath it root-only regardless of the modes those
+// entries carry, so reachability only ever narrows on the way down.
+func (w *fsWalk) descend(dir string, parent reachability, mode fs.FileMode, uid, gid uint32) {
+	conferred := parent
+	if !traversableByNonRoot(mode, uid, gid) {
+		conferred = reachRootOnly
+	}
+	w.reach = append(w.reach, reachFrame{dir: dir, reach: conferred})
+}
+
+// traversableByNonRoot reports whether any principal other than root can
+// traverse a directory with this mode and ownership. It over-approximates
+// deliberately: group-execute counts whenever the group is not root's, without
+// asking whether that group has members, because calling a root-only path
+// reachable only adds noise while the reverse hides an exposure.
+func traversableByNonRoot(mode fs.FileMode, uid, gid uint32) bool {
+	perm := mode.Perm()
+	switch {
+	case perm&bitOtherExecute != 0:
+		return true
+	case perm&bitGroupExecute != 0 && gid != rootGID:
+		return true
+	case perm&bitOwnerExecute != 0 && uid != rootUID:
+		return true
+	default:
+		return false
+	}
+}
+
+// suffix labels an entry no non-root principal can reach, so an operator can
+// tell an exposure from an entry only root could ever have touched. A
+// reachable entry carries no label, because the common case should not add
+// noise to every line.
+func (r reachability) suffix() string {
+	if r == reachRootOnly {
+		return " (root-only path)"
+	}
+	return ""
 }
 
 // fileIdentity returns the numeric owner, group, and device of info, and

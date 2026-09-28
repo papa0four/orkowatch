@@ -75,8 +75,11 @@ const (
 	accountDisabled
 )
 
-// rootUID is the superuser identity on every POSIX platform.
-const rootUID = 0
+// rootUID and rootGID are the superuser identity on every POSIX platform.
+const (
+	rootUID = 0
+	rootGID = 0
+)
 
 // NewUserChecker returns the user account checker for Unix-like hosts.
 func NewUserChecker(osCtx registry.OSContext) *UnixUserChecker {
