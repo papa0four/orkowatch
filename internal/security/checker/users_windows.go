@@ -8,6 +8,7 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"strconv"
 	"strings"
 
 	"github.com/papa0four/orkowatch/internal/security/registry"
@@ -56,29 +57,32 @@ func NewUserChecker(osCtx registry.OSContext) *WindowsUserChecker {
 	}}
 }
 
+// windowsAccountRules are the per-account rules that report fail. The rules
+// for accounts authenticated off the host are not among them: they describe
+// a state the local password rule does not apply to, and are recorded only
+// when such an account is seen.
+var windowsAccountRules = []registry.FindingKey{
+	"users.administrator_account_active",
+	"users.no_password_required",
+	"users.unknown_principal_no_local_password",
+}
+
 // Check implements UserChecker interface for Windows systems
 func (u *WindowsUserChecker) Check(ctx context.Context) types.AuditResult {
-	result := types.AuditResult{
-		Name:        u.Name(),
-		Status:      types.StatusChecking,
-		Description: u.Description(),
-		Details:     make([]string, 0),
-		Findings:    make([]types.Finding, 0),
-	}
+	r := newReport(u.checkIdentity)
 
 	users, err := u.getWindowsUsers(ctx)
 	if err != nil {
-		result.Status = types.StatusError
-		result.Description = fmt.Sprintf("Failed to get user information: %v", err)
-		return result
+		r.inconclusive(types.ResultError,
+			fmt.Sprintf("user accounts could not be read: %v", err), windowsAccountRules...)
+	} else {
+		u.analyzeWindowsUsers(users, r)
 	}
 
-	u.analyzeWindowsUsers(users, &result)
-	u.checkPasswordPolicy(ctx, &result)
-	u.checkUAC(&result)
+	u.checkPasswordPolicy(ctx, r)
+	u.checkUAC(r)
 
-	result.Status = types.StatusCompleted
-	return result
+	return r.finish()
 }
 
 func (u *WindowsUserChecker) getWindowsUsers(ctx context.Context) ([]windowsUserInfo, error) {
@@ -154,127 +158,96 @@ func (u *WindowsUserChecker) getWindowsAdmins(ctx context.Context) (map[string]b
 	return admins, nil
 }
 
-// passwordlessAccount maps a principal source to the annotation, finding key
-// and severity for an account that requires no local password. A source that
-// validates credentials off the host explains the missing local hash; a local
-// or unrecognized source does not.
+// passwordlessRule maps a principal source to the rule for an account that
+// requires no local password. A source that validates credentials off the
+// host explains the missing local hash, and its rule is defined as not
+// applicable; a local or unrecognized source does not, and its rule fails.
 //
 // Get-LocalUser reports PrincipalSource Local for a Microsoft account signed
 // into a local profile, so the MicrosoftAccount case does not fire for that
 // configuration and such an account is reported as a local account with no
 // password.
-func passwordlessAccount(source string) (note string, key registry.FindingKey, severe bool) {
+func passwordlessRule(source string) registry.FindingKey {
 	switch source {
 	case "MicrosoftAccount":
-		return "Microsoft Account -- no local password hash",
-			"users.microsoft_account_no_local_password", false
+		return "users.microsoft_account_no_local_password"
 	case "AzureAD":
-		return "Azure AD -- no local password hash",
-			"users.azure_ad_account_no_local_password", false
+		return "users.azure_ad_account_no_local_password"
 	case "ActiveDirectory":
-		return "Active Directory -- no local password hash",
-			"users.domain_account_no_local_password", false
+		return "users.domain_account_no_local_password"
 	case "Unknown":
-		return "Unknown principal source -- no local password hash",
-			"users.unknown_principal_no_local_password", true
+		return "users.unknown_principal_no_local_password"
 	default:
-		return "No local password required", "users.no_password_required", true
+		return "users.no_password_required"
 	}
 }
 
-func (u *WindowsUserChecker) analyzeWindowsUsers(users []windowsUserInfo, result *types.AuditResult) {
-	seen := make(map[registry.FindingKey]struct{})
+// analyzeWindowsUsers judges every account, then concludes the rules no
+// account tripped. Administrator membership is independent of whether the
+// account requires a local password, so each is its own rule. Both are judged
+// only for enabled accounts: a disabled account cannot be logged into.
+func (u *WindowsUserChecker) analyzeWindowsUsers(users []windowsUserInfo, r *report) {
+	r.section("Local Accounts:")
 	for _, user := range users {
-		notes := make([]string, 0, 2)
-		symbol := types.SymbolOK
+		account := evidence(kindAccount, user.Name,
+			"enabled", strconv.FormatBool(user.Enabled), "source", user.PrincipalSource)
 
-		// Administrator membership is independent of whether the account is
-		// enabled or requires a local password, so it annotates the entry
-		// instead of replacing its other state. The finding is emitted only
-		// for enabled members, matching the key's claim that the account is
-		// active; a disabled member is still annotated so the membership
-		// stays visible.
+		if !user.Enabled {
+			r.note(types.SymbolInfo, "%s (Disabled)", user.Name)
+			continue
+		}
+		r.note(types.SymbolInfo, "%s", user.Name)
+
 		if user.IsAdmin {
-			notes = append(notes, "Administrator")
-			symbol = types.SymbolWarning
-			if user.Enabled {
-				emitFindingOnce(result, u.osCtx, "users.administrator_account_active", seen)
-			}
+			r.observed("users.administrator_account_active", account)
 		}
-
-		switch {
-		case !user.Enabled:
-			// A disabled account cannot be logged into, so its password state
-			// is recorded but not judged.
-			notes = append(notes, "Disabled")
-			if !user.IsAdmin {
-				symbol = types.SymbolInfo
-			}
-		case !user.PasswordRequired:
-			note, key, severe := passwordlessAccount(user.PrincipalSource)
-			notes = append(notes, note)
-			if severe {
-				symbol = types.SymbolWarning
-			} else if !user.IsAdmin {
-				symbol = types.SymbolInfo
-			}
-			emitFindingOnce(result, u.osCtx, key, seen)
+		if !user.PasswordRequired {
+			r.observed(passwordlessRule(user.PrincipalSource), account)
 		}
-
-		details := user.Name
-		if len(notes) > 0 {
-			details += " (" + strings.Join(notes, ", ") + ")"
-		}
-		result.Details = append(result.Details,
-			fmt.Sprintf("%s %s", symbol, details))
 	}
 
 	if u.adminLookupErr != nil {
-		result.Details = append(result.Details,
-			fmt.Sprintf("%s Administrator membership could not be determined; accounts above are not marked administrative: %v",
-				types.SymbolWarning, u.adminLookupErr))
+		r.inconclusive(types.ResultError,
+			fmt.Sprintf("Administrator membership could not be determined: %v", u.adminLookupErr),
+			"users.administrator_account_active")
 	}
+	r.pass(windowsAccountRules...)
 }
 
 // checkPasswordPolicy lists the local password policy. The values are reported
 // but not yet judged against a baseline; evaluating them is tracked separately.
 // A failed query is reported rather than skipped, so an absent policy section
 // cannot be mistaken for a host with nothing to report.
-func (u *WindowsUserChecker) checkPasswordPolicy(ctx context.Context, result *types.AuditResult) {
+func (u *WindowsUserChecker) checkPasswordPolicy(ctx context.Context, r *report) {
 	output, err := exec.CommandContext(ctx, "net", "accounts").Output()
 	if err != nil {
-		result.Details = append(result.Details,
-			fmt.Sprintf("%s Password policy could not be read: %v",
-				types.SymbolWarning, execError(err)))
+		r.note(types.SymbolWarning, "Password policy could not be read: %v", execError(err))
 		return
 	}
 
-	result.Details = append(result.Details, "", "Password Policies:")
+	r.section("Password Policies:")
 	for _, policy := range strings.Split(string(output), "\n") {
 		policy = strings.TrimSpace(policy)
 		if policy != "" && !strings.HasPrefix(policy, "The command completed") {
-			result.Details = append(result.Details,
-				fmt.Sprintf("%s %s", types.SymbolInfo, policy))
+			r.note(types.SymbolInfo, "%s", policy)
 		}
 	}
 }
 
-// checkUAC reports User Account control state. An unreadable setting is
-// reported as unknown rather than as disabled: emitting the finding on a
-// failed read would assert a weakness the check never observed.
-func (u *WindowsUserChecker) checkUAC(result *types.AuditResult) {
+// checkUAC concludes the User Account Control rule. An unreadable setting is
+// an error rather than a failure: failing the rule on a failed read would
+// assert a weakness the check never observed.
+func (u *WindowsUserChecker) checkUAC(r *report) {
+	const rule registry.FindingKey = "users.uac_disabled"
+
 	enabled, err := uacEnabled()
 	switch {
 	case err != nil:
-		result.Details = append(result.Details,
-			fmt.Sprintf("%s User Account Control state could not be determined: %v",
-				types.SymbolWarning, err))
+		r.inconclusive(types.ResultError,
+			fmt.Sprintf("User Account Control state could not be determined: %v", err), rule)
 	case enabled:
-		result.Details = append(result.Details,
-			fmt.Sprintf("%s User Account Control (UAC) is enabled", types.SymbolOK))
+		r.pass(rule)
 	default:
-		result.Details = append(result.Details,
-			fmt.Sprintf("%s WARNING: User Account Control (UAC) is disabled", types.SymbolWarning))
-		emitFinding(result, u.osCtx, "users.uac_disabled")
+		r.observed(rule, evidence(kindSetting, uacPolicyValue, "value", "0"))
 	}
 }

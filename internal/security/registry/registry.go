@@ -9,8 +9,11 @@ package registry
 
 import (
 	"bufio"
+	"bytes"
 	_ "embed"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"regexp"
 	"runtime"
@@ -48,23 +51,25 @@ type (
 
 	// FindingDefinition is the authored form of a finding: everything the
 	// registry knows about a condition, independent of the host it is found
-	// on. Title, Severity, Description, Impact, Resolution and References
-	// are projected into types.Finding at emission. CVSSScore, CVSSVector
-	// and CWE are not, and have no reader yet: they are the static baseline
-	// the enrichment adapters in #89 through #93 consume, where CVSS becomes
-	// the value a live score overrides through types.EffectiveSeverity, and
-	// CWE becomes the structured lookup key that types.CWEReferences
-	// currently recovers by parsing the reference list.
+	// on. Finding projects everything but CVSSScore and CVSSVector, which
+	// have no reader yet: they are the static baseline #86 derives severity
+	// from, the value a live score overrides through types.EffectiveSeverity.
+	//
+	// Result is what the condition reports when a checker observes it. It
+	// defaults to fail. A definition that describes a state the rule does
+	// not apply to declares notapplicable instead, and only a definition
+	// that can fail must name the weakness it maps to in CWE.
 	FindingDefinition struct {
-		Title       string   `yaml:"title"`
-		Severity    string   `yaml:"severity"`
-		CVSSScore   float64  `yaml:"cvss_score"`
-		CVSSVector  string   `yaml:"cvss_vector"`
-		CWE         string   `yaml:"cwe"`
-		Description string   `yaml:"description"`
-		Impact      string   `yaml:"impact"`
-		Resolution  string   `yaml:"resolution"`
-		References  []string `yaml:"references"`
+		Title       string       `yaml:"title"`
+		Severity    string       `yaml:"severity"`
+		Result      types.Result `yaml:"result"`
+		CVSSScore   float64      `yaml:"cvss_score"`
+		CVSSVector  string       `yaml:"cvss_vector"`
+		CWE         types.CWE    `yaml:"cwe"`
+		Description string       `yaml:"description"`
+		Impact      string       `yaml:"impact"`
+		Resolution  string       `yaml:"resolution"`
+		References  []string     `yaml:"references"`
 	}
 )
 
@@ -255,6 +260,20 @@ func (c OSContext) DisplayLabel() string {
 	}
 }
 
+// Finding returns the description of d a condition carries.
+func (d FindingDefinition) Finding() *types.Finding {
+	return &types.Finding{
+		Title:       d.Title,
+		Description: d.Description,
+		Severity:    d.Severity,
+		CWE:         d.CWE,
+		Categories:  d.ToCategories(),
+		Impact:      d.Impact,
+		Resolution:  d.Resolution,
+		References:  d.ToReferences(),
+	}
+}
+
 // ToReferences classifies flat YAML reference strings into
 // structured types.Reference entries by kind.
 func (d FindingDefinition) ToReferences() []types.Reference {
@@ -326,20 +345,60 @@ func loadRegistries() (platformRegistry, familyRegistry, familyRegistry) {
 // mustLoad parses a byte slice into a finding map. name identifies the
 // source YAML file in panic messages: //go:embed yields an unnamed []byte
 // per file, so a bare parse or validation failure would give no indication
-// which of the eleven embedded definition files is malformed.
+// which of the eleven embedded definition files is malformed. Decoding is
+// strict: a key the definition does not declare is a misspelling whose value
+// would otherwise be dropped without a word. A file holding no definitions
+// yet decodes to an empty set.
 func mustLoad(name string, data []byte) map[FindingKey]FindingDefinition {
 	var raw map[string]FindingDefinition
-	if err := yaml.Unmarshal(data, &raw); err != nil {
+	decoder := yaml.NewDecoder(bytes.NewReader(data))
+	decoder.KnownFields(true)
+	if err := decoder.Decode(&raw); err != nil && !errors.Is(err, io.EOF) {
 		panic("registry: failed to parse embedded YAML " + name + ": " + err.Error())
 	}
 	out := make(map[FindingKey]FindingDefinition, len(raw))
 	for k, v := range raw {
-		if err := v.validateCategories(); err != nil {
+		def, err := v.validated()
+		if err != nil {
 			panic("registry: " + name + ": finding \"" + k + "\": " + err.Error())
 		}
-		out[FindingKey(k)] = v
+		out[FindingKey(k)] = def
 	}
 	return out
+}
+
+// validated returns d with its defaults applied, or the reason it cannot be
+// used. A definition that can report fail must carry a well-formed CWE,
+// because that identifier is the key enrichment looks weaknesses up by; one
+// that cannot fail needs none.
+func (d FindingDefinition) validated() (FindingDefinition, error) {
+	if err := d.validateCategories(); err != nil {
+		return d, err
+	}
+
+	severity, ok := types.NormalizeSeverity(d.Severity)
+	if !ok {
+		return d, fmt.Errorf("severity %q is not one of %s", d.Severity, types.SeverityNames())
+	}
+	d.Severity = severity
+
+	switch d.Result {
+	case "":
+		d.Result = types.ResultFail
+	case types.ResultFail, types.ResultNotApplicable:
+	default:
+		return d, fmt.Errorf("result %q is not one a definition can declare", d.Result)
+	}
+
+	if d.Result != types.ResultFail && d.CWE == "" {
+		return d, nil
+	}
+	cwe, err := types.ParseCWE(string(d.CWE))
+	if err != nil {
+		return d, err
+	}
+	d.CWE = cwe
+	return d, nil
 }
 
 // validateCategories confirms every NIST-classified reference in d resolves

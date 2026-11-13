@@ -25,15 +25,13 @@ type (
 	}
 )
 
-// appendSkippedNote annotates the number of paths find could not read
-func appendSkippedNote(result *types.AuditResult, scan string, skipped int) {
-	if skipped <= 0 {
-		return
-	}
-	result.Details = append(result.Details,
-		fmt.Sprintf("%s %s: %d unreadable paths skipped (run with elevated privileges for complete coverage)",
-			types.SymbolInfo, scan, skipped))
-}
+// The rules this check concludes: two judged on access control entries, one
+// on the share listing.
+const (
+	ruleEveryoneFull registry.FindingKey = "permissions.everyone_full_control"
+	ruleUsersFull    registry.FindingKey = "permissions.users_full_control"
+	ruleAdminShare   registry.FindingKey = "permissions.admin_share_present"
+)
 
 // NewPermissionChecker returns the file permission checker for Windows
 // hosts. scanRoot narrows the ACL traversal to one tree; empty means the
@@ -58,117 +56,89 @@ func NewPermissionChecker(osCtx registry.OSContext, scanRoot string) *WindowsPer
 
 // Check implements PermissionChecker interface for Windows systems
 func (p *WindowsPermissionChecker) Check(ctx context.Context) types.AuditResult {
-	result := types.AuditResult{
-		Name:        p.Name(),
-		Status:      types.StatusChecking,
-		Description: p.Description(),
-		Details:     make([]string, 0),
-		Findings:    make([]types.Finding, 0),
-	}
+	r := newReport(p.checkIdentity)
 
-	seen := make(map[registry.FindingKey]struct{})
-
+	paths, recursive := p.Paths, false
 	if p.scanRoot != "" {
-		result.Details = append(result.Details,
-			fmt.Sprintf("%s Scanning %s", types.SymbolInfo, p.scanRoot))
-		if err := p.checkWindowsPermissions(ctx, p.scanRoot, true, &result, seen); err != nil {
-			result.Details = append(result.Details,
-				fmt.Sprintf("%s Error checking %s: %v",
-					types.SymbolError, p.scanRoot, err))
-		}
+		paths, recursive = []string{p.scanRoot}, true
+		r.note(types.SymbolInfo, "Scanning %s", p.scanRoot)
 	} else {
-		result.Details = append(result.Details,
-			fmt.Sprintf("%s Scanning %d default system paths",
-				types.SymbolInfo, len(p.Paths)))
-		for _, path := range p.Paths {
-			if err := p.checkWindowsPermissions(ctx, path, false, &result, seen); err != nil {
-				result.Details = append(result.Details,
-					fmt.Sprintf("%s Error checking %s: %v",
-						types.SymbolError, path, err))
-			}
-		}
+		r.note(types.SymbolInfo, "Scanning %d default system paths", len(p.Paths))
 	}
+
+	for _, path := range paths {
+		p.checkWindowsPermissions(ctx, path, recursive, r)
+	}
+	r.pass(ruleEveryoneFull, ruleUsersFull)
 
 	// Shares are a host-wide condition rather than a property of the scanned
 	// tree, so they are enumerated whether or not a path narrowed the run.
-	p.checkNetworkShares(ctx, &result, seen)
+	p.checkNetworkShares(ctx, r)
 
-	result.Status = types.StatusCompleted
-	return result
+	return r.finish()
 }
 
-// checkWindowsPermissions reports the ACL grants on one path. seen spans the
-// whole check rather than one path, because a definition describes the
-// condition rather than the path that carries it, so a grant found on several
-// paths is one finding with several detail lines.
-func (p *WindowsPermissionChecker) checkWindowsPermissions(ctx context.Context, path string, recursive bool, result *types.AuditResult, seen map[registry.FindingKey]struct{}) error {
-	const scan string = "ACL traversal"
+// checkWindowsPermissions records the full-control grants on one path. A
+// grant found on several paths is one failed rule with several pieces of
+// evidence, because a definition describes the condition rather than the
+// path that carries it. A path that could not be read, in whole or in part,
+// leaves both rules in error unless something already failed them: entries
+// nobody examined prove nothing.
+func (p *WindowsPermissionChecker) checkWindowsPermissions(ctx context.Context, path string, recursive bool, r *report) {
 	output, skipped, err := runICACLS(ctx, path, recursive)
 	if err != nil {
-		return fmt.Errorf("failed to check permissions: %w", err)
-	}
-
-	// Analyze permissions
-	lines := strings.Split(string(output), "\n")
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-
-		if strings.Contains(line, "Everyone:(OI)(CI)(F)") ||
-			strings.Contains(line, "Everyone:(F)") {
-			result.Details = append(result.Details,
-				fmt.Sprintf("%s WARNING: Full control granted to Everyone group on %s",
-					types.SymbolWarning, line))
-			emitFindingOnce(result, p.osCtx, "permissions.everyone_full_control", seen)
-		} else if strings.Contains(line, "Users:(OI)(CI)(F)") ||
-			strings.Contains(line, "Users:(F)") {
-			result.Details = append(result.Details,
-				fmt.Sprintf("%s WARNING: Full control granted to Users group on %s",
-					types.SymbolWarning, line))
-			emitFindingOnce(result, p.osCtx, "permissions.users_full_control", seen)
-		} else {
-			result.Details = append(result.Details,
-				fmt.Sprintf("%s %s", types.SymbolInfo, line))
-		}
-	}
-
-	appendSkippedNote(result, scan, skipped)
-	return nil
-}
-
-func (p *WindowsPermissionChecker) checkNetworkShares(ctx context.Context, result *types.AuditResult, seen map[registry.FindingKey]struct{}) {
-	cmd := exec.CommandContext(ctx, "net", "share")
-	output, err := cmd.Output()
-	if err != nil {
-		result.Details = append(result.Details,
-			fmt.Sprintf("%s Error checking network shares: %v",
-				types.SymbolError, err))
+		r.inconclusive(types.ResultError, fmt.Sprintf("permissions on %s could not be read: %v", path, err),
+			ruleEveryoneFull, ruleUsersFull)
 		return
 	}
 
-	shares := strings.Split(string(output), "\n")
-	result.Details = append(result.Details, "", "Network Shares:")
+	for _, line := range strings.Split(string(output), "\n") {
+		line = strings.TrimSpace(line)
+		switch {
+		case line == "":
+		case strings.Contains(line, "Everyone:(OI)(CI)(F)"), strings.Contains(line, "Everyone:(F)"):
+			r.observed(ruleEveryoneFull, evidence(kindACL, line, "principal", "Everyone", "access", "full control"))
+		case strings.Contains(line, "Users:(OI)(CI)(F)"), strings.Contains(line, "Users:(F)"):
+			r.observed(ruleUsersFull, evidence(kindACL, line, "principal", "Users", "access", "full control"))
+		default:
+			r.note(types.SymbolInfo, "%s", line)
+		}
+	}
 
-	for _, share := range shares {
+	if skipped > 0 {
+		reason := fmt.Sprintf("%d paths under %s were unreadable and went unscanned; rerun with elevated privileges for complete coverage",
+			skipped, path)
+		r.inconclusive(types.ResultError, reason, ruleEveryoneFull, ruleUsersFull)
+		r.note(types.SymbolWarning, "%s", reason)
+	}
+}
+
+// checkNetworkShares concludes the administrative share rule and narrates
+// the other shares the host exports.
+func (p *WindowsPermissionChecker) checkNetworkShares(ctx context.Context, r *report) {
+	output, err := exec.CommandContext(ctx, "net", "share").Output()
+	if err != nil {
+		r.inconclusive(types.ResultError,
+			fmt.Sprintf("network shares could not be listed: %v", execError(err)), ruleAdminShare)
+		return
+	}
+
+	r.section("Network Shares:")
+	for _, share := range strings.Split(string(output), "\n") {
 		share = strings.TrimSpace(share)
 		if share == "" || strings.HasPrefix(share, "Share name") ||
 			strings.HasPrefix(share, "---") {
 			continue
 		}
 
-		shareName := strings.Fields(share)[0]
-		if shareName == "ADMIN$" || shareName == "C$" || shareName == "IPC$" {
-			result.Details = append(result.Details,
-				fmt.Sprintf("%s Administrative share: %s",
-					types.SymbolWarning, share))
-			emitFindingOnce(result, p.osCtx, "permissions.admin_share_present", seen)
-		} else {
-			result.Details = append(result.Details,
-				fmt.Sprintf("%s %s", types.SymbolInfo, share))
+		switch name := strings.Fields(share)[0]; name {
+		case "ADMIN$", "C$", "IPC$":
+			r.observed(ruleAdminShare, evidence(kindShare, name, "listing", share))
+		default:
+			r.note(types.SymbolInfo, "%s", share)
 		}
 	}
+	r.pass(ruleAdminShare)
 }
 
 // runICACLS executes against the given path with optional recursion for tree

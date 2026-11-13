@@ -13,18 +13,17 @@ import (
 // render, decoupled from the audit engine's result type so this package
 // never has to import the orchestration layer to render its own data
 type Data struct {
-	Requested  bool
-	Err        error
-	References types.ReferenceExtraction
-	Result     *Result
+	Requested bool
+	Err       error
+	CWEs      []string
+	Result    *Result
 }
 
 // Block writes the enrichment text rendering: nothing when enrichment was
 // not requested, otherwise one of unavailable, no CWE references, or the
 // per-CWE entries and failures projected by Entries and Failures, so text
-// and structured output describe the same set in the same order. Reference
-// parsing errors are appended in every rendered state. The first write
-// error, if any, is returned.
+// and structured output describe the same set in the same order. The first
+// write error, if any, is returned.
 func Block(w io.Writer, d Data) error {
 	if !d.Requested {
 		return nil
@@ -36,15 +35,14 @@ func Block(w io.Writer, d Data) error {
 	switch {
 	case d.Err != nil:
 		ew.Printf("  Unavailable: %v\n\n", d.Err)
-	case len(d.References.CWEs) == 0:
+	case len(d.CWEs) == 0:
 		ew.Printf("  No CWE references found in current findings.\n\n")
 	default:
-		writeEntries(ew, Entries(d.References.CWEs, d.Result))
+		writeEntries(ew, Entries(d.CWEs, d.Result))
 		writeFailures(ew, Failures(d.Result))
 		ew.Printf("\n")
 	}
 
-	referenceErrors(ew, d.References)
 	return ew.Err()
 }
 
@@ -105,18 +103,4 @@ func writeFailures(ew *render.ErrWriter, failures []FailureView) {
 		}
 		ew.Printf("\n")
 	}
-}
-
-// referenceErrors writes reference parsing errors as an indented block,
-// or nothing when there are none. It is only reachable through
-// Block, which owns the surrounding layout
-func referenceErrors(ew *render.ErrWriter, refs types.ReferenceExtraction) {
-	if len(refs.Errors) == 0 {
-		return
-	}
-	ew.Printf("  Reference parsing errors:\n")
-	for _, err := range refs.Errors {
-		ew.Printf("    %v\n", err)
-	}
-	ew.Printf("\n")
 }

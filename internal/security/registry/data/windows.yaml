@@ -246,8 +246,9 @@ users.uac_disabled:
 
 users.microsoft_account_no_local_password:
   title: "Microsoft-linked account has no local password hash"
-  severity: "LOW"
-  cvss_score: 2.1
+  severity: "NONE"
+  result: "notapplicable"
+  cvss_score: 0.0
   cvss_vector: "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:N/I:N/A:N"
   description: >
     One or more accounts are linked to a Microsoft identity (personal
@@ -274,8 +275,9 @@ users.microsoft_account_no_local_password:
 
 users.azure_ad_account_no_local_password:
   title: "Azure AD account has no local password hash"
-  severity: "LOW"
-  cvss_score: 2.1
+  severity: "NONE"
+  result: "notapplicable"
+  cvss_score: 0.0
   cvss_vector: "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:N/I:N/A:N"
   description: >
     One or more accounts are joined via Azure Active Directory (Entra ID)
@@ -301,8 +303,9 @@ users.azure_ad_account_no_local_password:
 
 users.domain_account_no_local_password:
   title: "Active Directory domain account has no local password hash"
-  severity: "LOW"
-  cvss_score: 2.3
+  severity: "NONE"
+  result: "notapplicable"
+  cvss_score: 0.0
   cvss_vector: "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:N/I:N/A:N"
   description: >
     One or more accounts are sourced from an Active Directory domain

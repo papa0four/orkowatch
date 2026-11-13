@@ -40,74 +40,70 @@ func NewFirewallChecker(osCtx registry.OSContext) *WindowsFirewallChecker {
 	}}
 }
 
-// Check implements FirewallChecker interface for Windows systems
+// Check implements FirewallChecker interface for Windows systems. Output in
+// which no profile state is recognized is concluded as unknown: netsh prints
+// localized headings, and reading none of them is not the same as reading
+// every profile off.
 func (f *WindowsFirewallChecker) Check(ctx context.Context) types.AuditResult {
-	result := types.AuditResult{
-		Name:        f.Name(),
-		Status:      types.StatusChecking,
-		Description: f.Description(),
-		Details:     make([]string, 0),
-		Findings:    make([]types.Finding, 0),
-	}
+	const (
+		partialRule registry.FindingKey = "firewall.profile_inactive"
+		totalRule   registry.FindingKey = "firewall.all_profiles_disabled"
+	)
 
-	// Check firewall status for all profiles
-	cmd := exec.CommandContext(ctx, "netsh", "advfirewall", "show", "allprofiles", "state")
-	output, err := cmd.Output()
+	r := newReport(f.checkIdentity)
+
+	output, err := exec.CommandContext(ctx, "netsh", "advfirewall", "show", "allprofiles", "state").Output()
 	if err != nil {
-		result.Status = types.StatusError
-		result.Description = "Failed to check Windows Firewall status"
-		result.Details = append(result.Details,
-			fmt.Sprintf("%s Error checking firewall status: %v", types.SymbolError, err))
-		return result
+		r.inconclusive(types.ResultError,
+			fmt.Sprintf("Windows Firewall status could not be read: %v", execError(err)), partialRule, totalRule)
+		return r.finish()
 	}
 
-	activeProfiles := 0
-	inactiveProfiles := 0
-	for _, profile := range parseWindowsFirewallStatus(string(output)) {
+	profiles := parseWindowsFirewallStatus(string(output))
+	if len(profiles) == 0 {
+		r.inconclusive(types.ResultUnknown,
+			"no profile state was recognized in the netsh output", partialRule, totalRule)
+		return r.finish()
+	}
+
+	var inactive []types.Evidence
+	for _, profile := range profiles {
 		if profile.active {
-			activeProfiles++
-			result.Details = append(result.Details,
-				fmt.Sprintf("%s %s profile is active", types.SymbolOK, profile.name))
-		} else {
-			inactiveProfiles++
-			result.Details = append(result.Details,
-				fmt.Sprintf("%s WARNING: %s profile is inactive", types.SymbolWarning, profile.name))
+			r.note(types.SymbolOK, "%s profile is active", profile.name)
+			continue
 		}
+		inactive = append(inactive, evidence(kindProfile, profile.name, "state", "OFF"))
 	}
 
-	// One finding per inactive profile
-	if inactiveProfiles > 0 && activeProfiles > 0 {
-		emitFinding(&result, f.osCtx, "firewall.profile_inactive")
+	switch {
+	case len(inactive) == 0:
+		r.pass(partialRule, totalRule)
+	case len(inactive) == len(profiles):
+		r.observed(totalRule, inactive...)
+		r.inconclusive(types.ResultNotChecked, "superseded by "+string(totalRule), partialRule)
+		return r.finish()
+	default:
+		r.observed(partialRule, inactive...)
+		r.pass(totalRule)
 	}
 
-	// Check firewall rules if at least one profile is active
-	if activeProfiles > 0 {
-		cmd = exec.CommandContext(ctx, "netsh", "advfirewall", "firewall", "show", "rule", "name=all", "verbose")
-		output, err := cmd.Output()
-		if err != nil {
-			result.Details = append(result.Details,
-				fmt.Sprintf("%s Error enumerating firewall rules: %v", types.SymbolError, err))
-		} else {
-			rules := parseWindowsFirewallRules(output)
-			result.Details = append(result.Details, "", "Active Firewall Rules:")
-			for _, rule := range rules {
-				result.Details = append(result.Details,
-					fmt.Sprintf(" %s", rule))
-			}
-		}
+	f.reportRules(ctx, r)
+	return r.finish()
+}
+
+// reportRules lists the rules the firewall holds, which is worth doing only
+// when at least one profile is enforcing them.
+func (f *WindowsFirewallChecker) reportRules(ctx context.Context, r *report) {
+	output, err := exec.CommandContext(ctx, "netsh", "advfirewall", "firewall", "show", "rule", "name=all", "verbose").Output()
+	if err != nil {
+		r.note(types.SymbolError, "Error enumerating firewall rules: %v", execError(err))
+		return
 	}
 
-	// Set final status
-	if activeProfiles == 0 {
-		result.Status = types.StatusWarning
-		result.Details = append(result.Details,
-			fmt.Sprintf("%s CRITICAL: Windows Firewall is completely disabled", types.SymbolCritical))
-		emitFinding(&result, f.osCtx, "firewall.all_profiles_disabled")
-	} else {
-		result.Status = types.StatusCompleted
+	r.section("Active Firewall Rules:")
+	for _, rule := range parseWindowsFirewallRules(output) {
+		r.lines(" " + rule)
 	}
-
-	return result
 }
 
 // parseWindowsFirewallStatus reads the per-profile state from netsh output.

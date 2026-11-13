@@ -11,6 +11,7 @@ import (
 	"io/fs"
 	"os"
 	"path"
+	"strconv"
 	"strings"
 
 	"github.com/papa0four/orkowatch/internal/security/registry"
@@ -93,39 +94,52 @@ func NewUserChecker(osCtx registry.OSContext) *UnixUserChecker {
 	}}
 }
 
-// Check implements UserChecker interface for Unix systems
-func (u *UnixUserChecker) Check(ctx context.Context) types.AuditResult {
-	result := types.AuditResult{
-		Name:        u.Name(),
-		Status:      types.StatusChecking,
-		Description: u.Description(),
-		Details:     make([]string, 0),
-		Findings:    make([]types.Finding, 0),
+// accountRules are the rules judged per account. credentialRules are the
+// subset that needs the credential store to be readable.
+var (
+	accountRules = []registry.FindingKey{
+		"users.uid_zero_non_root",
+		"users.root_account_unlocked",
+		"users.empty_password_hash",
+		"users.no_password_login_shell",
+		"users.regular_user_admin_privileges",
+		"users.login_shell_present",
 	}
 
-	u.checkAuthConfig(&result)
+	credentialRules = []registry.FindingKey{
+		"users.root_account_unlocked",
+		"users.empty_password_hash",
+		"users.no_password_login_shell",
+	}
+)
+
+// Check implements UserChecker interface for Unix systems
+func (u *UnixUserChecker) Check(ctx context.Context) types.AuditResult {
+	r := newReport(u.checkIdentity)
+
+	u.checkAuthConfig(r)
 
 	users, err := u.getUsers(ctx)
 	if err != nil {
-		result.Status = types.StatusError
-		result.Description = fmt.Sprintf("Failed to analyze users: %v", err)
-		return result
+		r.inconclusive(types.ResultError, fmt.Sprintf("user accounts could not be read: %v", err), accountRules...)
+		return r.finish()
 	}
 
-	u.analyzeUsers(users, &result)
-
-	result.Status = types.StatusCompleted
-	return result
+	u.analyzeUsers(users, r)
+	return r.finish()
 }
 
-func (u *UnixUserChecker) analyzeUsers(users []userAccount, result *types.AuditResult) {
+// analyzeUsers judges every account, then concludes the rules no account
+// tripped. A rule the reader could not see enough to judge is an error
+// rather than a pass: an unreadable credential store proves nothing about
+// the credentials in it.
+func (u *UnixUserChecker) analyzeUsers(users []userAccount, r *report) {
 	var (
 		regularUsers    []string
 		adminUsers      []string
 		suspiciousUsers []string
 	)
 
-	seen := make(map[registry.FindingKey]struct{})
 	for _, user := range users {
 		details := fmt.Sprintf("%s (UID: %d, Shell: %s)", user.username, user.uid, user.shell)
 		if user.state == accountDisabled {
@@ -141,113 +155,92 @@ func (u *UnixUserChecker) analyzeUsers(users []userAccount, result *types.AuditR
 			regularUsers = append(regularUsers, details)
 		}
 
-		u.judgeAccount(user, result, seen)
+		judgeAccount(user, r)
 	}
 
 	if !u.shadowReadable {
-		result.Details = append(result.Details,
-			fmt.Sprintf("%s No-password check skipped: /etc/shadow is not readable without elevated privileges",
-				types.SymbolInfo))
+		r.inconclusive(types.ResultError,
+			"/etc/shadow is not readable without elevated privileges", credentialRules...)
 	}
-
 	if u.adminLookupErr != nil {
-		result.Details = append(result.Details,
-			fmt.Sprintf("%s Privileged group membership could not be determined; accounts above are not marked administrative: %v",
-				types.SymbolWarning, u.adminLookupErr))
+		r.inconclusive(types.ResultError,
+			fmt.Sprintf("privileged group membership could not be determined: %v", u.adminLookupErr),
+			"users.regular_user_admin_privileges")
 	}
+	r.pass(accountRules...)
 
 	for _, warning := range u.readWarnings {
-		result.Details = append(result.Details,
-			fmt.Sprintf("%s %s", types.SymbolWarning, warning))
+		r.note(types.SymbolWarning, "%s", warning)
 	}
 
-	appendAccountSection(result, "Administrative Users:", types.SymbolWarning, adminUsers)
-	appendAccountSection(result, "Regular Users:", types.SymbolOK, regularUsers)
-	appendAccountSection(result, "Suspicious Users:", types.SymbolWarning, suspiciousUsers)
+	appendAccountSection(r, "Administrative Users:", types.SymbolWarning, adminUsers)
+	appendAccountSection(r, "Regular Users:", types.SymbolOK, regularUsers)
+	appendAccountSection(r, "Suspicious Users:", types.SymbolWarning, suspiciousUsers)
 }
 
-// judgeAccount emits the findings a single account can produce. UID 0 is
-// judged before the disabled check because a duplicate root identity is a
-// defect in the account database whether or not the record is live; the
-// remaining conditions describe how the account can be used, which a
-// disabled account cannot be. root's credential is judged from the same
-// parsed entry as every other account, which is what passwd -S reports
-// without the subprocess or the privilege it demands.
-func (u *UnixUserChecker) judgeAccount(user userAccount, result *types.AuditResult, seen map[registry.FindingKey]struct{}) {
+// judgeAccount records the rules a single account trips. UID 0 is judged
+// before the disabled check because a duplicate root identity is a defect in
+// the account database whether or not the record is live; the remaining
+// conditions describe how the account can be used, which a disabled account
+// cannot be. root's credential is judged from the same parsed entry as every
+// other account, which is what passwd -S reports without the subprocess or
+// the privilege it demands.
+func judgeAccount(user userAccount, r *report) {
+	account := evidence(kindAccount, user.username,
+		"uid", strconv.FormatUint(uint64(user.uid), decimalBase), "shell", user.shell)
+
 	if user.uid == rootUID && user.username != "root" {
-		result.Details = append(result.Details,
-			fmt.Sprintf("%s CRITICAL: Account %s has UID 0 (root-equivalent)",
-				types.SymbolCritical, user.username))
-		emitFindingOnce(result, u.osCtx, "users.uid_zero_non_root", seen)
+		r.observed("users.uid_zero_non_root", account)
 	}
 
 	if user.state == accountDisabled {
 		return
 	}
 
-	switch {
-	case user.username == "root" && user.password == passwordLocked:
-		result.Details = append(result.Details,
-			fmt.Sprintf("%s Root account password is locked", types.SymbolOK))
-	case user.username == "root" && user.password == passwordSet:
-		result.Details = append(result.Details,
-			fmt.Sprintf("%s WARNING: Root account is unlocked", types.SymbolWarning))
-		emitFindingOnce(result, u.osCtx, "users.root_account_unlocked", seen)
+	if user.username == "root" && user.password == passwordSet {
+		r.observed("users.root_account_unlocked", account)
 	}
 
 	// An empty credential field admits anyone who reaches a login prompt
 	// or su for the account. An interactive shell turns that into a
 	// session and is reported on top.
 	if user.password == passwordEmpty {
-		result.Details = append(result.Details,
-			fmt.Sprintf("%s CRITICAL: Account %s has no password set",
-				types.SymbolCritical, user.username))
-		emitFindingOnce(result, u.osCtx, "users.empty_password_hash", seen)
-	}
-
-	if user.password == passwordEmpty && isInteractiveShell(user.shell) {
-		result.Details = append(result.Details,
-			fmt.Sprintf("%s WARNING: Account %s has no password and an interactive login shell",
-				types.SymbolWarning, user.username))
-		emitFindingOnce(result, u.osCtx, "users.no_password_login_shell", seen)
+		r.observed("users.empty_password_hash", account)
+		if isInteractiveShell(user.shell) {
+			r.observed("users.no_password_login_shell", account)
+		}
 	}
 
 	if user.isAdmin && !user.isSystem {
-		result.Details = append(result.Details,
-			fmt.Sprintf("%s WARNING: Regular user %s has administrative privileges",
-				types.SymbolWarning, user.username))
-		emitFindingOnce(result, u.osCtx, "users.regular_user_admin_privileges", seen)
+		r.observed("users.regular_user_admin_privileges", account)
 	}
 
 	if isInteractiveShell(user.shell) && !user.isSystem {
-		result.Details = append(result.Details,
-			fmt.Sprintf("%s User %s has an interactive login shell: %s",
-				types.SymbolWarning, user.username, user.shell))
-		emitFindingOnce(result, u.osCtx, "users.login_shell_present", seen)
+		r.observed("users.login_shell_present", account)
 	}
 }
 
-// appendAccountSection appends a titled list of account lines, each carrying
+// appendAccountSection narrates a titled list of accounts, each carrying
 // symbol, and nothing at all when entries is empty.
-func appendAccountSection(result *types.AuditResult, title string, symbol string, entries []string) {
+func appendAccountSection(r *report, title string, symbol string, entries []string) {
 	if len(entries) == 0 {
 		return
 	}
 
-	result.Details = append(result.Details, "", title)
+	r.section(title)
 	for _, entry := range entries {
-		result.Details = append(result.Details, fmt.Sprintf("%s %s", symbol, entry))
+		r.note(symbol, "%s", entry)
 	}
 }
 
 // checkAuthConfig reports the authentication sources configured on the host:
 // the PAM modules referenced under /etc/pam.d and the network directories
 // whose configuration files are present. A file whose presence cannot be
-// determined is reported as such, because the directory holding sssd.conf is
-// unreadable to an unprivileged caller and a stat failure there is not
-// evidence of absence.
-func (u *UnixUserChecker) checkAuthConfig(result *types.AuditResult) {
-	u.reportPAMModules(result)
+// determined is concluded as an error, because the directory holding
+// sssd.conf is unreadable to an unprivileged caller and a stat failure there
+// is not evidence of absence.
+func (u *UnixUserChecker) checkAuthConfig(r *report) {
+	u.reportPAMModules(r)
 
 	sources := []struct {
 		path  string
@@ -263,22 +256,22 @@ func (u *UnixUserChecker) checkAuthConfig(result *types.AuditResult) {
 		_, err := os.Stat(source.path)
 		switch {
 		case err == nil:
-			result.Details = append(result.Details,
-				fmt.Sprintf("%s %s authentication is configured", types.SymbolWarning, source.label))
-			emitFinding(result, u.osCtx, source.key)
-		case !errors.Is(err, fs.ErrNotExist):
-			result.Details = append(result.Details,
-				fmt.Sprintf("%s %s configuration could not be checked: %v", types.SymbolWarning, source.label, err))
+			r.observed(source.key, evidence(kindFile, source.path, "source", source.label))
+		case errors.Is(err, fs.ErrNotExist):
+			r.pass(source.key)
+		default:
+			r.inconclusive(types.ResultError,
+				fmt.Sprintf("%s configuration could not be checked: %v", source.label, err), source.key)
 		}
 	}
 }
 
-// reportPAMModules reports which of the well-known authentication modules
+// reportPAMModules narrates which of the well-known authentication modules
 // /etc/pam.d references. The tree is read once and every file is inspected,
 // with unreadable files counted and reported so that reduced coverage is
 // visible rather than read as absence. The walk is scoped through os.DirFS
 // so a symlink under /etc/pam.d cannot lead it elsewhere (CWE-367).
-func (u *UnixUserChecker) reportPAMModules(result *types.AuditResult) {
+func (u *UnixUserChecker) reportPAMModules(r *report) {
 	modules := []string{"pam_unix.so", "pam_ldap.so", "pam_sss.so"}
 	found := make(map[string]bool, len(modules))
 	for _, module := range modules {
@@ -312,23 +305,18 @@ func (u *UnixUserChecker) reportPAMModules(result *types.AuditResult) {
 	case errors.Is(err, fs.ErrNotExist):
 		return
 	case err != nil:
-		result.Details = append(result.Details,
-			fmt.Sprintf("%s PAM configuration could not be checked: %v", types.SymbolWarning, err))
+		r.note(types.SymbolWarning, "PAM configuration could not be checked: %v", err)
 		return
 	}
 
-	result.Details = append(result.Details,
-		fmt.Sprintf("%s PAM authentication is configured", types.SymbolInfo))
+	r.note(types.SymbolInfo, "PAM authentication is configured")
 	for _, module := range modules {
 		if found[module] {
-			result.Details = append(result.Details,
-				fmt.Sprintf("%s Found authentication module: %s", types.SymbolInfo, module))
+			r.note(types.SymbolInfo, "Found authentication module: %s", module)
 		}
 	}
 	if unreadable > 0 {
-		result.Details = append(result.Details,
-			fmt.Sprintf("%s %d PAM configuration files could not be read; module detection is incomplete",
-				types.SymbolWarning, unreadable))
+		r.note(types.SymbolWarning, "%d PAM configuration files could not be read; module detection is incomplete", unreadable)
 	}
 }
 

@@ -226,47 +226,34 @@ func NewPermissionChecker(osCtx registry.OSContext, scanRoot string) *UnixPermis
 	}
 }
 
+// The rules this check concludes: two judged on the critical paths, three on
+// every entry the traversal visits.
+const (
+	ruleExcessMode    registry.FindingKey = "permissions.path_exceeds_expected_mode"
+	ruleNotRootOwned  registry.FindingKey = "permissions.critical_path_not_root_owned"
+	ruleSetID         registry.FindingKey = "permissions.suid_sgid_binary"
+	ruleWorldWritable registry.FindingKey = "permissions.world_writable_file"
+	ruleUnowned       registry.FindingKey = "permissions.unowned_file"
+)
+
 // Check implements PermissionChecker interface for Unix systems
 func (p *UnixPermissionChecker) Check(ctx context.Context) types.AuditResult {
-	result := types.AuditResult{
-		Name:        p.Name(),
-		Status:      types.StatusChecking,
-		Description: p.Description(),
-		Details:     make([]string, 0),
+	r := newReport(p.checkIdentity)
+
+	root, err := p.effectiveRoot()
+	if err != nil {
+		r.inconclusive(types.ResultError, fmt.Sprintf("scan root could not be resolved: %v", err),
+			ruleExcessMode, ruleNotRootOwned, ruleSetID, ruleWorldWritable, ruleUnowned)
+		return r.finish()
 	}
 
-	root, rootErr := p.effectiveRoot()
-	if rootErr != nil {
-		result.Status = types.StatusError
-		result.Description = fmt.Sprintf("Scan root could not be resolved: %v", rootErr)
-		result.Details = append(result.Details,
-			fmt.Sprintf("%s Scan root could not be resolved: %v", types.SymbolError, rootErr))
-		return result
-	}
-
-	result.Details = append(result.Details,
-		fmt.Sprintf("%s Scanning %s", types.SymbolInfo, root))
-	p.checkCriticalPaths(root, &result)
+	r.note(types.SymbolInfo, "Scanning %s", root)
+	p.checkCriticalPaths(root, r)
 
 	scan, err := p.scanFilesystem(ctx, root)
-	p.reportScan(&result, scan)
+	reportScan(r, scan, err)
 
-	switch {
-	case err != nil:
-		result.Status = types.StatusWarning
-		result.Description = fmt.Sprintf("Filesystem scan did not complete: %v", err)
-		result.Details = append(result.Details,
-			fmt.Sprintf("%s Filesystem scan did not complete: %v", types.SymbolError, err))
-	case scan.unreadable > 0:
-		result.Status = types.StatusWarning
-		result.Description = fmt.Sprintf("Filesystem scan could not read %d paths", scan.unreadable)
-		result.Details = append(result.Details,
-			fmt.Sprintf("%s %d paths were unreadable and went unscanned; rerun with elevated privileges for complete coverage",
-				types.SymbolWarning, scan.unreadable))
-	default:
-		result.Status = types.StatusCompleted
-	}
-	return result
+	return r.finish()
 }
 
 // effectiveRoot resolves the scan root to a real path: the operator's when one
@@ -290,28 +277,24 @@ func (p *UnixPermissionChecker) effectiveRoot() (string, error) {
 // A supplied scan root narrows which paths are in scope; it never removes the
 // expectation from a path that is in scope, because a mode and ownership
 // expectation is a property of the path rather than of how the run was
-// invoked.
-func (p *UnixPermissionChecker) checkCriticalPaths(root string, result *types.AuditResult) {
-	seen := make(map[registry.FindingKey]struct{})
+// invoked. With no critical path in scope the two rules have nothing to
+// apply to.
+func (p *UnixPermissionChecker) checkCriticalPaths(root string, r *report) {
 	var checked int
-
 	for _, cpath := range p.paths {
 		if !pathWithin(cpath.path, root) {
 			continue
 		}
 		checked++
-		if err := p.checkPathPermissions(cpath, result, seen); err != nil {
-			result.Details = append(result.Details,
-				fmt.Sprintf("%s Error checking %s: %v",
-					types.SymbolError, cpath.path, err))
-		}
+		checkCriticalPath(cpath, r)
 	}
 
 	if checked == 0 {
-		result.Details = append(result.Details,
-			fmt.Sprintf("%s No critical system paths lie within %s",
-				types.SymbolInfo, root))
+		r.inconclusive(types.ResultNotApplicable, "no critical system paths lie within "+root,
+			ruleExcessMode, ruleNotRootOwned)
+		return
 	}
+	r.pass(ruleExcessMode, ruleNotRootOwned)
 }
 
 // pathWithin reports whether target lies at or beneath base, comparing on path
@@ -341,69 +324,50 @@ func commonCriticalPaths() []criticalPath {
 	}
 }
 
-// checkPathPermissions reports every way cp departs from what a critical
-// system path must be. Both conditions are evaluated: a path can be both too
-// permissive and wrongly owned, and reporting only the first would hide the
-// second. Each finding is emitted at most once per run through seen, because
-// the definitions describe the condition rather than the path.
-func (p *UnixPermissionChecker) checkPathPermissions(cp criticalPath, result *types.AuditResult, seen map[registry.FindingKey]struct{}) error {
+// checkCriticalPath records every way cp departs from what a critical system
+// path must be. Both conditions are evaluated: a path can be both too
+// permissive and wrongly owned, and recording only the first would hide the
+// second.
+//
+// The mode test is a bitmask rather than a numeric comparison: a mode is too
+// permissive when it sets any bit the expectation does not, which a
+// greater-than test misses whenever the extra access is numerically smaller,
+// as 0044 is against an expected 0600. A stricter mode is never a finding.
+// Ownership is what makes a permissive-looking mode safe or unsafe:
+// /etc/shadow at 0640 is the Debian design when root owns it and an exposure
+// when an unprivileged account does.
+func checkCriticalPath(cp criticalPath, r *report) {
 	info, err := os.Stat(cp.path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			result.Details = append(result.Details,
-				fmt.Sprintf("%s Path does not exist: %s", types.SymbolInfo, cp.path))
-			return nil
-		}
-		return err
+	switch {
+	case os.IsNotExist(err):
+		r.note(types.SymbolInfo, "Path does not exist: %s", cp.path)
+		return
+	case err != nil:
+		r.inconclusive(types.ResultError, fmt.Sprintf("%s could not be checked: %v", cp.path, err),
+			ruleExcessMode, ruleNotRootOwned)
+		return
 	}
 
-	problems := p.reportPathMode(cp, info, result, seen) + p.reportPathOwner(cp, info, result, seen)
-	if problems == 0 {
-		result.Details = append(result.Details,
-			fmt.Sprintf("%s %s has correct permissions and ownership: %s root",
-				types.SymbolOK, cp.path, formatMode(info.Mode())))
-	}
-	return nil
-}
-
-// reportPathMode reports a mode that grants access the expectation withholds,
-// returning how many problems it found. The test is a bitmask rather than a
-// numeric comparison: a mode is too permissive when it sets any bit the
-// expectation does not, which a greater-than test misses whenever the extra
-// access is numerically smaller, as 0044 is against an expected 0600. A
-// stricter mode is never a finding.
-func (p *UnixPermissionChecker) reportPathMode(cp criticalPath, info os.FileInfo, result *types.AuditResult, seen map[registry.FindingKey]struct{}) int {
 	mode := info.Mode()
-	if mode.Perm()&^cp.expected == 0 {
-		return 0
+	modeOK := mode.Perm()&^cp.expected == 0
+	if !modeOK {
+		r.observed(ruleExcessMode, evidence(kindFile, cp.path,
+			"description", cp.description,
+			"mode", formatMode(mode),
+			"expected", formatMode(cp.expected)))
 	}
 
-	result.Details = append(result.Details,
-		fmt.Sprintf("%s WARNING: %s (%s) has permissions %s, expected no more than %s",
-			types.SymbolWarning, cp.path, cp.description, formatMode(mode), formatMode(cp.expected)))
-	emitFindingOnce(result, p.osCtx, "permissions.path_exceeds_expected_mode", seen)
-	return 1
-}
-
-// reportPathOwner reports a critical path not owned by root, returning how
-// many problems it found. Ownership is what makes a permissive-looking mode
-// safe or unsafe: /etc/shadow at 0640 is the Debian design when root owns it
-// and an exposure when an unprivileged account does.
-func (p *UnixPermissionChecker) reportPathOwner(cp criticalPath, info os.FileInfo, result *types.AuditResult, seen map[registry.FindingKey]struct{}) int {
 	uid, _, _, ok := fileIdentity(info)
 	switch {
 	case !ok:
-		result.Details = append(result.Details,
-			fmt.Sprintf("%s %s ownership could not be determined", types.SymbolWarning, cp.path))
-		return 1
+		r.inconclusive(types.ResultError, cp.path+" ownership could not be determined", ruleNotRootOwned)
 	case uid != rootUID:
-		result.Details = append(result.Details,
-			fmt.Sprintf("%s WARNING: %s (%s) is owned by uid %d, expected root",
-				types.SymbolWarning, cp.path, cp.description, uid))
-		emitFindingOnce(result, p.osCtx, "permissions.critical_path_not_root_owned", seen)
-		return 1
-	default:
-		return 0
+		r.observed(ruleNotRootOwned, evidence(kindFile, cp.path,
+			"description", cp.description,
+			"uid", strconv.FormatUint(uint64(uid), decimalBase),
+			"expected", "root"))
+	case modeOK:
+		r.note(types.SymbolOK, "%s has correct permissions and ownership: %s root", cp.path, formatMode(mode))
 	}
 }
 
@@ -552,19 +516,19 @@ func traversableByNonRoot(mode fs.FileMode, uid, gid uint32) bool {
 	}
 }
 
-// suffix labels an entry whose chain mode bits deny to non-root principals, so
+// label names how far an entry whose chain mode bits deny can be reached, so
 // an operator can tell an exposure from an entry only root could ever have
-// touched, and either from one the checker could not decide. A reachable entry
-// carries no label, because the common case should not add noise to every
-// line.
-func (r reachability) suffix() string {
+// touched, and either from one the checker could not decide. A reachable
+// entry carries no label, because the common case should not add a fact to
+// every entry.
+func (r reachability) label() string {
 	switch r {
 	case reachRootOnly:
-		return " (root-only path)"
+		return "root-only"
 	case reachUndetermined:
-		return " (reachability undetermined)"
+		return "undetermined"
 	case reachUnsupported:
-		return " (reachability not evaluated on this platform)"
+		return "not evaluated on this platform"
 	default:
 		return ""
 	}
@@ -580,42 +544,32 @@ func fileIdentity(info fs.FileInfo) (uid, gid uint32, dev uint64, ok bool) {
 	return st.Uid, st.Gid, uint64(st.Dev), true
 }
 
-// String renders the entry as one report line: mode, numeric owner and group,
-// path, then what failed to resolve and how far the entry can be reached. The
-// identifiers stay numeric deliberately: when one of them failed to resolve it
-// is the value that failed, and a name would be misleading.
-func (e scanEntry) String() string {
-	return fmt.Sprintf("%s uid=%d gid=%d %s%s%s",
-		formatMode(e.mode), e.uid, e.gid, quoteHostText(e.path), e.unresolved(), e.reach.suffix())
-}
-
-// quoteHostText returns text read from the host in a form that occupies
-// exactly one report line. A file name may hold any byte but NUL and the path
-// separator, so one carrying a newline or a terminal escape sequence would
-// otherwise forge report lines or rewrite the operator's screen. Text made
-// only of printable characters is returned unchanged; anything else comes back
-// as a quoted Go string literal, whose quotes mark it as escaped.
-func quoteHostText(text string) string {
-	if quoted := strconv.Quote(text); quoted != `"`+text+`"` {
-		return quoted
-	}
-	return text
+// evidence returns the entry as the facts observed about it. The identifiers
+// stay numeric deliberately: when one of them failed to resolve it is the
+// value that failed, and a name would be misleading.
+func (e scanEntry) evidence() types.Evidence {
+	return evidence(kindFile, e.path,
+		"mode", formatMode(e.mode),
+		"uid", strconv.FormatUint(uint64(e.uid), decimalBase),
+		"gid", strconv.FormatUint(uint64(e.gid), decimalBase),
+		"unresolved", e.unresolved(),
+		"reach", e.reach.label())
 }
 
 // unresolved names which identifiers the name service could not account for,
 // so a root-owned entry carrying a group that only exists inside a container
 // is not reported as an entry with no owner at all. An entry whose owner and
 // group both resolved is named by neither, rather than by whichever branch
-// happens to fall through: the label states what was checked and found, and
+// happens to fall through: the fact states what was checked and found, and
 // never asserts a failure it did not observe.
 func (e scanEntry) unresolved() string {
 	switch {
 	case !e.userKnown && !e.groupKnown:
-		return " (user and group unresolved)"
+		return "user and group"
 	case !e.userKnown:
-		return " (user unresolved)"
+		return "user"
 	case !e.groupKnown:
-		return " (group unresolved)"
+		return "group"
 	default:
 		return ""
 	}
@@ -669,27 +623,45 @@ func formatMode(mode fs.FileMode) string {
 	return string(out)
 }
 
-// reportScan records each category the traversal found.
-func (p *UnixPermissionChecker) reportScan(result *types.AuditResult, scan fsScan) {
-	sections := []struct {
-		heading string
+// reportScan concludes the three traversal rules. A category with entries
+// fails and carries them as evidence. One with none passes only when the
+// traversal saw everything: after an incomplete scan, finding nothing is not
+// the same as there being nothing to find.
+func reportScan(r *report, scan fsScan, scanErr error) {
+	var incomplete string
+	switch {
+	case scanErr != nil:
+		incomplete = fmt.Sprintf("filesystem scan did not complete: %v", scanErr)
+	case scan.unreadable > 0:
+		incomplete = fmt.Sprintf("%d paths were unreadable and went unscanned; rerun with elevated privileges for complete coverage",
+			scan.unreadable)
+	}
+
+	categories := []struct {
 		entries []scanEntry
 		key     registry.FindingKey
 	}{
-		{"SUID/SGID Files Found:", scan.suid, "permissions.suid_sgid_binary"},
-		{"World-Writable Files Found:", scan.worldWrite, "permissions.world_writable_file"},
-		{"Unowned Files Found:", scan.unowned, "permissions.unowned_file"},
+		{scan.suid, ruleSetID},
+		{scan.worldWrite, ruleWorldWritable},
+		{scan.unowned, ruleUnowned},
 	}
 
-	for _, section := range sections {
-		if len(section.entries) == 0 {
-			continue
+	for _, category := range categories {
+		switch {
+		case len(category.entries) > 0:
+			found := make([]types.Evidence, 0, len(category.entries))
+			for _, entry := range category.entries {
+				found = append(found, entry.evidence())
+			}
+			r.observed(category.key, found...)
+		case incomplete != "":
+			r.inconclusive(types.ResultError, incomplete, category.key)
+		default:
+			r.pass(category.key)
 		}
-		result.Details = append(result.Details, "", section.heading)
-		for _, entry := range section.entries {
-			result.Details = append(result.Details,
-				fmt.Sprintf("%s %s", types.SymbolWarning, entry))
-		}
-		emitFinding(result, p.osCtx, section.key)
+	}
+
+	if incomplete != "" {
+		r.note(types.SymbolWarning, "%s", incomplete)
 	}
 }
