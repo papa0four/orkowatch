@@ -57,7 +57,7 @@ func Bind(cmd *cobra.Command) *Flags {
 	cmd.Flags().StringVar(&f.reportFile, "report-file", "",
 		"Save the report to the specified directory; filename is generated automatically")
 	cmd.Flags().BoolVar(&f.allowElevatedWrite, "allow-elevated-write", false,
-		"Permit an elevated write outside the allowlisted directories")
+		"Permit an elevated write outside the allowlisted directories or into a directory other users control")
 
 	return f
 }
@@ -150,7 +150,7 @@ func (f *Flags) emit(payload []byte, mask scan.CheckMask) error {
 	path := report.DefaultPath(f.reportFile, report.ResolveHostname(), scan.Codes(mask), f.format)
 	opts := report.Options{AllowElevatedWrite: f.allowElevatedWrite}
 	if err := report.Write(path, payload, opts); err != nil {
-		if errors.Is(err, report.ErrElevatedWriteDenied) {
+		if errors.Is(err, report.ErrElevatedWriteDenied) || errors.Is(err, report.ErrElevatedExposedDir) {
 			return fmt.Errorf("%w; pass --allow-elevated-write to permit it", err)
 		}
 		return fmt.Errorf("failed to write report file: %w", err)
