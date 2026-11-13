@@ -6,7 +6,6 @@ package checker
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"os/exec"
 	"strings"
@@ -32,67 +31,61 @@ func NewSSHChecker(osCtx registry.OSContext) *WindowsSSHChecker {
 	}}
 }
 
-// Check implements SSHChecker interface for Windows systems. A configuration
-// that cannot be read is recorded but does not end the check: the server's
-// presence and PuTTY's are still worth reporting, and Windows defines no
-// finding for an unset directive, so the zero sshdAbsentKeys is passed.
+// Check implements SSHChecker interface for Windows systems. A host without
+// the OpenSSH server has nothing for the server rules to apply to. Windows
+// defines no rule for an unset directive, so the zero sshdAbsentKeys is
+// passed.
 func (s *WindowsSSHChecker) Check(ctx context.Context) types.AuditResult {
-	result := types.AuditResult{
-		Name:        s.Name(),
-		Status:      types.StatusChecking,
-		Description: s.Description(),
-		Details:     make([]string, 0),
-		Findings:    make([]types.Finding, 0),
-	}
+	r := newReport(s.checkIdentity)
 
-	if s.reportSSHDPresence(ctx, &result) {
-		_ = checkSSHDConfig(&result, s.osCtx, sshdConfigPath, sshdAbsentKeys{}) //nolint:errcheck // the failure is already recorded in result and does not end the check
+	if s.reportSSHDPresence(ctx, r) {
+		checkSSHDConfig(r, sshdConfigPath, sshdAbsentKeys{})
+	} else {
+		r.inconclusive(types.ResultNotApplicable, "OpenSSH Server is not installed",
+			"ssh.server_not_running", "ssh.config_not_found",
+			"ssh.root_login_permitted", "ssh.password_auth_enabled")
 	}
-	s.checkPuTTY(ctx, &result)
+	s.checkPuTTY(ctx, r)
 
-	result.Status = types.StatusCompleted
-	return result
+	return r.finish()
 }
 
-// reportSSHDPresence records whether the OpenSSH server is present and, when a
-// service is registered, its state. The binary is a fallback for hosts where
-// the server is installed but the service is not registered. It reports whether
-// the configuration is worth reading.
-func (s *WindowsSSHChecker) reportSSHDPresence(ctx context.Context, result *types.AuditResult) bool {
-	const sshdBinaryPath = `C:\Windows\System32\OpenSSH\sshd.exe`
+// reportSSHDPresence concludes whether the OpenSSH server is running and
+// reports whether it is present at all, which is whether the configuration is
+// worth reading. The binary is a fallback for hosts where the server is
+// installed but the service is not registered.
+func (s *WindowsSSHChecker) reportSSHDPresence(ctx context.Context, r *report) bool {
+	const (
+		sshdBinaryPath = `C:\Windows\System32\OpenSSH\sshd.exe`
+		serviceRule    = "ssh.server_not_running"
+	)
 
 	output, err := exec.CommandContext(ctx, "powershell.exe", "-NoProfile", "-NonInteractive", "-Command",
 		"(Get-Service -Name sshd -ErrorAction SilentlyContinue).Status").Output()
 	if serviceStatus := strings.TrimSpace(string(output)); err == nil && serviceStatus != "" {
 		switch serviceStatus {
 		case "Running":
-			result.Details = append(result.Details,
-				fmt.Sprintf("%s OpenSSH Server is installed and running", types.SymbolOK))
+			r.pass(serviceRule)
 		case "Stopped":
-			result.Details = append(result.Details,
-				fmt.Sprintf("%s OpenSSH Server is installed but not running", types.SymbolWarning))
-			emitFinding(result, s.osCtx, "ssh.server_not_running")
+			r.observed(serviceRule, evidence(kindService, "sshd", "status", serviceStatus))
 		default:
-			result.Details = append(result.Details,
-				fmt.Sprintf("%s OpenSSH Server service state: %s", types.SymbolInfo, serviceStatus))
+			r.inconclusive(types.ResultUnknown, "OpenSSH Server service state is "+serviceStatus, serviceRule)
 		}
 		return true
 	}
 
 	if _, err := os.Stat(sshdBinaryPath); err == nil {
-		result.Details = append(result.Details,
-			fmt.Sprintf("%s OpenSSH Server binary found (service not detected)", types.SymbolInfo))
+		r.inconclusive(types.ResultNotChecked,
+			"OpenSSH Server binary found but no sshd service is registered", serviceRule)
 		return true
 	}
 
-	result.Details = append(result.Details,
-		fmt.Sprintf("%s OpenSSH Server is not installed", types.SymbolInfo))
 	return false
 }
 
-// checkPuTTY records PuTTY's presence and any saved sessions. Both are
-// informational context for an operator rather than findings.
-func (s *WindowsSSHChecker) checkPuTTY(ctx context.Context, result *types.AuditResult) {
+// checkPuTTY records PuTTY presence and any saved sessions. Both are context
+// for an operator rather than the outcome of a rule.
+func (s *WindowsSSHChecker) checkPuTTY(ctx context.Context, r *report) {
 	const (
 		puttyBinaryPath  = `C:\Program Files\PuTTY\putty.exe`
 		puttySessionsKey = `HKCU\Software\SimonTatham\PuTTY\Sessions`
@@ -102,19 +95,17 @@ func (s *WindowsSSHChecker) checkPuTTY(ctx context.Context, result *types.AuditR
 		return
 	}
 
-	result.Details = append(result.Details,
-		fmt.Sprintf("%s PuTTY is installed", types.SymbolInfo))
+	r.note(types.SymbolInfo, "PuTTY is installed")
 
 	output, err := exec.CommandContext(ctx, "reg", "query", puttySessionsKey).Output()
 	if err != nil || len(output) == 0 {
 		return
 	}
 
-	result.Details = append(result.Details,
-		fmt.Sprintf("%s PuTTY configured sessions:", types.SymbolInfo))
+	r.note(types.SymbolInfo, "PuTTY configured sessions:")
 	for _, session := range strings.Split(string(output), "\n") {
 		if name := strings.TrimSpace(session); name != "" {
-			result.Details = append(result.Details, fmt.Sprintf(" - %s", name))
+			r.lines(" - " + name)
 		}
 	}
 }

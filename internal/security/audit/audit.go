@@ -59,25 +59,22 @@ type (
 		EnrichmentRequested bool
 		EnrichmentError     error
 		Enrichment          *enrichment.Result
-		References          types.ReferenceExtraction
+		CWEs                []string
 	}
 
-	// Summary reports the outcome of a completed audit at both check and finding
-	// level. PassedChecks counts checks that reached StatusCompleted with zero
-	// findings; a WARNING or ERROR check is never counted as passed.
-	// SkippedChecks counts checks excluded via --skip-checks. Finding counts are
-	// broken down by severity so the analyst can assess exposure at a glance
-	// without reading individual check output. TotalFindings is the sum of all
-	// severity buckets.
+	// Summary counts a completed audit at three levels: checks by their
+	// aggregate result, the conditions those checks evaluated by result, and
+	// the findings, which are the conditions that failed, by severity. The
+	// result counts are what tell a check that determined something adverse
+	// from one that could not determine anything. Only results and
+	// severities that occurred are present in the maps.
 	Summary struct {
-		TotalChecks      int
-		PassedChecks     int
-		SkippedChecks    int
-		TotalFindings    int
-		CriticalFindings int
-		HighFindings     int
-		MediumFindings   int
-		LowFindings      int
+		TotalChecks     int                  `json:"total_checks" yaml:"total_checks"`
+		Checks          map[types.Result]int `json:"checks" yaml:"checks"`
+		TotalConditions int                  `json:"total_conditions" yaml:"total_conditions"`
+		Conditions      map[types.Result]int `json:"conditions" yaml:"conditions"`
+		TotalFindings   int                  `json:"total_findings" yaml:"total_findings"`
+		Findings        map[string]int       `json:"findings" yaml:"findings"`
 	}
 
 	// checkRunner pairs a check's canonical name with its execution function
@@ -126,7 +123,7 @@ func maxConcurrentChecks() int {
 
 // RunAudit executes the enabled checks concurrently, writing each result to
 // its check's canonical index so output order is independent of completion
-// order. A skipped check occupies its index with a StatusSkipped result.
+// order. A skipped check occupies its index with a notselected result.
 // ctx bounds the entire run -- checks and enrichment share its deadline --
 // and cancellation propagates into checker exec and filesystem work.
 func (sa *SecurityAuditor) RunAudit(ctx context.Context) (*Result, error) {
@@ -257,7 +254,8 @@ func skippedResult(r checkRunner) types.AuditResult {
 	return types.AuditResult{
 		Name:        r.display,
 		Description: r.description,
-		Status:      types.StatusSkipped,
+		Result:      types.ResultNotSelected,
+		Reason:      "excluded by --skip-checks",
 	}
 }
 
@@ -268,8 +266,8 @@ func skippedResult(r checkRunner) types.AuditResult {
 func (sa *SecurityAuditor) finalize(ctx context.Context, result *Result) {
 	result.EndTime = time.Now()
 	result.Duration = result.EndTime.Sub(result.StartTime)
-	result.Summary = sa.calculateSummary(result.Results)
-	result.References = aggregateReferences(result.Results)
+	result.Summary = summarize(result.Results)
+	result.CWEs = failedCWEs(result.Results)
 
 	if !sa.options.Enrich {
 		return
@@ -281,12 +279,12 @@ func (sa *SecurityAuditor) finalize(ctx context.Context, result *Result) {
 		return
 	}
 
-	if len(result.References.CWEs) == 0 {
+	if len(result.CWEs) == 0 {
 		return
 	}
 
 	req := enrichment.EnrichRequest{
-		CWEs:        result.References.CWEs,
+		CWEs:        result.CWEs,
 		MinSeverity: sa.options.MinSeverity,
 	}
 
@@ -298,58 +296,47 @@ func (sa *SecurityAuditor) finalize(ctx context.Context, result *Result) {
 	result.Enrichment = &enrichResult
 }
 
-func aggregateReferences(results []types.AuditResult) types.ReferenceExtraction {
-	var ext types.ReferenceExtraction
-	seen := make(map[string]struct{})
-	for i := range results {
-		sub := results[i].AllCWEReferences()
-		for _, id := range sub.CWEs {
-			if _, dup := seen[id]; dup {
+// failedCWEs returns the weaknesses the failed conditions map to,
+// deduplicated in order of first occurrence. Each comes from the typed field
+// its registry definition was validated to carry, so there is nothing to
+// parse and nothing that can fail.
+func failedCWEs(results []types.AuditResult) []string {
+	var cwes []string
+	seen := make(map[types.CWE]struct{})
+	for _, result := range results {
+		for _, condition := range result.Conditions {
+			if condition.Result != types.ResultFail || condition.Finding == nil || condition.Finding.CWE == "" {
 				continue
 			}
-			seen[id] = struct{}{}
-			ext.CWEs = append(ext.CWEs, id)
+			if _, dup := seen[condition.Finding.CWE]; dup {
+				continue
+			}
+			seen[condition.Finding.CWE] = struct{}{}
+			cwes = append(cwes, string(condition.Finding.CWE))
 		}
-		ext.Errors = append(ext.Errors, sub.Errors...)
 	}
-	return ext
+	return cwes
 }
 
-// calculateSummary iterates all check results and produces a Summary with
-// per-severity finding counts. A check is counted as passed only when it
-// completes with zero findings. ERROR status checks are not counted as
-// passed or skipped -- their findings still contribute to severity totals.
-// Severity classification uses the canonical SeverityX constants from the
-// types package so the bucketing is consistent with registry and enrichment
-// output.
-func (sa *SecurityAuditor) calculateSummary(results []types.AuditResult) Summary {
+// summarize counts checks and conditions by result and findings by severity.
+// Everything derives from the conditions the checks recorded, so a check is
+// never counted as passed for the mere absence of findings.
+func summarize(results []types.AuditResult) Summary {
 	summary := Summary{
 		TotalChecks: len(results),
+		Checks:      make(map[types.Result]int),
+		Conditions:  make(map[types.Result]int),
+		Findings:    make(map[string]int),
 	}
 
 	for _, result := range results {
-		switch {
-		case result.Status == types.StatusError:
-			// ERROR checks are neither passed nor skipped --
-			// their findings still count toward severity totals
-		case result.Status == types.StatusSkipped:
-			summary.SkippedChecks++
-			continue
-		case result.Status == types.StatusCompleted && len(result.Findings) == 0:
-			summary.PassedChecks++
-		}
-
-		for _, finding := range result.Findings {
-			summary.TotalFindings++
-			switch strings.ToUpper(finding.Severity) {
-			case types.SeverityCritical:
-				summary.CriticalFindings++
-			case types.SeverityHigh:
-				summary.HighFindings++
-			case types.SeverityMedium:
-				summary.MediumFindings++
-			case types.SeverityLow:
-				summary.LowFindings++
+		summary.Checks[result.Result]++
+		for _, condition := range result.Conditions {
+			summary.TotalConditions++
+			summary.Conditions[condition.Result]++
+			if condition.Result == types.ResultFail && condition.Finding != nil {
+				summary.TotalFindings++
+				summary.Findings[strings.ToUpper(types.EffectiveSeverity(*condition.Finding))]++
 			}
 		}
 	}
@@ -357,9 +344,10 @@ func (sa *SecurityAuditor) calculateSummary(results []types.AuditResult) Summary
 }
 
 // timeCheck runs fn and records its wall-clock span. A check whose context
-// expired before fn returned is marked StatusError: its output reflects an
-// interrupted run and cannot be reported as a completed check. The second
-// return value reports whether the check was interrupted.
+// expired before fn returned is reported as an error whatever its conditions
+// concluded: its output reflects an interrupted run and cannot stand as a
+// completed evaluation. The second return value reports whether the check
+// was interrupted.
 func timeCheck(ctx context.Context, fn func(context.Context) types.AuditResult) (types.AuditResult, bool) {
 	start := time.Now()
 	result := fn(ctx)
@@ -369,10 +357,8 @@ func timeCheck(ctx context.Context, fn func(context.Context) types.AuditResult) 
 	result.Duration = end.Sub(start)
 
 	if ctx.Err() != nil {
-		result.Status = types.StatusError
-		result.Description = fmt.Sprintf("Check did not complete: %v", ctx.Err())
-		result.Details = append(result.Details,
-			fmt.Sprintf("%s Check interrupted: %v", types.SymbolError, ctx.Err()))
+		result.Result = types.ResultError
+		result.Reason = fmt.Sprintf("check did not complete: %v", ctx.Err())
 		return result, true
 	}
 	return result, false

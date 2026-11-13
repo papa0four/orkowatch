@@ -120,7 +120,7 @@ With no check flags given, all checks run by default.
 | `--skip-checks` | Comma-separated checks to skip (ssh, firewall, users, permissions) | — |
 | `-o, --output` | Output format: text, json, yaml | text |
 | `--report-file` | Save report to directory; filename is generated automatically | — |
-| `--min-severity` | Minimum severity to report: LOW, MEDIUM, HIGH, CRITICAL | LOW |
+| `--min-severity` | Minimum severity to report: NONE, LOW, MEDIUM, HIGH, CRITICAL | NONE |
 | `--timeout` | Maximum audit duration | 10m |
 | `--enrich, -e` | Query external sources to annotate findings with CVEs mapped to referenced CWEs | false |
 | `--allow-elevated-write` | Permit an elevated write outside the allowlisted directories or into a directory other users control | false |
@@ -140,7 +140,7 @@ individual audit checks within the audit module, or both together.
 | `--skip-checks` | Comma-separated audit checks to skip (ssh, firewall, users, permissions); composes with `--skip-modules` | — |
 | `-o, --output` | Output format: text, json, yaml | text |
 | `--report-file` | Save report to directory; filename is generated automatically | — |
-| `--min-severity` | Minimum severity to report: LOW, MEDIUM, HIGH, CRITICAL | LOW |
+| `--min-severity` | Minimum severity to report: NONE, LOW, MEDIUM, HIGH, CRITICAL | NONE |
 | `--timeout` | Maximum time to run all scans | 30m |
 | `--enrich, -e` | Query external sources to annotate findings with CVEs mapped to referenced CWEs | false |
 | `--allow-elevated-write` | Permit an elevated write outside the allowlisted directories or into a directory other users control | false |
@@ -157,19 +157,36 @@ owatch all --skip-checks firewall,users,permissions
 ## Skips and Partial Runs
 
 Skipping is recorded, not hidden. A check excluded with `--skip-checks` appears in
-the report with status `SKIPPED` and is counted in the summary's `Skipped` total,
-so a report always accounts for every check in the canonical set. Under `owatch
-all`, a module excluded with `--skip-modules` is likewise reported in the `Modules`
-block as `SKIPPED` rather than being silently absent.
+the report with result `notselected` and is counted under that result in the
+summary, so a report always accounts for every check in the canonical set. Under
+`owatch all`, a module excluded with `--skip-modules` is likewise reported in the
+`Modules` block as `notselected` rather than being silently absent.
 
 Skipping every check, or every module, is rejected rather than producing an empty
 report. Use `--skip-modules audit` to omit the audit module entirely.
 
 A run that exceeds `--timeout` prints the results collected so far, marks the checks
-that did not finish as `ERROR`, and then reports the timeout naming which checks to
-exclude or allow more time for. A check that completes but could not read part of the
-filesystem reports `WARNING` with the number of unreadable paths, rather than
-reporting success on partial coverage.
+that did not finish as `error`, and then reports the timeout naming which checks to
+exclude or allow more time for. A rule that could not be evaluated in full, such as
+a filesystem scan that could not read some paths, reports `error` with the reason
+rather than `pass` on partial coverage.
+
+## Results and Evidence
+
+Every check reports the rules it evaluated as conditions, each with one of the
+XCCDF 1.2 result values: `pass`, `fail`, `error`, `unknown`, `notapplicable`,
+`notchecked`, `notselected` or `informational`. A result other than `pass` or
+`fail` always carries a reason. `error` means the evaluation could not complete,
+typically for want of privilege; `unknown` means a tool's output was not
+recognized. A check's own result is the aggregate of its conditions.
+
+A finding is a condition that failed. It carries the rule key, the registry
+description, and the evidence that caused it: the files, accounts or settings
+the rule failed on, each with the facts observed about it. In JSON and YAML the
+evidence sits inside its condition. A finding below `--min-severity` is left out
+together with its evidence; conditions that are not findings are always shown.
+
+The summary counts checks and conditions by result and findings by severity.
 
 ## Report Output
 

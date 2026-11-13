@@ -52,12 +52,14 @@ type (
 		Errors        []string
 	}
 
-	// moduleRun records one module's outcome: COMPLETED, SKIPPED, or ERROR.
-	// A skipped or errored module keeps its row rather than vanishing from
-	// the run record.
+	// moduleRun records one module's outcome in the result vocabulary the
+	// audit uses, with the reason whenever the result is neither pass nor
+	// fail. A skipped or errored module keeps its row rather than vanishing
+	// from the run record.
 	moduleRun struct {
-		Name   string `json:"name" yaml:"name"`
-		Status string `json:"status" yaml:"status"`
+		Name   string       `json:"name" yaml:"name"`
+		Result types.Result `json:"result" yaml:"result"`
+		Reason string       `json:"reason,omitempty" yaml:"reason,omitempty"`
 	}
 
 	// allResult is the typed serialization structure for all command JSON and
@@ -239,36 +241,36 @@ func (c *allCmd) runAllScans(cmd *cobra.Command, args []string) error {
 	}
 
 	if c.isModuleSkipped("osinfo") {
-		result.Modules = append(result.Modules, moduleRun{Name: "osinfo", Status: types.StatusSkipped})
+		result.Modules = append(result.Modules, skippedModule("osinfo"))
 	} else if osInfo, err := runOSFingerprint(verboseHeaders); err != nil {
 		result.Errors = append(result.Errors,
 			fmt.Sprintf("OS fingerprint error: %v", err))
-		result.Modules = append(result.Modules, moduleRun{Name: "osinfo", Status: types.StatusError})
+		result.Modules = append(result.Modules, erroredModule("osinfo", err))
 	} else {
 		result.OSInfo = osInfo
-		result.Modules = append(result.Modules, moduleRun{Name: "osinfo", Status: types.StatusCompleted})
+		result.Modules = append(result.Modules, inventoryModule("osinfo"))
 	}
 
 	if c.isModuleSkipped("software") {
-		result.Modules = append(result.Modules, moduleRun{Name: "software", Status: types.StatusSkipped})
+		result.Modules = append(result.Modules, skippedModule("software"))
 	} else if software, err := runSoftwareInventory(ctx, verboseHeaders); err != nil {
 		result.Errors = append(result.Errors,
 			fmt.Sprintf("Software inventory error: %v", err))
-		result.Modules = append(result.Modules, moduleRun{Name: "software", Status: types.StatusError})
+		result.Modules = append(result.Modules, erroredModule("software", err))
 	} else {
 		result.Software = software
-		result.Modules = append(result.Modules, moduleRun{Name: "software", Status: types.StatusCompleted})
+		result.Modules = append(result.Modules, inventoryModule("software"))
 	}
 
 	if c.isModuleSkipped("audit") {
-		result.Modules = append(result.Modules, moduleRun{Name: "audit", Status: types.StatusSkipped})
+		result.Modules = append(result.Modules, skippedModule("audit"))
 	} else if securityResult, err := c.runSecurityAuditModule(ctx, mask, result.OSInfo, verboseHeaders); err != nil {
 		result.Errors = append(result.Errors,
 			fmt.Sprintf("Security audit error: %v", err))
-		result.Modules = append(result.Modules, moduleRun{Name: "audit", Status: types.StatusError})
+		result.Modules = append(result.Modules, erroredModule("audit", err))
 	} else {
 		result.SecurityAudit = securityResult
-		result.Modules = append(result.Modules, moduleRun{Name: "audit", Status: types.StatusCompleted})
+		result.Modules = append(result.Modules, auditModule(securityResult))
 	}
 
 	result.Duration = time.Since(startTime)
@@ -280,6 +282,34 @@ func (c *allCmd) runAllScans(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("scan timed out after %v; %s", c.timeout, incompleteDetail(result))
 	}
 	return nil
+}
+
+// skippedModule is the row for a module the operator excluded.
+func skippedModule(name string) moduleRun {
+	return moduleRun{Name: name, Result: types.ResultNotSelected, Reason: "excluded by --skip-modules"}
+}
+
+// erroredModule is the row for a module that could not complete.
+func erroredModule(name string, err error) moduleRun {
+	return moduleRun{Name: name, Result: types.ResultError, Reason: err.Error()}
+}
+
+// inventoryModule is the row for a module that enumerates facts about the
+// host. It produces no compliance judgment, so it can neither pass nor fail.
+func inventoryModule(name string) moduleRun {
+	return moduleRun{Name: name, Result: types.ResultInformational, Reason: "inventory, not a compliance judgment"}
+}
+
+// auditModule is the row for the audit, whose result is the aggregate of the
+// checks it ran: the audit asserts no outcome of its own.
+func auditModule(result *audit.Result) moduleRun {
+	aggregate := types.AuditResult{}
+	for _, check := range result.Results {
+		aggregate.Conditions = append(aggregate.Conditions,
+			types.Condition{Result: check.Result, Reason: check.Reason})
+	}
+	aggregate.Conclude()
+	return moduleRun{Name: "audit", Result: aggregate.Result, Reason: aggregate.Reason}
 }
 
 func runOSFingerprint(verboseHeaders bool) (*osfingerprint.OSInfo, error) {
@@ -297,7 +327,7 @@ func incompleteDetail(result *ScanResult) string {
 
 	var modules []string
 	for _, m := range result.Modules {
-		if m.Status == types.StatusError {
+		if m.Result == types.ResultError {
 			modules = append(modules, m.Name)
 		}
 	}
@@ -366,7 +396,7 @@ func (c *allCmd) renderAllText(w io.Writer, result *ScanResult) error {
 	if len(result.Modules) > 0 {
 		ew.Printf("Modules:\n")
 		for _, m := range result.Modules {
-			ew.Printf("  %-10s %s\n", m.Name, m.Status)
+			ew.Printf("  %-10s %s\n", m.Name, strings.ToUpper(string(m.Result)))
 		}
 		ew.Printf("\n")
 	}

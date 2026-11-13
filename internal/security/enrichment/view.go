@@ -91,19 +91,6 @@ func Failures(res *Result) []FailureView {
 	return out
 }
 
-// ReferenceErrorStrings converts reference parsing errors into strings for
-// JSON and YAML output
-func ReferenceErrorStrings(errs []error) []string {
-	if len(errs) == 0 {
-		return nil
-	}
-	out := make([]string, 0, len(errs))
-	for _, e := range errs {
-		out = append(out, e.Error())
-	}
-	return out
-}
-
 // sortedFailureKeys returns the failure map's CWE keys in ascending order,
 // giving both the text block and the serialization converters one shared
 // definition of failure ordering
