@@ -123,7 +123,7 @@ With no check flags given, all checks run by default.
 | `--min-severity` | Minimum severity to report: LOW, MEDIUM, HIGH, CRITICAL | LOW |
 | `--timeout` | Maximum audit duration | 10m |
 | `--enrich, -e` | Query external sources to annotate findings with CVEs mapped to referenced CWEs | false |
-| `--allow-elevated-write` | Permit an elevated write outside the allowlisted directories | false |
+| `--allow-elevated-write` | Permit an elevated write outside the allowlisted directories or into a directory other users control | false |
 | `-v, --verbose` | Show progress while checks run; does not change report content | false |
 
 ## `all` Flags (`owatch all`)
@@ -143,7 +143,7 @@ individual audit checks within the audit module, or both together.
 | `--min-severity` | Minimum severity to report: LOW, MEDIUM, HIGH, CRITICAL | LOW |
 | `--timeout` | Maximum time to run all scans | 30m |
 | `--enrich, -e` | Query external sources to annotate findings with CVEs mapped to referenced CWEs | false |
-| `--allow-elevated-write` | Permit an elevated write outside the allowlisted directories | false |
+| `--allow-elevated-write` | Permit an elevated write outside the allowlisted directories or into a directory other users control | false |
 | `-v, --verbose` | Show module and check progress while scanning; does not change report content | false |
 
 There is no individual audit check flag (`--ssh`, `--fwall`, etc.) on `all` —

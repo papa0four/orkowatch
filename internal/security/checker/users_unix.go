@@ -24,16 +24,19 @@ type (
 	// it gates the no-password findings and surfaces a diagnostic when the
 	// check runs without sufficient privileges. adminLookupErr is set when no
 	// privileged group could be read at all; analyzeUsers reports that rather
-	// than presenting every account as unprivileged.
+	// than presenting every account as unprivileged. readWarnings holds what
+	// else the reader could not see, so reduced coverage is stated in the
+	// report rather than read as a complete account list.
 	UnixUserChecker struct {
 		checkIdentity
 		shadowReadable bool
 		adminLookupErr error
+		readWarnings   []string
 	}
 
 	// userAccount is a parsed account from the platform's user database.
-	// isSystem is true when the UID falls below the platform minimum for
-	// regular accounts. password and state stay at their unknown zero values
+	// isSystem is true when the UID falls outside the range the platform
+	// assigns to regular accounts. password and state stay at their unknown zero values
 	// unless the reader could inspect the credential store or the account's
 	// directory record, so a reader that cannot see either never reports an
 	// account as credential-less or judges a disabled one as live.
@@ -75,8 +78,11 @@ const (
 	accountDisabled
 )
 
-// rootUID is the superuser identity on every POSIX platform.
-const rootUID = 0
+// rootUID and rootGID are the superuser identity on every POSIX platform.
+const (
+	rootUID = 0
+	rootGID = 0
+)
 
 // NewUserChecker returns the user account checker for Unix-like hosts.
 func NewUserChecker(osCtx registry.OSContext) *UnixUserChecker {
@@ -148,6 +154,11 @@ func (u *UnixUserChecker) analyzeUsers(users []userAccount, result *types.AuditR
 		result.Details = append(result.Details,
 			fmt.Sprintf("%s Privileged group membership could not be determined; accounts above are not marked administrative: %v",
 				types.SymbolWarning, u.adminLookupErr))
+	}
+
+	for _, warning := range u.readWarnings {
+		result.Details = append(result.Details,
+			fmt.Sprintf("%s %s", types.SymbolWarning, warning))
 	}
 
 	appendAccountSection(result, "Administrative Users:", types.SymbolWarning, adminUsers)

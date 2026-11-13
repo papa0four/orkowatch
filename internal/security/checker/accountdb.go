@@ -11,6 +11,8 @@ package checker
 import (
 	"bytes"
 	"context"
+	"fmt"
+	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -59,6 +61,28 @@ func parsePasswdEntry(line string) (userAccount, bool) {
 		homeDir:  fields[passwdFieldHomeDir],
 		shell:    fields[passwdFieldShell],
 	}, true
+}
+
+// parseAccounts parses passwd-format data, one account per line, skipping
+// whatever parsePasswdEntry rejects. The local file and getent passwd both
+// produce this format.
+func parseAccounts(data []byte) []userAccount {
+	var accounts []userAccount
+	for _, line := range strings.Split(string(data), "\n") {
+		if account, ok := parsePasswdEntry(line); ok {
+			accounts = append(accounts, account)
+		}
+	}
+	return accounts
+}
+
+// localAccounts returns the accounts the local passwd file declares.
+func localAccounts() ([]userAccount, error) {
+	data, err := os.ReadFile(unixPasswdFile)
+	if err != nil {
+		return nil, fmt.Errorf("read %s: %w", unixPasswdFile, err)
+	}
+	return parseAccounts(data), nil
 }
 
 // nameServiceKnows asks the name service switch about a single identifier.

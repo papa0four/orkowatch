@@ -21,8 +21,9 @@ type (
 
 	// Options carries caller decisions that affect write policy.
 	Options struct {
-		// AllowElevatedWrite is set when --allow-elevated-write is passed
-		// and, where a TTY exists, confirmed the prompt.
+		// AllowElevatedWrite is set when --allow-elevated-write is passed.
+		// The flag is the operator's whole confirmation; nothing prompts, so
+		// an unattended run behaves the same as an interactive one.
 		AllowElevatedWrite bool
 	}
 )
@@ -52,8 +53,7 @@ var (
 	ErrParentMissing       = errors.New("destination directory does not exist")
 	ErrRefusedLocation     = errors.New("destination is a protected location")
 	ErrElevatedWriteDenied = errors.New("elevated write outside allowlisted roots requires explicit confirmation")
-	ErrNotRegularFile      = errors.New("destination exists and is not a regular file")
-	ErrElevatedExposedDir  = errors.New("elevated write refused: destination directory is writable by other users")
+	ErrElevatedExposedDir  = errors.New("elevated write refused: destination directory is exposed to other users")
 
 	// formats is the canonical ordered format set paired with its filename
 	// extension. ParseFormat, FormatNames, and Extension all derive from it,
@@ -114,20 +114,23 @@ func Write(path string, data []byte, opts Options) error {
 
 // guardElevatedWrite applies the refusals that exist only because the process
 // is privileged: a root write must not land in a directory other users can
-// control, and outside the allowlisted roots it needs the operator's explicit
-// confirmation.
+// control, nor outside the allowlisted roots. Both are the operator's to
+// override, because a guard with no way to say yes makes a deliberately
+// shared destination impossible; the refusal names what failed so that the
+// override is an informed one.
 func guardElevatedWrite(target, realParent string, opts Options) error {
-	exposed, err := parentWritableByOthers(realParent)
-	if err != nil {
-		return fmt.Errorf("inspect destination directory: %w", err)
-	}
-	if exposed {
-		return fmt.Errorf("%w: %s", ErrElevatedExposedDir, realParent)
-	}
-
 	if opts.AllowElevatedWrite {
 		return nil
 	}
+
+	reason, err := exposure(realParent)
+	if err != nil {
+		return fmt.Errorf("inspect destination directory: %w", err)
+	}
+	if reason != "" {
+		return fmt.Errorf("%w: %s is %s", ErrElevatedExposedDir, realParent, reason)
+	}
+
 	allowed, err := withinAllowlist(target)
 	if err != nil {
 		return err

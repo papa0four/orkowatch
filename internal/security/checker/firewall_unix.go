@@ -26,15 +26,22 @@ type (
 	// producing a clean result the host does not support.
 	firewallState uint8
 
-	// firewallTool is one firewall manager: the command that reports
-	// whether it is enforcing, the parser for that report, the finding
-	// emitted when it is installed but not enforcing, and how to list the
-	// rules it holds. rulesArgs is empty for a manager whose state query
-	// already lists them, in which case the same output is parsed twice.
-	// disabledKey is empty on platforms with no definition for the
+	// firewallBackend is the packet filter a manager programs. Two managers
+	// that program the same backend are two views of one enforcement point
+	// rather than two firewalls, which is why the host is judged by distinct
+	// backends rather than by how many commands answered.
+	firewallBackend string
+
+	// firewallTool is one firewall manager: the backend it programs, the
+	// command that reports whether it is enforcing, the parser for that
+	// report, the finding emitted when it is installed but not enforcing, and
+	// how to list the rules it holds. rulesArgs is empty for a manager whose
+	// state query already lists them, in which case the same output is parsed
+	// twice. disabledKey is empty on platforms with no definition for the
 	// condition, in which case the state is reported and no finding fires.
 	firewallTool struct {
 		name        string
+		backend     firewallBackend
 		stateArgs   []string
 		parseState  func([]byte) firewallState
 		rulesArgs   []string
@@ -47,6 +54,15 @@ const (
 	firewallUnknown firewallState = iota
 	firewallEnforcing
 	firewallDisabled
+)
+
+// The packet filters a manager can program. ufw(8) manages a netfilter
+// firewall and iptables(8) sets up the kernel's packet filter rules, so a host
+// running both has one enforcement point reported by two commands; firewalld
+// is the same relationship on RHEL-family hosts.
+const (
+	backendNetfilter firewallBackend = "netfilter"
+	backendPF        firewallBackend = "pf"
 )
 
 // NewFirewallChecker returns the firewall checker for Unix-like hosts.
@@ -66,6 +82,7 @@ func unixFirewallTools() []firewallTool {
 	return []firewallTool{
 		{
 			name:        "iptables",
+			backend:     backendNetfilter,
 			stateArgs:   []string{"iptables", "-S"},
 			parseState:  parseIptablesState,
 			parseRules:  parseIptablesRules,
@@ -73,6 +90,7 @@ func unixFirewallTools() []firewallTool {
 		},
 		{
 			name:        "ufw",
+			backend:     backendNetfilter,
 			stateArgs:   []string{"ufw", "status", "verbose"},
 			parseState:  parseUfwState,
 			parseRules:  parseUfwRules,
@@ -80,6 +98,7 @@ func unixFirewallTools() []firewallTool {
 		},
 		{
 			name:        "firewalld",
+			backend:     backendNetfilter,
 			stateArgs:   []string{"firewall-cmd", "--state"},
 			parseState:  parseFirewalldState,
 			rulesArgs:   []string{"firewall-cmd", "--list-all"},
@@ -88,6 +107,7 @@ func unixFirewallTools() []firewallTool {
 		},
 		{
 			name:       "pf",
+			backend:    backendPF,
 			stateArgs:  []string{"pfctl", "-si"},
 			parseState: parsePfState,
 			rulesArgs:  []string{"pfctl", "-sr"},
@@ -97,7 +117,10 @@ func unixFirewallTools() []firewallTool {
 }
 
 // Check implements FirewallChecker interface for Unix systems. A manager is
-// counted as protecting the host only when it reports that it is enforcing.
+// counted as protecting the host only when it reports that it is enforcing,
+// and the host is judged by the distinct backends those managers program
+// rather than by how many of them answered, so ufw reporting active over the
+// same netfilter rule set iptables reports on is one enforcing firewall.
 // A query that fails, or output no parser recognizes, is counted as
 // undetermined and reported as such: it is not evidence of protection and
 // not evidence of its absence.
@@ -110,7 +133,8 @@ func (f *UnixFirewallChecker) Check(ctx context.Context) types.AuditResult {
 		Findings:    make([]types.Finding, 0),
 	}
 
-	var enforcing, undetermined int
+	enforcing := make(map[firewallBackend]struct{})
+	var undetermined int
 	seen := make(map[registry.FindingKey]struct{})
 
 	for _, tool := range unixFirewallTools() {
@@ -119,19 +143,19 @@ func (f *UnixFirewallChecker) Check(ctx context.Context) types.AuditResult {
 		}
 		switch f.reportTool(ctx, tool, &result, seen) {
 		case firewallEnforcing:
-			enforcing++
+			enforcing[tool.backend] = struct{}{}
 		case firewallUnknown:
 			undetermined++
 		}
 	}
 
 	switch {
-	case enforcing > 0:
+	case len(enforcing) > 0:
 		result.Status = types.StatusCompleted
-		if enforcing > 1 {
+		if len(enforcing) > 1 {
 			result.Details = append(result.Details,
-				fmt.Sprintf("%s NOTE: Multiple enforcing firewalls detected - verify configurations do not conflict",
-					types.SymbolInfo))
+				fmt.Sprintf("%s NOTE: %d independent packet filters are enforcing - verify their rule sets do not conflict",
+					types.SymbolInfo, len(enforcing)))
 		}
 	case undetermined > 0:
 		result.Status = types.StatusWarning
@@ -141,6 +165,7 @@ func (f *UnixFirewallChecker) Check(ctx context.Context) types.AuditResult {
 				types.SymbolInfo))
 	default:
 		result.Status = types.StatusWarning
+		result.Description = "No firewall is enforcing on this host"
 		result.Details = append(result.Details,
 			fmt.Sprintf("%s WARNING: No enforcing firewall detected", types.SymbolWarning))
 		emitFindingOnce(&result, f.osCtx, "firewall.no_active_manager", seen)

@@ -549,14 +549,14 @@ permissions.path_exceeds_expected_mode:
     - "https://cwe.mitre.org/data/definitions/732.html"
 
 permissions.world_writable_file:
-  title: "World-writable file found in monitored path"
+  title: "World-writable file found on the scanned filesystem"
   severity: "HIGH"
   cvss_score: 7.8
   cvss_vector: "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H"
   cwe: "CWE-732"
   description: >
     A file with world-writable permissions (mode includes 0002) was found
-    within a monitored directory. World-writable files can be modified by
+    during the filesystem scan. World-writable files can be modified by
     any local user regardless of ownership, enabling content injection,
     configuration tampering, or script replacement.
   impact: >
