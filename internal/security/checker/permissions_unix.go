@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 
@@ -82,19 +83,34 @@ type (
 
 	// fsScan is the outcome of one filesystem traversal.
 	fsScan struct {
-		suid       []string
-		worldWrite []string
-		unowned    []string
+		suid       []scanEntry
+		worldWrite []scanEntry
+		unowned    []scanEntry
 		unreadable int
 	}
 
+	// scanEntry is one entry the traversal recorded, kept as the facts that
+	// were observed rather than as report text so that rendering happens in
+	// one place.
+	scanEntry struct {
+		path       string
+		mode       fs.FileMode
+		uid        uint32
+		gid        uint32
+		userKnown  bool
+		groupKnown bool
+		reach      reachability
+	}
+
 	// fsWalk carries the state one filesystem traversal accumulates. rootDev
-	// bounds the walk to the filesystem the root lives on, and reach is the
-	// chain of directories currently open above the entry being visited.
+	// bounds the walk to the filesystem the root lives on, reach is the chain
+	// of directories currently open above the entry being visited, and denied
+	// is the platform's judgment of a directory whose mode bits deny traversal.
 	fsWalk struct {
 		ids     *identityCache
 		rootDev uint64
 		reach   []reachFrame
+		denied  deniedJudge
 		scan    fsScan
 	}
 
@@ -109,7 +125,8 @@ type (
 
 	// reachability is whether a principal other than root can traverse to an
 	// entry. The zero value is reachNonRoot so an entry the walk failed to
-	// judge is over-reported rather than quietly excused.
+	// judge is over-reported rather than quietly excused. Values are ordered
+	// from widest to narrowest, so the narrower of two is the greater.
 	reachability uint8
 
 	// identityKind selects which account database a lookup consults.
@@ -124,9 +141,19 @@ const (
 	// only adds noise.
 	reachNonRoot reachability = iota
 
+	// reachUnsupported means mode bits deny traversal on a platform whose
+	// access control lists this checker does not read yet, so nothing
+	// narrower than reachable is asserted there.
+	reachUnsupported
+
+	// reachUndetermined means mode bits deny traversal and what could grant
+	// it anyway, an access control list or membership of root's group, could
+	// not be read or enumerated.
+	reachUndetermined
+
 	// reachRootOnly means no principal other than root can traverse the
-	// chain, judged from mode bits alone. Whether a POSIX ACL grants what the
-	// bits withhold is not asked yet.
+	// chain: mode bits deny it, no access control list grants it, and root's
+	// group has no other member.
 	reachRootOnly
 )
 
@@ -439,7 +466,7 @@ func (w *fsWalk) visit(ctx context.Context, path string, d fs.DirEntry, err erro
 
 	reach := w.reachOf(path)
 	if d.IsDir() {
-		w.descend(path, reach, info.Mode(), uid, gid)
+		w.descend(ctx, path, reach, info.Mode(), uid, gid)
 	}
 
 	w.classify(ctx, path, info, uid, gid, reach)
@@ -451,20 +478,28 @@ func (w *fsWalk) visit(ctx context.Context, path string, d fs.DirEntry, err erro
 // entry.
 func (w *fsWalk) classify(ctx context.Context, path string, info fs.FileInfo, uid, gid uint32, reach reachability) {
 	mode := info.Mode()
-	label := reach.suffix()
+	userKnown, groupKnown := w.ids.resolution(ctx, uid, gid)
+	entry := scanEntry{
+		path:       path,
+		mode:       mode,
+		uid:        uid,
+		gid:        gid,
+		userKnown:  userKnown,
+		groupKnown: groupKnown,
+		reach:      reach,
+	}
 
 	if mode.IsRegular() {
 		if mode&(os.ModeSetuid|os.ModeSetgid) != 0 {
-			w.scan.suid = append(w.scan.suid, describeEntry(path, info, uid, gid)+label)
+			w.scan.suid = append(w.scan.suid, entry)
 		}
 		if mode.Perm()&bitWorldWritable != 0 {
-			w.scan.worldWrite = append(w.scan.worldWrite, describeEntry(path, info, uid, gid)+label)
+			w.scan.worldWrite = append(w.scan.worldWrite, entry)
 		}
 	}
 
-	if userKnown, groupKnown := w.ids.resolution(ctx, uid, gid); !userKnown || !groupKnown {
-		w.scan.unowned = append(w.scan.unowned,
-			describeEntry(path, info, uid, gid)+unresolved(userKnown, groupKnown)+label)
+	if !userKnown || !groupKnown {
+		w.scan.unowned = append(w.scan.unowned, entry)
 	}
 }
 
@@ -484,20 +519,25 @@ func (w *fsWalk) reachOf(path string) reachability {
 
 // descend records what dir confers on its contents. A directory only root can
 // traverse makes everything beneath it root-only regardless of the modes those
-// entries carry, so reachability only ever narrows on the way down.
-func (w *fsWalk) descend(dir string, parent reachability, mode fs.FileMode, uid, gid uint32) {
+// entries carry, so reachability only ever narrows on the way down. The
+// platform is asked only about a directory mode bits deny and whose chain is
+// not already root-only, which keeps that cost off every other directory.
+func (w *fsWalk) descend(ctx context.Context, dir string, parent reachability, mode fs.FileMode, uid, gid uint32) {
 	conferred := parent
-	if !traversableByNonRoot(mode, uid, gid) {
-		conferred = reachRootOnly
+	if parent != reachRootOnly && !traversableByNonRoot(mode, uid, gid) {
+		conferred = max(parent, w.denied.reach(ctx, dir, mode))
 	}
 	w.reach = append(w.reach, reachFrame{dir: dir, reach: conferred})
 }
 
-// traversableByNonRoot reports whether any principal other than root can
-// traverse a directory with this mode and ownership. It over-approximates
-// deliberately: group-execute counts whenever the group is not root's, without
-// asking whether that group has members, because calling a root-only path
-// reachable only adds noise while the reverse hides an exposure.
+// traversableByNonRoot reports whether mode bits alone let a principal other
+// than root traverse a directory with this mode and ownership. It
+// over-approximates deliberately: group-execute counts whenever the group is
+// not root's, without asking whether that group has members, because calling
+// a root-only path reachable only adds noise while the reverse hides an
+// exposure. A false answer is not yet a verdict: deniedJudge decides what the
+// bits cannot, including the case left open here, group-execute held by root's
+// own group.
 func traversableByNonRoot(mode fs.FileMode, uid, gid uint32) bool {
 	perm := mode.Perm()
 	switch {
@@ -512,15 +552,22 @@ func traversableByNonRoot(mode fs.FileMode, uid, gid uint32) bool {
 	}
 }
 
-// suffix labels an entry no non-root principal can reach, so an operator can
-// tell an exposure from an entry only root could ever have touched. A
-// reachable entry carries no label, because the common case should not add
-// noise to every line.
+// suffix labels an entry whose chain mode bits deny to non-root principals, so
+// an operator can tell an exposure from an entry only root could ever have
+// touched, and either from one the checker could not decide. A reachable entry
+// carries no label, because the common case should not add noise to every
+// line.
 func (r reachability) suffix() string {
-	if r == reachRootOnly {
+	switch r {
+	case reachRootOnly:
 		return " (root-only path)"
+	case reachUndetermined:
+		return " (reachability undetermined)"
+	case reachUnsupported:
+		return " (reachability not evaluated on this platform)"
+	default:
+		return ""
 	}
-	return ""
 }
 
 // fileIdentity returns the numeric owner, group, and device of info, and
@@ -533,11 +580,26 @@ func fileIdentity(info fs.FileInfo) (uid, gid uint32, dev uint64, ok bool) {
 	return st.Uid, st.Gid, uint64(st.Dev), true
 }
 
-// describeEntry renders one entry with its mode and numeric owner and group.
-// The identifiers stay numeric deliberately: when one of them failed to
-// resolve it is the value that failed, and a name would be misleading.
-func describeEntry(path string, info fs.FileInfo, uid, gid uint32) string {
-	return fmt.Sprintf("%s uid=%d gid=%d %s", formatMode(info.Mode()), uid, gid, path)
+// String renders the entry as one report line: mode, numeric owner and group,
+// path, then what failed to resolve and how far the entry can be reached. The
+// identifiers stay numeric deliberately: when one of them failed to resolve it
+// is the value that failed, and a name would be misleading.
+func (e scanEntry) String() string {
+	return fmt.Sprintf("%s uid=%d gid=%d %s%s%s",
+		formatMode(e.mode), e.uid, e.gid, quoteHostText(e.path), e.unresolved(), e.reach.suffix())
+}
+
+// quoteHostText returns text read from the host in a form that occupies
+// exactly one report line. A file name may hold any byte but NUL and the path
+// separator, so one carrying a newline or a terminal escape sequence would
+// otherwise forge report lines or rewrite the operator's screen. Text made
+// only of printable characters is returned unchanged; anything else comes back
+// as a quoted Go string literal, whose quotes mark it as escaped.
+func quoteHostText(text string) string {
+	if quoted := strconv.Quote(text); quoted != `"`+text+`"` {
+		return quoted
+	}
+	return text
 }
 
 // unresolved names which identifiers the name service could not account for,
@@ -546,13 +608,13 @@ func describeEntry(path string, info fs.FileInfo, uid, gid uint32) string {
 // group both resolved is named by neither, rather than by whichever branch
 // happens to fall through: the label states what was checked and found, and
 // never asserts a failure it did not observe.
-func unresolved(userKnown, groupKnown bool) string {
+func (e scanEntry) unresolved() string {
 	switch {
-	case !userKnown && !groupKnown:
+	case !e.userKnown && !e.groupKnown:
 		return " (user and group unresolved)"
-	case !userKnown:
+	case !e.userKnown:
 		return " (user unresolved)"
-	case !groupKnown:
+	case !e.groupKnown:
 		return " (group unresolved)"
 	default:
 		return ""
@@ -611,7 +673,7 @@ func formatMode(mode fs.FileMode) string {
 func (p *UnixPermissionChecker) reportScan(result *types.AuditResult, scan fsScan) {
 	sections := []struct {
 		heading string
-		entries []string
+		entries []scanEntry
 		key     registry.FindingKey
 	}{
 		{"SUID/SGID Files Found:", scan.suid, "permissions.suid_sgid_binary"},

@@ -5,10 +5,8 @@
 package checker
 
 import (
-	"bufio"
 	"context"
 	"fmt"
-	"os"
 	"os/exec"
 	"strings"
 )
@@ -19,20 +17,13 @@ const minRegularUID = 1000
 // getUsers reads /etc/passwd and resolves administrative membership through
 // each account's group list.
 func (u *UnixUserChecker) getUsers(ctx context.Context) ([]userAccount, error) {
-	var users []userAccount
-
-	file, err := os.Open("/etc/passwd")
+	users, err := localAccounts()
 	if err != nil {
 		return nil, err
 	}
-	defer file.Close() //nolint:errcheck // read-only passwd file; close error does not affect scan results
 
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		account, ok := parsePasswdEntry(scanner.Text())
-		if !ok {
-			continue
-		}
+	for i := range users {
+		account := &users[i]
 		account.isSystem = account.uid < minRegularUID
 
 		// A name that cannot be handed to id leaves that account's membership
@@ -43,12 +34,6 @@ func (u *UnixUserChecker) getUsers(ctx context.Context) ([]userAccount, error) {
 		default:
 			account.isAdmin = admin
 		}
-
-		users = append(users, account)
-	}
-
-	if err := scanner.Err(); err != nil {
-		return nil, fmt.Errorf("error reading /etc/passwd: %w", err)
 	}
 
 	return users, nil
