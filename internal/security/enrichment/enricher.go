@@ -1,4 +1,5 @@
 // internal/security/enrichment/enricher.go
+
 package enrichment
 
 import "context"

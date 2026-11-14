@@ -1,5 +1,6 @@
-// internal/report/report_windows.go
 //go:build windows
+
+// internal/report/report_windows.go
 
 package report
 
@@ -134,34 +135,33 @@ func allowlistRoots() []string {
 	return roots
 }
 
-// parentWritableByOthers reports whether a broad group has effective write
-// access to dir.
-func parentWritableByOthers(dir string) (bool, error) {
+// exposure names what gives a principal other than the system, the
+// administrators and the directory's owner write access to dir, or returns
+// the empty string when nothing does. An entry that cannot be read is an
+// error rather than the end of the list: stopping there would call a
+// directory safe on the strength of entries nobody examined.
+func exposure(dir string) (string, error) {
 	sd, err := windows.GetNamedSecurityInfo(
 		dir,
 		windows.SE_FILE_OBJECT,
 		windows.OWNER_SECURITY_INFORMATION|windows.DACL_SECURITY_INFORMATION,
 	)
 	if err != nil {
-		return false, fmt.Errorf("read security info: %w", err)
+		return "", fmt.Errorf("read security info: %w", err)
 	}
 
 	dacl, _, err := sd.DACL()
-	if errors.Is(err, windows.ERROR_OBJECT_NOT_FOUND) {
-		// No DACL exists; a NULL DACL grants everyone full access.
-		return true, nil
+	if errors.Is(err, windows.ERROR_OBJECT_NOT_FOUND) || (err == nil && dacl == nil) {
+		// A missing or NULL DACL grants everyone full access.
+		return "open to every principal: it has no access control list", nil
 	}
 	if err != nil {
-		return false, fmt.Errorf("read dacl: %w", err)
-	}
-	// A nil DACL here is an empty, fully permissive DACL.
-	if dacl == nil {
-		return true, nil
+		return "", fmt.Errorf("read dacl: %w", err)
 	}
 
 	trusted, err := trustedSIDs(sd)
 	if err != nil {
-		return false, err
+		return "", err
 	}
 
 	const writeMask = windows.FILE_WRITE_DATA | windows.FILE_APPEND_DATA |
@@ -169,46 +169,34 @@ func parentWritableByOthers(dir string) (bool, error) {
 		windows.GENERIC_WRITE | windows.GENERIC_ALL |
 		windows.WRITE_DAC | windows.WRITE_OWNER
 
-	// ACL field construction
-	type aclLayout struct {
-		revision byte
-		sbz1     byte
-		size     byte
-		count    uint16
-		sbz2     uint16
-	}
-	hdr := (*aclLayout)(unsafe.Pointer(dacl))                                  // #nosec G103 -- audited ACE walk over the fixed OS ACL layout
-	end := uintptr(unsafe.Pointer(dacl)) + uintptr(hdr.size)                   // #nosec G103 -- ACL end boundary, compared only and never converted back to a pointer
-	ace := unsafe.Pointer(uintptr(unsafe.Pointer(dacl)) + unsafe.Sizeof(*hdr)) // #nosec G103 -- first ACE follows the ACL header
-
-	for i := 0; i < int(hdr.count); i++ {
-		header := (*windows.ACE_HEADER)(ace) // #nosec G103 -- bounded ACE read within the ACL buffer
-		if header.AceSize == 0 || uintptr(ace)+uintptr(header.AceSize) > end {
-			break // malformed entry; do not read past the ACL buffer
+	for i := uint32(0); i < uint32(dacl.AceCount); i++ {
+		var ace *windows.ACCESS_ALLOWED_ACE
+		if err := windows.GetAce(dacl, i, &ace); err != nil {
+			return "", fmt.Errorf("read access control entry %d: %w", i, err)
+		}
+		if ace.Header.AceType != windows.ACCESS_ALLOWED_ACE_TYPE || ace.Mask&writeMask == 0 {
+			continue
 		}
 
-		if header.AceType == windows.ACCESS_ALLOWED_ACE_TYPE {
-			allowed := (*windows.ACCESS_ALLOWED_ACE)(ace)
-			if allowed.Mask&writeMask != 0 {
-				sid := (*windows.SID)(unsafe.Pointer(&allowed.SidStart)) // #nosec G103 -- SID embedded in the validated ACE
-				if !sidTrusted(sid, trusted) {
-					return true, nil
-				}
-			}
+		sid := (*windows.SID)(unsafe.Pointer(&ace.SidStart)) // #nosec G103 -- SID embedded in an entry GetAce validated
+		if !sidTrusted(sid, trusted) {
+			return fmt.Sprintf("writable by %s", sid), nil
 		}
-
-		ace = unsafe.Pointer(uintptr(ace) + uintptr(header.AceSize)) // #nosec G103 -- advance within the bounds-checked ACL buffer
 	}
-	return false, nil
+	return "", nil
 }
 
+// trustedSIDs returns the principals whose write access to a destination is
+// not an exposure: the system, the administrators, the directory's owner, and
+// the account running the elevated process, which is the operator on Windows
+// the way the user behind sudo is on Unix.
 func trustedSIDs(sd *windows.SECURITY_DESCRIPTOR) ([]*windows.SID, error) {
 	wellKnown := []windows.WELL_KNOWN_SID_TYPE{
 		windows.WinLocalSystemSid,
 		windows.WinBuiltinAdministratorsSid,
 		windows.WinCreatorOwnerSid,
 	}
-	trusted := make([]*windows.SID, 0, len(wellKnown)+1)
+	trusted := make([]*windows.SID, 0, len(wellKnown))
 	for _, t := range wellKnown {
 		sid, err := windows.CreateWellKnownSid(t)
 		if err != nil {
@@ -219,6 +207,13 @@ func trustedSIDs(sd *windows.SECURITY_DESCRIPTOR) ([]*windows.SID, error) {
 	if owner, _, err := sd.Owner(); err == nil && owner != nil {
 		trusted = append(trusted, owner)
 	}
+
+	operator, err := windows.GetCurrentProcessToken().GetTokenUser()
+	if err != nil {
+		return nil, fmt.Errorf("token user: %w", err)
+	}
+	trusted = append(trusted, operator.User.Sid)
+
 	return trusted, nil
 }
 
@@ -231,37 +226,28 @@ func sidTrusted(sid *windows.SID, trusted []*windows.SID) bool {
 	return false
 }
 
-// openAndWrite writes data to target without traversing a reparse point
+// openAndWrite creates target and writes data to it. The name is generated
+// per run, so nothing legitimate is ever there already: CREATE_NEW refuses
+// whatever is, and OPEN_REPARSE_POINT makes a planted link count as that
+// existing entry where the default open would resolve it and create its
+// target.
 func openAndWrite(target string, data []byte) (err error) {
-	if info, err := os.Lstat(target); err == nil {
-		if info.Mode()&(os.ModeSymlink|os.ModeIrregular) != 0 {
-			return fmt.Errorf("%w: reparse point", ErrNotRegularFile)
-		}
-		if !info.Mode().IsRegular() {
-			return fmt.Errorf("%w: %s", ErrNotRegularFile, target)
-		}
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("stat destination: %w", err)
-	}
-
 	path, err := windows.UTF16PtrFromString(target)
 	if err != nil {
 		return fmt.Errorf("encode path: %w", err)
 	}
 
-	// OPEN_REPARSE_POINT opens the final component literally instead of
-	// traversing it; OPEN_ALWAYS avoids truncating before the reparse check.
 	handle, err := windows.CreateFile(
 		path,
 		windows.GENERIC_WRITE,
 		0,
 		nil,
-		windows.OPEN_ALWAYS,
+		windows.CREATE_NEW,
 		windows.FILE_ATTRIBUTE_NORMAL|windows.FILE_FLAG_OPEN_REPARSE_POINT,
 		0,
 	)
 	if err != nil {
-		return fmt.Errorf("open destination: %w", err)
+		return fmt.Errorf("create destination: %w", err)
 	}
 	f := os.NewFile(uintptr(handle), target)
 	defer func() {
@@ -269,18 +255,6 @@ func openAndWrite(target string, data []byte) (err error) {
 			err = cerr
 		}
 	}()
-
-	var fi windows.ByHandleFileInformation
-	if ierr := windows.GetFileInformationByHandle(handle, &fi); ierr != nil {
-		return fmt.Errorf("inspect destination: %w", ierr)
-	}
-	if fi.FileAttributes&windows.FILE_ATTRIBUTE_REPARSE_POINT != 0 {
-		return fmt.Errorf("%w: reparse point", ErrNotRegularFile)
-	}
-
-	if serr := windows.SetEndOfFile(handle); serr != nil {
-		return fmt.Errorf("truncate destination: %w", serr)
-	}
 
 	if _, werr := f.Write(data); werr != nil {
 		return fmt.Errorf("write report: %w", werr)

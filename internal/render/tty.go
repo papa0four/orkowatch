@@ -1,4 +1,5 @@
 // internal/render/tty.go
+
 package render
 
 import "os"

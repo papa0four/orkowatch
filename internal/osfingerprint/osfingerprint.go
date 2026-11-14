@@ -1,4 +1,9 @@
 // internal/osfingerprint/osfingerprint.go
+
+// Package osfingerprint reports host operating system identity: OS, platform,
+// version, kernel, hostname, architecture, and platform-specific details. It
+// owns both the serializable projection of that data and its text rendering,
+// so structured and text output cannot drift apart.
 package osfingerprint
 
 import (

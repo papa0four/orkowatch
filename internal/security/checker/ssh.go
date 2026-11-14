@@ -1,99 +1,75 @@
 // internal/security/checker/ssh.go
+
 package checker
 
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"os"
-	"os/exec"
 	"strings"
 
+	"github.com/papa0four/orkowatch/internal/security/finding"
 	"github.com/papa0four/orkowatch/internal/security/registry"
-	"github.com/papa0four/orkowatch/internal/security/types"
 )
 
 type (
-	// SSHChecker defines interface for SSH configuration checking
+	// SSHChecker is the SSH configuration check as the audit sees it. Each
+	// platform supplies NewSSHChecker under its own build constraint.
 	SSHChecker interface {
-		Check(ctx context.Context) types.AuditResult
+		Name() string
+		Description() string
+		Check(ctx context.Context) finding.AuditResult
 	}
 
-	// UnixSSHChecker implements SSHChecker for Unix-like systems
-	UnixSSHChecker struct {
-		ConfigPaths []string
-		osCtx       registry.OSContext
+	// sshConfig holds the sshd_config directives the audit evaluates.
+	sshConfig struct {
+		rootLogin    sshSetting
+		passwordAuth sshSetting
 	}
 
-	// WindowsSSHChecker implements SSHChecker for Windows systems
-	WindowsSSHChecker struct {
-		ConfigPath string
-		osCtx      registry.OSContext
+	// sshSetting is one directive as the file states it. found distinguishes
+	// an explicit setting from an absent one, which warrant different
+	// conclusions because sshd applies its own default to what the file does
+	// not say.
+	sshSetting struct {
+		value string
+		found bool
+	}
+
+	// sshRule pairs a directive with the rules it decides. absentKey is empty
+	// on platforms with no rule defined for the directive being unset.
+	sshRule struct {
+		name      string
+		setting   sshSetting
+		unsafe    func(value string) bool
+		unsafeKey registry.FindingKey
+		absentKey registry.FindingKey
+	}
+
+	// sshdAbsentKeys names the findings a platform defines for the two
+	// evaluated directives being unset. A zero value means the platform has
+	// no such definitions and an unset directive is not reported.
+	sshdAbsentKeys struct {
+		rootLogin    registry.FindingKey
+		passwordAuth registry.FindingKey
 	}
 )
 
-// NewUnixSSHChecker creates a new Unix SSH checker with default paths
-func NewUnixSSHChecker(osCtx registry.OSContext) *UnixSSHChecker {
-	return &UnixSSHChecker{
-		osCtx: osCtx,
-		ConfigPaths: []string{
-			"/etc/ssh/sshd_config",
-			"/private/etc/ssh/sshd_config", // macOS path
-		},
-	}
-}
+// sshDirectiveField is the minimum whitespace-separated fields in a usable
+// sshd_config line: the directive and its value.
+const sshDirectiveField = 2
 
-// NewWindowsSSHChecker creates a new Windows SSH checker
-func NewWindowsSSHChecker(osCtx registry.OSContext) *WindowsSSHChecker {
-	return &WindowsSSHChecker{
-		ConfigPath: "C:\\ProgramData\\ssh\\sshd_config",
-		osCtx:      osCtx,
-	}
-}
+// parseSSHDConfig reads an sshd_config stream, recording the two directives the
+// audit evaluates. Comments, blank lines, and every other directive are ignored.
+// Partial results are returned alongside a read error so a truncated file still
+// reports what it did contain.
+func parseSSHDConfig(r io.Reader) (sshConfig, error) {
+	var config sshConfig
 
-// sshConfig holds parsed SSH configuration settings
-type sshConfig struct {
-	rootLogin         bool
-	passwordAuth      bool
-	permRootFound     bool
-	permPasswordFound bool
-}
-
-// Check implements SSHChecker interface for Unix systems
-func (s *UnixSSHChecker) Check(ctx context.Context) types.AuditResult {
-	result := types.AuditResult{
-		Name:        "SSH Configuration",
-		Status:      "CHECKING",
-		Description: "Analyzing SSH Configuration settings",
-		Details:     make([]string, 0),
-		Findings:    make([]types.Finding, 0),
-	}
-
-	var file *os.File
-	var err error
-	var configPath string
-
-	// Try each possible config path
-	for _, path := range s.ConfigPaths {
-		if file, err = os.Open(path); err == nil { // #nosec G304 -- paths hardcoded in NewUnixSSHChecker; file contents parsed defensively for two known fields only
-			configPath = path
-			defer file.Close() // nolint:errcheck // read-only file; close error does not affect scan results
-			break
-		}
-	}
-
-	if file == nil {
-		result.Status = "ERROR"
-		result.Description = fmt.Sprintf("SSH configuration file not found in any of: %v", s.ConfigPaths)
-		result.Details = append(result.Details,
-			fmt.Sprintf("%s ERROR: No SSH configuration file found", types.SymbolError))
-		emitFinding(&result, s.osCtx, "ssh.config_not_found")
-		return result
-	}
-
-	// Parse SSH Configuration
-	config := &sshConfig{}
-	scanner := bufio.NewScanner(file)
+	scanner := bufio.NewScanner(r)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" || strings.HasPrefix(line, "#") {
@@ -101,205 +77,90 @@ func (s *UnixSSHChecker) Check(ctx context.Context) types.AuditResult {
 		}
 
 		fields := strings.Fields(line)
-		if len(fields) < 2 {
+		if len(fields) < sshDirectiveField {
 			continue
 		}
 
 		switch fields[0] {
 		case "PermitRootLogin":
-			config.permRootFound = true
-			config.rootLogin = (fields[1] != "no")
+			config.rootLogin = sshSetting{value: fields[1], found: true}
 		case "PasswordAuthentication":
-			config.permPasswordFound = true
-			config.passwordAuth = (fields[1] == "yes")
+			config.passwordAuth = sshSetting{value: fields[1], found: true}
 		}
 	}
 
-	if err := scanner.Err(); err != nil {
-		result.Status = "ERROR"
-		result.Description = fmt.Sprintf("Error reading SSH configuration: %v", err)
-		result.Details = append(result.Details,
-			fmt.Sprintf("%s ERROR: Failed to read configuration", types.SymbolError))
-		return result
-	}
-
-	// Build detailed results
-	result.Details = append(result.Details,
-		fmt.Sprintf("%s Configuration file: %s", types.SymbolInfo, configPath))
-
-	// Check root Login configuration
-	if config.permRootFound {
-		if config.rootLogin {
-			result.Details = append(result.Details,
-				fmt.Sprintf("%s WARNING: Root login is permitted", types.SymbolWarning))
-			emitFinding(&result, s.osCtx, "ssh.root_login_permitted")
-		} else {
-			result.Details = append(result.Details,
-				fmt.Sprintf("%s Root login is disabled", types.SymbolOK))
-		}
-	} else {
-		result.Details = append(result.Details,
-			fmt.Sprintf("%s WARNING: PermitRootLogin setting not found (defaults may apply)", types.SymbolWarning))
-		emitFinding(&result, s.osCtx, "ssh.permit_root_login_not_set")
-	}
-
-	// Check password authentication
-	if config.permPasswordFound {
-		if config.passwordAuth {
-			result.Details = append(result.Details,
-				fmt.Sprintf("%s WARNING: Password authentication is enabled", types.SymbolWarning))
-			emitFinding(&result, s.osCtx, "ssh.password_auth_enabled")
-		} else {
-			result.Details = append(result.Details,
-				fmt.Sprintf("%s Password authentication is disabled", types.SymbolOK))
-		}
-	} else {
-		result.Details = append(result.Details,
-			fmt.Sprintf("%s WARNING: PasswordAuthentication setting not found (defaults may apply)", types.SymbolWarning))
-		emitFinding(&result, s.osCtx, "ssh.password_auth_not_set")
-	}
-
-	result.Status = "COMPLETED"
-	result.Description = "SSH configuration analysis complete"
-	return result
+	return config, scanner.Err()
 }
 
-// Check implements SSHChecker interface for Windows systems
-func (s *WindowsSSHChecker) Check(ctx context.Context) types.AuditResult {
-	result := types.AuditResult{
-		Name:        "Windows SSH Configuration",
-		Status:      "CHECKING",
-		Description: "Analyzing Windows SSH configuration",
-		Details:     make([]string, 0),
-		Findings:    make([]types.Finding, 0),
+// checkSSHDConfig reads the OpenSSH server configuration at path and concludes
+// the rules its directives decide. It opens the file directly rather than
+// stat-then-open: the two-call form leaves a window in which the file can
+// change between the check and the use, and one error already distinguishes
+// absent from unreadable. An absent file fails its own rule and leaves the
+// directive rules unchecked; an unreadable one is an error on all of them.
+func checkSSHDConfig(r *report, path string, absent sshdAbsentKeys) {
+	directives := []registry.FindingKey{
+		"ssh.root_login_permitted", "ssh.password_auth_enabled",
+		absent.rootLogin, absent.passwordAuth,
 	}
 
-	sshdInstalled := false
+	file, err := os.Open(path) // #nosec G304 -- path is a platform constant naming the sshd configuration
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+		r.observed("ssh.config_not_found", evidence(kindFile, path))
+		r.inconclusive(finding.ResultNotChecked, "OpenSSH configuration file not found: "+path, directives...)
+		return
+	case err != nil:
+		r.inconclusive(finding.ResultError, fmt.Sprintf("cannot read OpenSSH configuration: %v", err),
+			append(directives, "ssh.config_not_found")...)
+		return
+	}
+	defer file.Close() //nolint:errcheck // read-only file; close error does not affect scan results
 
-	// Check OpenSSH installation
-	cmd := exec.CommandContext(ctx, "powershell.exe", "-NoProfile", "-NonInteractive", "-Command",
-		"(Get-Service -Name sshd -ErrorAction SilentlyContinue).Status")
-	output, err := cmd.CombinedOutput()
-	serviceStatus := strings.TrimSpace(string(output))
-	if err == nil && serviceStatus != "" {
-		sshdInstalled = true
-		switch serviceStatus {
-		case "Running":
-			result.Details = append(result.Details,
-				fmt.Sprintf("%s OpenSSH Server is installed and running", types.SymbolOK))
-		case "Stopped":
-			result.Details = append(result.Details,
-				fmt.Sprintf("%s OpenSSH Server is installed but not running", types.SymbolWarning))
-			emitFinding(&result, s.osCtx, "ssh.server_not_running")
-		default:
-			result.Details = append(result.Details,
-				fmt.Sprintf("%s OpenSSH Server service state: %s", types.SymbolInfo, serviceStatus))
+	r.pass("ssh.config_not_found")
+	r.note(finding.SymbolInfo, "Configuration file: %s", path)
+
+	config, readErr := parseSSHDConfig(file)
+
+	reportSSHDirective(r, readErr, sshRule{
+		name:      "PermitRootLogin",
+		setting:   config.rootLogin,
+		unsafe:    func(value string) bool { return value != "no" },
+		unsafeKey: "ssh.root_login_permitted",
+		absentKey: absent.rootLogin,
+	})
+
+	reportSSHDirective(r, readErr, sshRule{
+		name:      "PasswordAuthentication",
+		setting:   config.passwordAuth,
+		unsafe:    func(value string) bool { return value == "yes" },
+		unsafeKey: "ssh.password_auth_enabled",
+		absentKey: absent.passwordAuth,
+	})
+}
+
+// reportSSHDirective concludes the rules one directive decides. An absent
+// directive is a third condition rather than a variant of either value,
+// because sshd applies its own default to what the file does not say, and
+// that default is not visible in the configuration being audited. A directive
+// not found in a file that could not be read to the end is an error rather
+// than an absence: the part that was not read may have set it.
+func reportSSHDirective(r *report, readErr error, rule sshRule) {
+	switch {
+	case !rule.setting.found && readErr != nil:
+		r.inconclusive(finding.ResultError,
+			fmt.Sprintf("OpenSSH configuration could not be read in full: %v", readErr),
+			rule.unsafeKey, rule.absentKey)
+	case !rule.setting.found:
+		r.inconclusive(finding.ResultNotChecked,
+			rule.name+" is not set; the sshd default applies and is not read", rule.unsafeKey)
+		if rule.absentKey != "" {
+			r.observed(rule.absentKey, evidence(kindDirective, rule.name, "state", "not set"))
 		}
+	case rule.unsafe(rule.setting.value):
+		r.observed(rule.unsafeKey, evidence(kindDirective, rule.name, "value", rule.setting.value))
+		r.pass(rule.absentKey)
+	default:
+		r.pass(rule.unsafeKey, rule.absentKey)
 	}
-
-	const sshdBinaryPath = `C:\Windows\System32\OpenSSH\sshd.exe`
-	if !sshdInstalled {
-		if _, err := os.Stat(sshdBinaryPath); err == nil {
-			sshdInstalled = true
-			result.Details = append(result.Details,
-				fmt.Sprintf("%s OpenSSH Server binary found (service not detected)", types.SymbolInfo))
-		}
-	}
-
-	if !sshdInstalled {
-		result.Details = append(result.Details,
-			fmt.Sprintf("%s OpenSSH Server is not installed", types.SymbolInfo))
-	}
-
-	// Parse sshd_config if installed
-	if sshdInstalled {
-		if _, err := os.Stat(s.ConfigPath); err == nil {
-			file, err := os.Open(s.ConfigPath) // #nosec G304 -- path set in NewWindowsSSHChecker to a hardcoded system location
-			if err != nil {
-				result.Details = append(result.Details,
-					fmt.Sprintf("%s ERROR: Cannot read OpenSSH configuration: %v", types.SymbolError, err))
-			} else {
-				defer file.Close() // nolint:errcheck // read-only file; close error does not affect scan results
-
-				config := &sshConfig{}
-				scanner := bufio.NewScanner(file)
-				for scanner.Scan() {
-					line := strings.TrimSpace(scanner.Text())
-					if line == "" || strings.HasPrefix(line, "#") {
-						continue
-					}
-
-					fields := strings.Fields(line)
-					if len(fields) < 2 {
-						continue
-					}
-
-					switch fields[0] {
-					case "PermitRootLogin":
-						config.permRootFound = true
-						config.rootLogin = (fields[1] != "no")
-					case "PasswordAuthentication":
-						config.permPasswordFound = true
-						config.passwordAuth = (fields[1] == "yes")
-					}
-				}
-
-				if err := scanner.Err(); err != nil {
-					result.Details = append(result.Details,
-						fmt.Sprintf("%s ERROR: Failed to read OpenSSH configuration: %v",
-							types.SymbolError, err))
-				}
-
-				if config.permRootFound {
-					if config.rootLogin {
-						result.Details = append(result.Details,
-							fmt.Sprintf("%s WARNING: Root login is permitted", types.SymbolWarning))
-						emitFinding(&result, s.osCtx, "ssh.root_login_permitted")
-					} else {
-						result.Details = append(result.Details,
-							fmt.Sprintf("%s Root login is disabled", types.SymbolOK))
-					}
-				}
-
-				if config.permPasswordFound {
-					if config.passwordAuth {
-						result.Details = append(result.Details,
-							fmt.Sprintf("%s WARNING: Password authentication is enabled", types.SymbolWarning))
-						emitFinding(&result, s.osCtx, "ssh.password_auth_enabled")
-					} else {
-						result.Details = append(result.Details,
-							fmt.Sprintf("%s Password authentication is disabled", types.SymbolOK))
-					}
-				}
-			}
-		} else {
-			result.Details = append(result.Details,
-				fmt.Sprintf("%s WARNING: OpenSSH configuration file not found", types.SymbolWarning))
-			emitFinding(&result, s.osCtx, "ssh.config_missing")
-		}
-	}
-
-	// Check for PuTTY installation
-	if _, err := os.Stat(`C:\Program Files\PuTTY\putty.exe`); err == nil {
-		result.Details = append(result.Details,
-			fmt.Sprintf("%s PuTTY is installed", types.SymbolInfo))
-
-		cmd = exec.CommandContext(ctx, "reg", "query", `HKCU\Software\SimonTatham\PuTTY\Sessions`)
-		output, err := cmd.CombinedOutput()
-		if err == nil && len(output) > 0 {
-			sessions := strings.Split(string(output), "\n")
-			result.Details = append(result.Details,
-				fmt.Sprintf("%s PuTTY configured sessions:", types.SymbolInfo))
-			for _, session := range sessions {
-				if strings.TrimSpace(session) != "" {
-					result.Details = append(result.Details,
-						fmt.Sprintf(" - %s", strings.TrimSpace(session)))
-				}
-			}
-		}
-	}
-
-	result.Status = "COMPLETED"
-	result.Description = "Windows SSH Configuration analysis complete"
-	return result
 }

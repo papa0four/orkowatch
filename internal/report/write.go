@@ -1,4 +1,5 @@
 // internal/report/write.go
+
 package report
 
 import (
@@ -12,36 +13,49 @@ import (
 	"time"
 )
 
+type (
+	// Options carries caller decisions that affect write policy.
+	Options struct {
+		// AllowElevatedWrite is set when --allow-elevated-write is passed.
+		// The flag is the operator's whole confirmation; nothing prompts, so
+		// an unattended run behaves the same as an interactive one.
+		AllowElevatedWrite bool
+	}
+)
+
+const (
+	// maxOperatorHomes bounds the operator identities a write is judged
+	// against: the effective user's and, on Unix under sudo, the invoking
+	// user's. Windows has no effective/invoking split, but the same bound
+	// covers its cwd-plus-home allowlist roots.
+	maxOperatorHomes = 2
+
+	// maxHostnameLen is the longest a single DNS label can be (RFC 1035
+	// section 2.3.4), which is the most os.Hostname can return.
+	maxHostnameLen = 63
+)
+
 // Sentinel errors returned by Write for unsafe destinations.
 var (
 	ErrParentMissing       = errors.New("destination directory does not exist")
 	ErrRefusedLocation     = errors.New("destination is a protected location")
 	ErrElevatedWriteDenied = errors.New("elevated write outside allowlisted roots requires explicit confirmation")
-	ErrNotRegularFile      = errors.New("destination exists and is not a regular file")
-	ErrElevatedExposedDir  = errors.New("elevated write refused: destination directory is writable by other users")
+	ErrElevatedExposedDir  = errors.New("elevated write refused: destination directory is exposed to other users")
+
+	// hostnameRe matches every character that is not safe in a filename on
+	// all supported platforms; ResolveHostname replaces each with a hyphen.
+	hostnameRe = regexp.MustCompile(`[^a-zA-Z0-9\-.]`)
 )
 
-// maxOperatorHomes bounds the operator identities a write is judged
-// against: the effective user's and, on Unix under sudo, the invoking
-// user's. Windows has no effective/invoking split, but the same bound
-// covers its cwd-plus-home allowlist roots.
-const maxOperatorHomes = 2
-
-// Options carries caller decisions that affect write policy.
-type Options struct {
-	// AllowElevatedWrite is set when --allow-elevated-write is passed
-	// and, where a TTY exists, confirmed the prompt.
-	AllowElevatedWrite bool
-}
-
-// Write validates path through the full guard pipeline and writes data to it,
+// Write validates path through the full guard pipeline and writes data to it.
 func Write(path string, data []byte, opts Options) error {
 	abs, err := filepath.Abs(path)
 	if err != nil {
 		return fmt.Errorf("resolve path: %w", err)
 	}
 
-	// Resolve the parent against the real filesystem s
+	// Resolve the parent against the real filesystem so a symlinked
+	// directory is judged by where it leads
 	parent := filepath.Dir(abs)
 	realParent, err := canonicalParent(parent)
 	if err != nil {
@@ -64,41 +78,72 @@ func Write(path string, data []byte, opts Options) error {
 		return fmt.Errorf("determine privilege: %w", err)
 	}
 	if elevated {
-		// Refuse a root write into a directory other users can control
-		exposed, err := parentWritableByOthers(realParent)
-		if err != nil {
-			return fmt.Errorf("inspect destination directory: %w", err)
-		}
-		if exposed {
-			return fmt.Errorf("%w: %s", ErrElevatedExposedDir, realParent)
-		}
-
-		if !opts.AllowElevatedWrite {
-			allowed, err := withinAllowlist(target)
-			if err != nil {
-				return err
-			}
-			if !allowed {
-				return ErrElevatedWriteDenied
-			}
+		if err := guardElevatedWrite(target, realParent, opts); err != nil {
+			return err
 		}
 	}
 
 	return openAndWrite(target, data)
 }
 
+// guardElevatedWrite applies the refusals that exist only because the process
+// is privileged: a root write must not land in a directory other users can
+// control, nor outside the allowlisted roots. Both are the operator's to
+// override, because a guard with no way to say yes makes a deliberately
+// shared destination impossible; the refusal names what failed so that the
+// override is an informed one.
+func guardElevatedWrite(target, realParent string, opts Options) error {
+	if opts.AllowElevatedWrite {
+		return nil
+	}
+
+	reason, err := exposure(realParent)
+	if err != nil {
+		return fmt.Errorf("inspect destination directory: %w", err)
+	}
+	if reason != "" {
+		return fmt.Errorf("%w: %s is %s", ErrElevatedExposedDir, realParent, reason)
+	}
+
+	allowed, err := withinAllowlist(target)
+	if err != nil {
+		return err
+	}
+	if !allowed {
+		return ErrElevatedWriteDenied
+	}
+	return nil
+}
+
+// ValidateDir confirms path is an existing directory a report can be written
+// into. The filename is generated inside it, so the caller supplies only the
+// destination directory. Errors describe the condition without naming a flag,
+// so the caller supplies its own flag prefix.
+func ValidateDir(path string) error {
+	info, err := os.Stat(path)
+	if err != nil {
+		return fmt.Errorf("directory is not accessible: %w", err)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("%s is not a directory", path)
+	}
+	return nil
+}
+
 // DefaultPath returns the full path for a generated report file inside dir.
 // The filename follows the pattern owatch-<hostname>-<codes>-<timestamp>.<ext>
-// where codes is the category-prefixed segment string produced by scan.Codes
-// (e.g. "m.os-c.fpsu"). Empty code segments are omitted by the caller.
-// dir must be an existing directory; the caller is responsible for validating it.
-func DefaultPath(dir, hostname, codes, format string) string {
+// where codes is the category-prefixed segment string produced by selection.Codes
+// (e.g. "m.os-c.fpsu"). Empty code segments are omitted by the caller. ext
+// is the filename extension without a leading dot, which the caller derives
+// from the encoding it chose. dir must be an existing directory; the caller
+// is responsible for validating it.
+func DefaultPath(dir, hostname, codes, ext string) string {
 	stamp := time.Now().UTC().Format("20060102T150405Z")
 	var name string
 	if codes != "" {
-		name = fmt.Sprintf("owatch-%s-%s-%s.%s", hostname, codes, stamp, extension(format))
+		name = fmt.Sprintf("owatch-%s-%s-%s.%s", hostname, codes, stamp, ext)
 	} else {
-		name = fmt.Sprintf("owatch-%s-%s.%s", hostname, stamp, extension(format))
+		name = fmt.Sprintf("owatch-%s-%s.%s", hostname, stamp, ext)
 	}
 	return filepath.Join(dir, name)
 }
@@ -112,14 +157,10 @@ func DefaultPath(dir, hostname, codes, format string) string {
 // fingerprinting was skipped or failed, so it cannot depend on fingerprint
 // data existing.
 func ResolveHostname() string {
-	// hostnameRe retains only characters safe in filenames across all supported
-	// platforms; anything else becomes a hyphen.
-	hostnameRe := regexp.MustCompile(`[^a-zA-Z0-9\-.]`)
-
 	if h, err := os.Hostname(); err == nil && h != "" {
 		sanitized := hostnameRe.ReplaceAllString(h, "-")
-		if len(sanitized) > 63 {
-			sanitized = sanitized[:63]
+		if len(sanitized) > maxHostnameLen {
+			sanitized = sanitized[:maxHostnameLen]
 		}
 		if sanitized != "" {
 			return sanitized
@@ -143,22 +184,6 @@ func ResolveHostname() string {
 	}
 
 	return "unknown"
-}
-
-func extension(format string) string {
-	switch format {
-	case "json":
-		return "json"
-	case "yaml":
-		return "yaml"
-	case "csv":
-		return "csv"
-	case "text":
-		return "txt"
-	default:
-		// Unrecognized format falls back to usable default
-		return "json"
-	}
 }
 
 // pathWithin compares on path boundaries so a sibling is not mistaken for a child

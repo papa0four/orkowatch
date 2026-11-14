@@ -1,4 +1,5 @@
 // internal/security/enrichment/view.go
+
 package enrichment
 
 import "sort"
@@ -86,19 +87,6 @@ func Failures(res *Result) []FailureView {
 			Reason:    failure.Reason,
 			Retryable: failure.Retryable,
 		})
-	}
-	return out
-}
-
-// ReferenceErrorStrings converts reference parsing errors into strings for
-// JSON and YAML output
-func ReferenceErrorStrings(errs []error) []string {
-	if len(errs) == 0 {
-		return nil
-	}
-	out := make([]string, 0, len(errs))
-	for _, e := range errs {
-		out = append(out, e.Error())
 	}
 	return out
 }

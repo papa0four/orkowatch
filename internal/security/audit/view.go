@@ -1,4 +1,5 @@
 // internal/security/audit/view.go
+
 package audit
 
 import (
@@ -7,7 +8,7 @@ import (
 
 	"github.com/papa0four/orkowatch/internal/osfingerprint"
 	"github.com/papa0four/orkowatch/internal/security/enrichment"
-	"github.com/papa0four/orkowatch/internal/security/types"
+	"github.com/papa0four/orkowatch/internal/security/finding"
 )
 
 type (
@@ -19,69 +20,65 @@ type (
 		Duration            string                    `json:"duration" yaml:"duration"`
 		SystemInfo          *osfingerprint.SystemView `json:"system_info,omitempty" yaml:"system_info,omitempty"`
 		Results             []CheckView               `json:"results" yaml:"results"`
-		Summary             SummaryView               `json:"summary" yaml:"summary"`
+		Summary             Summary                   `json:"summary" yaml:"summary"`
 		FindingsSuppressed  int                       `json:"findings_suppressed,omitempty" yaml:"findings_suppressed,omitempty"`
 		MinSeverityApplied  string                    `json:"min_severity_applied,omitempty" yaml:"min_severity_applied,omitempty"`
 		EnrichmentRequested bool                      `json:"enrichment_requested" yaml:"enrichment_requested"`
 		EnrichmentError     string                    `json:"enrichment_error,omitempty" yaml:"enrichment_error,omitempty"`
 		ReferenceCWEs       []string                  `json:"reference_cwes,omitempty" yaml:"reference_cwes,omitempty"`
-		ReferenceErrors     []string                  `json:"reference_errors,omitempty" yaml:"reference_errors,omitempty"`
 		Entries             []enrichment.EntryView    `json:"enrichment_entries,omitempty" yaml:"enrichment_entries,omitempty"`
 		Failures            []enrichment.FailureView  `json:"enrichment_failures,omitempty" yaml:"enrichment_failures,omitempty"`
 	}
 
-	// CheckView is the serializable projection of a single check's result
+	// CheckView is the serializable projection of a single check's result.
+	// Reason is present whenever Result is neither pass nor fail. Duration
+	// is empty for a check that was not selected.
 	CheckView struct {
-		Name        string        `json:"name" yaml:"name"`
-		Status      string        `json:"status" yaml:"status"`
-		Description string        `json:"description" yaml:"description"`
-		Duration    string        `json:"duration" yaml:"duration"`
-		Findings    []FindingView `json:"findings,omitempty" yaml:"findings,omitempty"`
-		Details     []string      `json:"details,omitempty" yaml:"details,omitempty"`
+		Name        string          `json:"name" yaml:"name"`
+		Result      finding.Result  `json:"result" yaml:"result"`
+		Reason      string          `json:"reason,omitempty" yaml:"reason,omitempty"`
+		Description string          `json:"description" yaml:"description"`
+		Duration    string          `json:"duration,omitempty" yaml:"duration,omitempty"`
+		Conditions  []ConditionView `json:"conditions,omitempty" yaml:"conditions,omitempty"`
+		Details     []string        `json:"details,omitempty" yaml:"details,omitempty"`
 	}
 
-	// FindingView is the serializable projection of a single finding
+	// ConditionView is the serializable projection of one evaluated rule.
+	// Evidence sits beside the finding it caused, so a consumer associates
+	// the two without parsing headings out of free text.
+	ConditionView struct {
+		Key      string             `json:"key" yaml:"key"`
+		Result   finding.Result     `json:"result" yaml:"result"`
+		Reason   string             `json:"reason,omitempty" yaml:"reason,omitempty"`
+		Finding  *FindingView       `json:"finding,omitempty" yaml:"finding,omitempty"`
+		Evidence []finding.Evidence `json:"evidence,omitempty" yaml:"evidence,omitempty"`
+	}
+
+	// FindingView is the serializable projection of a condition's registry
+	// description.
 	FindingView struct {
-		Title       string            `json:"title" yaml:"title"`
-		Severity    string            `json:"severity" yaml:"severity"`
-		Categories  []string          `json:"categories,omitempty" yaml:"categories,omitempty"`
-		Description string            `json:"description,omitempty" yaml:"description,omitempty"`
-		Impact      string            `json:"impact,omitempty" yaml:"impact,omitempty"`
-		Resolution  string            `json:"resolution,omitempty" yaml:"resolution,omitempty"`
-		References  []types.Reference `json:"references,omitempty" yaml:"references,omitempty"`
-	}
-
-	// SummaryView carries per-severity finding counts and check-level
-	// pass/skip totals.
-	SummaryView struct {
-		TotalChecks      int `json:"total_checks" yaml:"total_checks"`
-		PassedChecks     int `json:"passed_checks" yaml:"passed_checks"`
-		SkippedChecks    int `json:"skipped_checks" yaml:"skipped_checks"`
-		TotalFindings    int `json:"total_findings" yaml:"total_findings"`
-		CriticalFindings int `json:"critical_findings" yaml:"critical_findings"`
-		HighFindings     int `json:"high_findings" yaml:"high_findings"`
-		MediumFindings   int `json:"medium_findings" yaml:"medium_findings"`
-		LowFindings      int `json:"low_findings" yaml:"low_findings"`
+		Title       string              `json:"title" yaml:"title"`
+		Severity    string              `json:"severity" yaml:"severity"`
+		Categories  []string            `json:"categories,omitempty" yaml:"categories,omitempty"`
+		Description string              `json:"description,omitempty" yaml:"description,omitempty"`
+		Impact      string              `json:"impact,omitempty" yaml:"impact,omitempty"`
+		Resolution  string              `json:"resolution,omitempty" yaml:"resolution,omitempty"`
+		References  []finding.Reference `json:"references,omitempty" yaml:"references,omitempty"`
 	}
 )
 
-// View returns r's serializable projection, filtering each check's
-// findings to those at or above minSeverity.
+// View returns r's serializable projection. A failed condition whose finding
+// falls below minSeverity is left out whole, evidence included, and counted
+// as suppressed. Severity is a property of findings, so every other
+// condition is projected whatever the threshold: a rule that passed, did not
+// apply or could not be evaluated is not a judgment being filtered.
 func (r *Result) View(minSeverity string) View {
 	v := View{
-		Timestamp: r.StartTime.Format(time.RFC3339),
-		Duration:  r.Duration.String(),
-		Summary: SummaryView{
-			TotalChecks:      r.Summary.TotalChecks,
-			PassedChecks:     r.Summary.PassedChecks,
-			SkippedChecks:    r.Summary.SkippedChecks,
-			TotalFindings:    r.Summary.TotalFindings,
-			CriticalFindings: r.Summary.CriticalFindings,
-			HighFindings:     r.Summary.HighFindings,
-			MediumFindings:   r.Summary.MediumFindings,
-			LowFindings:      r.Summary.LowFindings,
-		},
+		Timestamp:           r.StartTime.UTC().Format(time.RFC3339),
+		Duration:            r.Duration.String(),
+		Summary:             r.Summary,
 		EnrichmentRequested: r.EnrichmentRequested,
+		ReferenceCWEs:       r.CWEs,
 	}
 
 	if r.HostInfo != nil {
@@ -92,47 +89,66 @@ func (r *Result) View(minSeverity string) View {
 	if r.EnrichmentError != nil {
 		v.EnrichmentError = r.EnrichmentError.Error()
 	}
-	if len(r.References.CWEs) > 0 {
-		v.ReferenceCWEs = r.References.CWEs
-	}
-	v.ReferenceErrors = enrichment.ReferenceErrorStrings(r.References.Errors)
-	v.Entries = enrichment.Entries(r.References.CWEs, r.Enrichment)
+	v.Entries = enrichment.Entries(r.CWEs, r.Enrichment)
 	v.Failures = enrichment.Failures(r.Enrichment)
 
-	var shownFindings int
 	for _, check := range r.Results {
 		cv := CheckView{
 			Name:        check.Name,
-			Status:      check.Status,
+			Result:      check.Result,
+			Reason:      check.Reason,
 			Description: check.Description,
-			Duration:    check.Duration.String(),
 			Details:     check.Details,
 		}
+		if check.Result != finding.ResultNotSelected {
+			cv.Duration = check.Duration.String()
+		}
 
-		for _, finding := range check.Findings {
-			sev := types.EffectiveSeverity(finding)
-			if !types.MeetsMinSeverity(sev, minSeverity) {
+		for _, condition := range check.Conditions {
+			view, shown := conditionView(condition, minSeverity)
+			if !shown {
+				v.FindingsSuppressed++
 				continue
 			}
-			shownFindings++
-			cv.Findings = append(cv.Findings, FindingView{
-				Title:       finding.Title,
-				Severity:    sev,
-				Categories:  finding.Categories,
-				Description: finding.Description,
-				Impact:      finding.Impact,
-				Resolution:  finding.Resolution,
-				References:  finding.References,
-			})
+			cv.Conditions = append(cv.Conditions, view)
 		}
 
 		v.Results = append(v.Results, cv)
 	}
 
-	if suppressed := v.Summary.TotalFindings - shownFindings; suppressed > 0 {
-		v.FindingsSuppressed = suppressed
+	if v.FindingsSuppressed > 0 {
 		v.MinSeverityApplied = strings.ToUpper(minSeverity)
 	}
 
 	return v
+}
+
+// conditionView projects one condition, reporting false when it is a
+// finding the severity threshold suppresses.
+func conditionView(condition finding.Condition, minSeverity string) (ConditionView, bool) {
+	view := ConditionView{
+		Key:      condition.Key,
+		Result:   condition.Result,
+		Reason:   condition.Reason,
+		Evidence: condition.Evidence,
+	}
+	if condition.Finding == nil {
+		return view, true
+	}
+
+	severity := finding.EffectiveSeverity(*condition.Finding)
+	if condition.Result == finding.ResultFail && !finding.MeetsMinSeverity(severity, minSeverity) {
+		return ConditionView{}, false
+	}
+
+	view.Finding = &FindingView{
+		Title:       condition.Finding.Title,
+		Severity:    severity,
+		Categories:  condition.Finding.Categories,
+		Description: condition.Finding.Description,
+		Impact:      condition.Finding.Impact,
+		Resolution:  condition.Finding.Resolution,
+		References:  condition.Finding.References,
+	}
+	return view, true
 }

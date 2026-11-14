@@ -33,7 +33,7 @@ ssh.server_not_running:
     - "NIST SP 800-53 Rev 5 CM-7 (Least Functionality)"
     - "https://cwe.mitre.org/data/definitions/16.html"
 
-ssh.config_missing:
+ssh.config_not_found:
   title: "OpenSSH configuration file not found"
   severity: "MEDIUM"
   cvss_score: 5.5
@@ -246,8 +246,9 @@ users.uac_disabled:
 
 users.microsoft_account_no_local_password:
   title: "Microsoft-linked account has no local password hash"
-  severity: "LOW"
-  cvss_score: 2.1
+  severity: "NONE"
+  result: "notapplicable"
+  cvss_score: 0.0
   cvss_vector: "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:N/I:N/A:N"
   description: >
     One or more accounts are linked to a Microsoft identity (personal
@@ -274,8 +275,9 @@ users.microsoft_account_no_local_password:
 
 users.azure_ad_account_no_local_password:
   title: "Azure AD account has no local password hash"
-  severity: "LOW"
-  cvss_score: 2.1
+  severity: "NONE"
+  result: "notapplicable"
+  cvss_score: 0.0
   cvss_vector: "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:N/I:N/A:N"
   description: >
     One or more accounts are joined via Azure Active Directory (Entra ID)
@@ -301,8 +303,9 @@ users.azure_ad_account_no_local_password:
 
 users.domain_account_no_local_password:
   title: "Active Directory domain account has no local password hash"
-  severity: "LOW"
-  cvss_score: 2.3
+  severity: "NONE"
+  result: "notapplicable"
+  cvss_score: 0.0
   cvss_vector: "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:N/I:N/A:N"
   description: >
     One or more accounts are sourced from an Active Directory domain
@@ -328,7 +331,7 @@ users.domain_account_no_local_password:
     - "NIST SP 800-53 Rev 5 IA-2 (Identification and Authentication)"
     - "NIST SP 800-53 Rev 5 SC-8 (Transmission Confidentiality and Integrity)"
 
-users.unknown_principal_no_password:
+users.unknown_principal_no_local_password:
   title: "Account with undetermined principal source has no local password hash"
   severity: "MEDIUM"
   cvss_score: 5.5

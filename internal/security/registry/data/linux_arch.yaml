@@ -13,6 +13,7 @@
 # Firewall checker findings
 # -------------------------
 
+# Consumer: #142. No checker emits this definition yet.
 firewall.no_firewall_installed:
   title: "No firewall manager is installed or active"
   severity: "CRITICAL"
@@ -43,6 +44,10 @@ firewall.no_firewall_installed:
     - "NIST SP 800-53 Rev 5 SC-7 (Boundary Protection)"
     - "https://cwe.mitre.org/data/definitions/284.html"
 
+# Consumer: #142. No checker emits this definition yet. nftables is not
+# queried separately today, on the reasoning that iptables on a modern host
+# is the nf_tables backend; #142 implements or removes this once that is
+# verified.
 firewall.nftables_no_rules:
   title: "nftables is active but has no rules configured"
   severity: "HIGH"
@@ -101,6 +106,7 @@ firewall.iptables_default_accept:
 # User checker findings
 # -------------------------
 
+# Consumer: #142. No checker emits this definition yet.
 users.sudo_nopasswd:
   title: "Sudoers entry permits privilege escalation without password"
   severity: "HIGH"
@@ -129,6 +135,7 @@ users.sudo_nopasswd:
     - "NIST SP 800-53 Rev 5 AC-6 (Least Privilege)"
     - "https://cwe.mitre.org/data/definitions/269.html"
 
+# Consumer: #142. No checker emits this definition yet.
 users.wheel_group_unrestricted:
   title: "wheel group has unrestricted sudo access"
   severity: "MEDIUM"
@@ -155,6 +162,7 @@ users.wheel_group_unrestricted:
     - "NIST SP 800-53 Rev 5 AC-6 (Least Privilege)"
     - "https://cwe.mitre.org/data/definitions/269.html"
 
+# Consumer: #142. No checker emits this definition yet.
 users.aur_helper_installed:
   title: "AUR helper is installed"
   severity: "LOW"
@@ -187,6 +195,7 @@ users.aur_helper_installed:
 # Permissions checker findings
 # -------------------------
 
+# Consumer: #142. No checker emits this definition yet.
 permissions.shadow_world_readable:
   title: "/etc/shadow is readable by non-root users"
   severity: "CRITICAL"
@@ -214,6 +223,7 @@ permissions.shadow_world_readable:
     - "NIST SP 800-53 Rev 5 AC-3 (Access Enforcement)"
     - "https://cwe.mitre.org/data/definitions/732.html"
 
+# Consumer: #142. No checker emits this definition yet.
 permissions.pacman_cache_world_writable:
   title: "pacman cache directory is world-writable"
   severity: "HIGH"
@@ -242,6 +252,7 @@ permissions.pacman_cache_world_writable:
     - "NIST SP 800-53 Rev 5 AC-3 (Access Enforcement)"
     - "https://cwe.mitre.org/data/definitions/732.html"
 
+# Consumer: #142. No checker emits this definition yet.
 permissions.ssh_dir_permissions:
   title: "SSH directory or authorized_keys has incorrect permissions"
   severity: "HIGH"

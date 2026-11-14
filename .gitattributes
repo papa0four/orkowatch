@@ -1,0 +1,3 @@
+# Go source is LF in the repository and in every working tree, so gofmt
+# reports the same thing on Windows as it does on Linux.
+*.go text eol=lf

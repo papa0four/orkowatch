@@ -1,5 +1,5 @@
-# Orko Watch (owatch) [README REQUIRES UPDATE]
-## Updated as of July 5, 2026
+# Orko Watch (owatch) [README SUBJECT TO CHANGE]
+## Updated as of August 29, 2026
 
 ![Orko Watch][logo]
 
@@ -23,16 +23,22 @@ and open an issue against this doc.
   checking doesn't yet default to `C:\` with full recursive traversal, the
   users check has known false negatives on Microsoft accounts, some scans
   return zero findings when findings are expected, and some failures fail
-  silently instead of surfacing an error. Tracked as a single fix (#111).
-  Linux/Unix audit checks are not affected.
+  silently instead of surfacing an error. Identity resolution is local-only:
+  user enumeration reads the local SAM, so accounts supplied by Active
+  Directory are never seen; ACL checks match the English literal `Everyone`
+  and find nothing on a localized Windows; and files owned by a SID that no
+  longer resolves go undetected. Tracked as a single fix (#111). Linux/Unix
+  audit checks are not affected.
 - **`--enrich` currently has no effect.** No CVE/CWE enrichment adapter
   (NVD, CISA KEV, EPSS, GHSA) is wired yet. The flag is accepted and does
   nothing; findings are not annotated with CVE data.
 - **`--mitre` does not exist yet.** MITRE ATT&CK mapping is planned but not
   implemented; passing it will fail as an unknown flag.
-- **macOS and BSD are not supported yet.** Audit checkers are implemented
-  for Windows and Linux/Unix only. macOS and BSD support is blocked on
-  dedicated test runners and has no timeline yet.
+- **macOS and BSD are implemented but not yet fully verified.** The Unix
+  checkers carry macOS, FreeBSD, and OpenBSD code paths, and the registry
+  ships finding definitions for each, but no result has been confirmed against
+  real hardware on those platforms. Dedicated runners are tracked in #97 through
+  #100; treat output there as unproven rather than trusted.
 - **Filename and report structure may still change.** The naming convention
   and JSON/YAML report shape are considered stable for the fields that exist
   today, but new segments (enrichment, MITRE) will be added as those features
@@ -40,6 +46,9 @@ and open an issue against this doc.
 - **No log capture, listener enumeration, or history modules yet.** Only OS
   fingerprinting, software inventory, and the four audit checks (SSH,
   firewall, users, permissions) exist today.
+- **No automated test suite yet.** Every package reports no test files;
+  verification is manual against a Linux and a Windows host. Test
+  infrastructure design is tracked in #94 through #98.
 
 ---
 
@@ -111,11 +120,11 @@ With no check flags given, all checks run by default.
 | `--skip-checks` | Comma-separated checks to skip (ssh, firewall, users, permissions) | — |
 | `-o, --output` | Output format: text, json, yaml | text |
 | `--report-file` | Save report to directory; filename is generated automatically | — |
-| `--min-severity` | Minimum severity to report: LOW, MEDIUM, HIGH, CRITICAL | LOW |
+| `--min-severity` | Minimum severity to report: NONE, LOW, MEDIUM, HIGH, CRITICAL | NONE |
 | `--timeout` | Maximum audit duration | 10m |
 | `--enrich, -e` | Query external sources to annotate findings with CVEs mapped to referenced CWEs | false |
-| `--allow-elevated-write` | Permit an elevated write outside the allowlisted directories | false |
-| `-v, --verbose` | Enable verbose output | false |
+| `--allow-elevated-write` | Permit an elevated write outside the allowlisted directories or into a directory other users control | false |
+| `-v, --verbose` | Show progress while checks run; does not change report content | false |
 
 ## `all` Flags (`owatch all`)
 
@@ -129,13 +138,13 @@ individual audit checks within the audit module, or both together.
 |---|---|---|
 | `--skip-modules` | Comma-separated modules to skip (osinfo, software, audit) | — |
 | `--skip-checks` | Comma-separated audit checks to skip (ssh, firewall, users, permissions); composes with `--skip-modules` | — |
-| `-o, --output` | Output format: text, json, yaml, csv (csv not yet implemented) | text |
+| `-o, --output` | Output format: text, json, yaml | text |
 | `--report-file` | Save report to directory; filename is generated automatically | — |
-| `--min-severity` | Minimum severity to report: LOW, MEDIUM, HIGH, CRITICAL | LOW |
+| `--min-severity` | Minimum severity to report: NONE, LOW, MEDIUM, HIGH, CRITICAL | NONE |
 | `--timeout` | Maximum time to run all scans | 30m |
 | `--enrich, -e` | Query external sources to annotate findings with CVEs mapped to referenced CWEs | false |
-| `--allow-elevated-write` | Permit an elevated write outside the allowlisted directories | false |
-| `-v, --verbose` | Enable verbose output for all scans | false |
+| `--allow-elevated-write` | Permit an elevated write outside the allowlisted directories or into a directory other users control | false |
+| `-v, --verbose` | Show module and check progress while scanning; does not change report content | false |
 
 There is no individual audit check flag (`--ssh`, `--fwall`, etc.) on `all` —
 to run only specific checks as part of a full scan, skip the others instead:
@@ -144,6 +153,40 @@ to run only specific checks as part of a full scan, skip the others instead:
 # Equivalent to running only the SSH check, but as part of the all pipeline
 owatch all --skip-checks firewall,users,permissions
 ```
+
+## Skips and Partial Runs
+
+Skipping is recorded, not hidden. A check excluded with `--skip-checks` appears in
+the report with result `notselected` and is counted under that result in the
+summary, so a report always accounts for every check in the canonical set. Under
+`owatch all`, a module excluded with `--skip-modules` is likewise reported in the
+`Modules` block as `notselected` rather than being silently absent.
+
+Skipping every check, or every module, is rejected rather than producing an empty
+report. Use `--skip-modules audit` to omit the audit module entirely.
+
+A run that exceeds `--timeout` prints the results collected so far, marks the checks
+that did not finish as `error`, and then reports the timeout naming which checks to
+exclude or allow more time for. A rule that could not be evaluated in full, such as
+a filesystem scan that could not read some paths, reports `error` with the reason
+rather than `pass` on partial coverage.
+
+## Results and Evidence
+
+Every check reports the rules it evaluated as conditions, each with one of the
+XCCDF 1.2 result values: `pass`, `fail`, `error`, `unknown`, `notapplicable`,
+`notchecked`, `notselected` or `informational`. A result other than `pass` or
+`fail` always carries a reason. `error` means the evaluation could not complete,
+typically for want of privilege; `unknown` means a tool's output was not
+recognized. A check's own result is the aggregate of its conditions.
+
+A finding is a condition that failed. It carries the rule key, the registry
+description, and the evidence that caused it: the files, accounts or settings
+the rule failed on, each with the facts observed about it. In JSON and YAML the
+evidence sits inside its condition. A finding below `--min-severity` is left out
+together with its evidence; conditions that are not findings are always shown.
+
+The summary counts checks and conditions by result and findings by severity.
 
 ## Report Output
 

@@ -1,3 +1,5 @@
+// internal/render/doc.go
+
 // Package render provides the shared output machinery for owatch commands:
 // parameterized text rendering for the blocks that appear in more than one
 // command's output (finding lines, suppression disclosure, and summaries),

@@ -1,6 +1,7 @@
-//go:build linux || darwin || freebsd
+//go:build linux || darwin || freebsd || openbsd || netbsd
 
 // internal/softwarelist/softwarelist_unix.go
+
 package softwarelist
 
 import (
@@ -13,7 +14,9 @@ import (
 
 // getPlatformSoftwareList returns installed software as a structured slice
 // by querying the platform package manager. Linux tries dpkg-query then rpm;
-// Darwin uses system_profiler; FreeBSD uses pkg info.
+// Darwin uses system_profiler; FreeBSD uses pkg info. OpenBSD and NetBSD are
+// wired but not implemented: both use pkg_info, and the module reports the gap
+// rather than enumerating with an unverified parser.
 func getPlatformSoftwareList(ctx context.Context) ([]SoftwareEntry, error) {
 	switch runtime.GOOS {
 	case "linux":
@@ -38,6 +41,9 @@ func getPlatformSoftwareList(ctx context.Context) ([]SoftwareEntry, error) {
 			return nil, fmt.Errorf("insufficient permissions to list software packages; try rerunning with sudo")
 		}
 		return parseFreeBSDJSON(output), nil
+
+	case "openbsd", "netbsd":
+		return nil, fmt.Errorf("software enumeration is not yet implemented for %s", runtime.GOOS)
 
 	default:
 		return nil, fmt.Errorf("unsupported operating system: %s", runtime.GOOS)

@@ -1,3 +1,5 @@
+// internal/softwarelist/softwarelist.go
+
 // Package softwarelist enumerates installed software packages on the host.
 // It provides both a structured list for programmatic consumption and a
 // text renderer for human-readable text output.

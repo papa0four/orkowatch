@@ -1,10 +1,19 @@
 // internal/security/registry/registry.go
+
+// Package registry holds the finding definitions that checkers emit, indexed
+// by platform and, on Linux and BSD hosts, by distribution family. Definitions
+// are authored as YAML and embedded at build time, so a finding's title,
+// severity, description, impact, resolution, and references live in one data
+// file rather than spread through checker code.
 package registry
 
 import (
 	"bufio"
+	"bytes"
 	_ "embed"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"regexp"
 	"runtime"
@@ -13,17 +22,56 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/papa0four/orkowatch/internal/security/types"
+	"github.com/papa0four/orkowatch/internal/security/finding"
 )
 
-// Platform identifies the host OS family
-type Platform string
+type (
+	// platformRegistry holds all indexed definitions
+	platformRegistry map[Platform]map[FindingKey]FindingDefinition
 
-// Distro indentifies a *Nix distro family *if Windows, unused
-type Distro string
+	// familyRegistry holds finding definitions indexed by distro family,
+	// used for platforms whose findings vary by family (Linux, Unix/BSD)
+	familyRegistry map[Distro]map[FindingKey]FindingDefinition
 
-// FindingKey formatted <checker>.<finding_id> to join checker detection logic and registry data
-type FindingKey string
+	// Platform identifies the host OS family
+	Platform string
+
+	// Distro identifies a Unix or Linux distribution family. It is unused on
+	// Windows and macOS, whose findings are indexed by platform alone.
+	Distro string
+
+	// FindingKey formatted <checker>.<finding_id> to join checker detection logic and registry data
+	FindingKey string
+
+	// OSContext obtains full platform and distro info to pass to auditor before registry lookups
+	OSContext struct {
+		Platform Platform
+		Families []Distro
+	}
+
+	// FindingDefinition is the authored form of a finding: everything the
+	// registry knows about a condition, independent of the host it is found
+	// on. Finding projects everything but CVSSScore and CVSSVector, which
+	// have no reader yet: they are the static baseline #86 derives severity
+	// from, the value a live score overrides through finding.EffectiveSeverity.
+	//
+	// Result is what the condition reports when a checker observes it. It
+	// defaults to fail. A definition that describes a state the rule does
+	// not apply to declares notapplicable instead, and only a definition
+	// that can fail must name the weakness it maps to in CWE.
+	FindingDefinition struct {
+		Title       string         `yaml:"title"`
+		Severity    string         `yaml:"severity"`
+		Result      finding.Result `yaml:"result"`
+		CVSSScore   float64        `yaml:"cvss_score"`
+		CVSSVector  string         `yaml:"cvss_vector"`
+		CWE         finding.CWE    `yaml:"cwe"`
+		Description string         `yaml:"description"`
+		Impact      string         `yaml:"impact"`
+		Resolution  string         `yaml:"resolution"`
+		References  []string       `yaml:"references"`
+	}
+)
 
 // Platform constants
 const (
@@ -48,8 +96,8 @@ const (
 	DistroOpenBSD Distro = "openbsd"
 	DistroNetBSD  Distro = "netbsd"
 
-	// Non-Linux Platforms
-	DistroNone    Distro = ""
+	// DistroUnknown is the resolution of an os-release identifier no family
+	// claims.
 	DistroUnknown Distro = "unknown"
 
 	// Reference type classifications produced by ToReferences.
@@ -62,41 +110,7 @@ const (
 	RefTypeOther = "OTHER"
 )
 
-type (
-	// OSContext obtains full platform and distro info to pass to auditor before registry lookups
-	OSContext struct {
-		Platform Platform
-		Families []Distro
-	}
-
-	// FindingDefinition is a registry map for types.Finding
-	FindingDefinition struct {
-		Title       string   `yaml:"title"`
-		Severity    string   `yaml:"severity"`
-		CVSSScore   float64  `yaml:"cvss_score"`
-		CVSSVector  string   `yaml:"cvss_vector"`
-		CWE         string   `yaml:"cwe"`
-		Description string   `yaml:"description"`
-		Impact      string   `yaml:"impact"`
-		Resolution  string   `yaml:"resolution"`
-		References  []string `yaml:"references"`
-	}
-)
-
-type (
-	// platformRegistry holds all indexed definitions
-	platformRegistry map[Platform]map[FindingKey]FindingDefinition
-
-	// familyRegistry holds finding definitions indexed by distro family,
-	// used for platforms whose findings vary by family (Linux, Unix/BSD)
-	familyRegistry map[Distro]map[FindingKey]FindingDefinition
-)
-
 var (
-	registry      platformRegistry
-	linuxRegistry familyRegistry
-	unixRegistry  familyRegistry
-
 	//go:embed data/windows.yaml
 	windowsData []byte
 
@@ -135,83 +149,62 @@ var (
 	// "(1)" and the trailing parenthetical control name are not part of the
 	// capture and are not required to be present.
 	nistFamilyPattern = regexp.MustCompile(`^NIST SP 800-53 Rev 5 ([A-Z]{2})-\d+`)
+
+	// registry, linuxRegistry, and unixRegistry are the finding indexes built
+	// from the embedded definition files. Lookup consults them in that order
+	// of specificity; see loadRegistries for which file feeds which index.
+	registry, linuxRegistry, unixRegistry = loadRegistries()
 )
 
-func init() {
-	registry = make(platformRegistry)
-	linuxRegistry = make(familyRegistry)
-	unixRegistry = make(familyRegistry)
-
-	registry[PlatformWindows] = mustLoad("windows.yaml", windowsData)
-	registry[PlatformDarwin] = mustLoad("darwin.yaml", darwinData)
-
-	linuxRegistry[DistroGeneric] = mustLoad("linux_common.yaml", linuxCommonData)
-	linuxRegistry[DistroDebian] = mustLoad("linux_debian.yaml", linuxDebianData)
-	linuxRegistry[DistroRHEL] = mustLoad("linux_rhel.yaml", linuxRHELData)
-	linuxRegistry[DistroArch] = mustLoad("linux_arch.yaml", linuxArchData)
-	linuxRegistry[DistroFedora] = mustLoad("linux_fedora.yaml", linuxFedoraData)
-	linuxRegistry[DistroSUSE] = mustLoad("linux_suse.yaml", linuxSUSEData)
-	linuxRegistry[DistroAlpine] = mustLoad("linux_alpine.yaml", linuxAlpineData)
-
-	unixRegistry[DistroFreeBSD] = mustLoad("unix_freebsd.yaml", unixFreeBSDData)
-	unixRegistry[DistroOpenBSD] = mustLoad("unix_openbsd.yaml", unixOpenBSDData)
-}
-
-// mustLoad parses a byte slice into a finding map. name identifies the
-// source YAML file in panic messages, since embed.FS collapses every
-// source into an anonymous []byte and a bare parse or validation failure
-// would otherwise give no indication which of the eleven embedded files is
-// malformed.
-func mustLoad(name string, data []byte) map[FindingKey]FindingDefinition {
-	var raw map[string]FindingDefinition
-	if err := yaml.Unmarshal(data, &raw); err != nil {
-		panic("registry: failed to parse embedded YAML " + name + ": " + err.Error())
-	}
-	out := make(map[FindingKey]FindingDefinition, len(raw))
-	for k, v := range raw {
-		if err := v.validateCategories(); err != nil {
-			panic("registry: " + name + ": finding \"" + k + "\": " + err.Error())
-		}
-		out[FindingKey(k)] = v
-	}
-	return out
-}
-
-// Lookup retrieves a FindingDefinition for the given OSContext and key.
+// Lookup retrieves a FindingDefinition for the given OSContenxt and key.
 func Lookup(ctx OSContext, key FindingKey) (FindingDefinition, bool) {
+	for _, defs := range definitionsFor(ctx) {
+		if def, ok := defs[key]; ok {
+			return def, true
+		}
+	}
+	return FindingDefinition{}, false
+}
+
+// HasDefinitions reports whether any finding definitions are registered for
+// ctx. A context with none makes every Lookup miss, so checkers would detect
+// conditions and emit nothing, reporting clean because the registry is empty
+// rather than because the host is. Callers must treat false as fatal.
+func HasDefinitions(ctx OSContext) bool {
+	for _, defs := range definitionsFor(ctx) {
+		if len(defs) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// definitionsFor returns the definition sets that apply to ctx, most specific
+// first. Linux ends with the common set; other platforms have no fallback.
+func definitionsFor(ctx OSContext) []map[FindingKey]FindingDefinition {
+	var sets []map[FindingKey]FindingDefinition
 	switch ctx.Platform {
 	case PlatformLinux:
 		for _, family := range ctx.Families {
 			if fm, ok := linuxRegistry[family]; ok {
-				if def, ok := fm[key]; ok {
-					return def, true
-				}
+				sets = append(sets, fm)
 			}
 		}
-		// fall through to common Linux findings
-		if def, ok := linuxRegistry[DistroGeneric][key]; ok {
-			return def, true
+		if fm, ok := linuxRegistry[DistroGeneric]; ok {
+			sets = append(sets, fm)
 		}
-		return FindingDefinition{}, false
-
 	case PlatformUnix:
 		for _, family := range ctx.Families {
 			if fm, ok := unixRegistry[family]; ok {
-				if def, ok := fm[key]; ok {
-					return def, true
-				}
+				sets = append(sets, fm)
 			}
 		}
-		return FindingDefinition{}, false
-
 	default:
 		if pm, ok := registry[ctx.Platform]; ok {
-			if def, ok := pm[key]; ok {
-				return def, true
-			}
+			sets = append(sets, pm)
 		}
-		return FindingDefinition{}, false
 	}
+	return sets
 }
 
 // DetectOS identifies the current platform and, for Linux, resolves
@@ -221,7 +214,7 @@ func Lookup(ctx OSContext, key FindingKey) (FindingDefinition, bool) {
 // registry YAML files apply to the host (family-chain precision from
 // ID/ID_LIKE), not host identity for reporting, and wiring it to
 // osfingerprint would violate the pinned import direction (registry
-// imports types only).
+// imports finding only).
 func DetectOS() OSContext {
 	switch platform := detectPlatform(); platform {
 	case PlatformLinux:
@@ -237,6 +230,194 @@ func DetectOS() OSContext {
 	default:
 		return OSContext{Platform: platform}
 	}
+}
+
+// DisplayLabel returns the human-readable platform label used in check
+// display names: the platform class for Windows, macOS, and Linux, and the
+// specific BSD variant for Unix platforms
+func (c OSContext) DisplayLabel() string {
+	switch c.Platform {
+	case PlatformWindows:
+		return "Windows"
+	case PlatformDarwin:
+		return "macOS"
+	case PlatformLinux:
+		return "Linux"
+	case PlatformUnix:
+		if len(c.Families) > 0 {
+			switch c.Families[0] {
+			case DistroFreeBSD:
+				return "FreeBSD"
+			case DistroOpenBSD:
+				return "OpenBSD"
+			case DistroNetBSD:
+				return "NetBSD"
+			}
+		}
+		return "Unix"
+	default:
+		return "Host"
+	}
+}
+
+// Finding returns the description of d a condition carries.
+func (d FindingDefinition) Finding() *finding.Finding {
+	return &finding.Finding{
+		Title:       d.Title,
+		Description: d.Description,
+		Severity:    d.Severity,
+		CWE:         d.CWE,
+		Categories:  d.ToCategories(),
+		Impact:      d.Impact,
+		Resolution:  d.Resolution,
+		References:  d.ToReferences(),
+	}
+}
+
+// ToReferences classifies flat YAML reference strings into
+// structured finding.Reference entries by kind.
+func (d FindingDefinition) ToReferences() []finding.Reference {
+	if len(d.References) == 0 {
+		return nil
+	}
+	out := make([]finding.Reference, 0, len(d.References))
+	for _, raw := range d.References {
+		out = append(out, classifyReference(raw))
+	}
+	return out
+}
+
+// ToCategories extracts deduplicated NIST SP 800-53 Rev 5 control-family
+// codes from d's NIST-classified references, in alphabetical order.
+// Every reference has already passed validateCategories at registry load
+// time, so a pattern mismatch here indicates the two functions have gone
+// out of sync with each other, not a data defect.
+func (d FindingDefinition) ToCategories() []string {
+	if len(d.References) == 0 {
+		return nil
+	}
+	var out []string
+	seen := make(map[string]struct{})
+	for _, raw := range d.References {
+		ref := classifyReference(raw)
+		if ref.Type != RefTypeNIST {
+			continue
+		}
+		match := nistFamilyPattern.FindStringSubmatch(ref.Title)
+		if match == nil {
+			panic("registry: NIST reference passed validateCategories but failed extraction: " + ref.Title)
+		}
+		family := match[1]
+		if _, dup := seen[family]; dup {
+			continue
+		}
+		seen[family] = struct{}{}
+		out = append(out, family)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// loadRegistries parses the embedded definition files into the platform and
+// family indexes. It panix on malformed YAML, halting startup rather than
+// leaving the checker to look up a finding that silently does not exist.
+func loadRegistries() (platformRegistry, familyRegistry, familyRegistry) {
+	platform := platformRegistry{
+		PlatformWindows: mustLoad("windows.yaml", windowsData),
+		PlatformDarwin:  mustLoad("darwin.yaml", darwinData),
+	}
+	linux := familyRegistry{
+		DistroGeneric: mustLoad("linux_common.yaml", linuxCommonData),
+		DistroDebian:  mustLoad("linux_debian.yaml", linuxDebianData),
+		DistroRHEL:    mustLoad("linux_rhel.yaml", linuxRHELData),
+		DistroArch:    mustLoad("linux_arch.yaml", linuxArchData),
+		DistroFedora:  mustLoad("linux_fedora.yaml", linuxFedoraData),
+		DistroSUSE:    mustLoad("linux_suse.yaml", linuxSUSEData),
+		DistroAlpine:  mustLoad("linux_alpine.yaml", linuxAlpineData),
+	}
+	unix := familyRegistry{
+		DistroFreeBSD: mustLoad("unix_freebsd.yaml", unixFreeBSDData),
+		DistroOpenBSD: mustLoad("unix_openbsd.yaml", unixOpenBSDData),
+	}
+	return platform, linux, unix
+}
+
+// mustLoad parses a byte slice into a finding map. name identifies the
+// source YAML file in panic messages: //go:embed yields an unnamed []byte
+// per file, so a bare parse or validation failure would give no indication
+// which of the eleven embedded definition files is malformed. Decoding is
+// strict: a key the definition does not declare is a misspelling whose value
+// would otherwise be dropped without a word. A file holding no definitions
+// yet decodes to an empty set.
+func mustLoad(name string, data []byte) map[FindingKey]FindingDefinition {
+	var raw map[string]FindingDefinition
+	decoder := yaml.NewDecoder(bytes.NewReader(data))
+	decoder.KnownFields(true)
+	if err := decoder.Decode(&raw); err != nil && !errors.Is(err, io.EOF) {
+		panic("registry: failed to parse embedded YAML " + name + ": " + err.Error())
+	}
+	out := make(map[FindingKey]FindingDefinition, len(raw))
+	for k, v := range raw {
+		def, err := v.validated()
+		if err != nil {
+			panic("registry: " + name + ": finding \"" + k + "\": " + err.Error())
+		}
+		out[FindingKey(k)] = def
+	}
+	return out
+}
+
+// validated returns d with its defaults applied, or the reason it cannot be
+// used. A definition that can report fail must carry a well-formed CWE,
+// because that identifier is the key enrichment looks weaknesses up by; one
+// that cannot fail needs none.
+func (d FindingDefinition) validated() (FindingDefinition, error) {
+	if err := d.validateCategories(); err != nil {
+		return d, err
+	}
+
+	severity, ok := finding.NormalizeSeverity(d.Severity)
+	if !ok {
+		return d, fmt.Errorf("severity %q is not one of %s", d.Severity, finding.SeverityNames())
+	}
+	d.Severity = severity
+
+	switch d.Result {
+	case "":
+		d.Result = finding.ResultFail
+	case finding.ResultFail, finding.ResultNotApplicable:
+	default:
+		return d, fmt.Errorf("result %q is not one a definition can declare", d.Result)
+	}
+
+	if d.Result != finding.ResultFail && d.CWE == "" {
+		return d, nil
+	}
+	cwe, err := finding.ParseCWE(string(d.CWE))
+	if err != nil {
+		return d, err
+	}
+	d.CWE = cwe
+	return d, nil
+}
+
+// validateCategories confirms every NIST-classified reference in d resolves
+// to a control-family code. Called once per finding at registry load time
+// so ToCategories can extract categories at finding-construction sites
+// without an error return: a malformed citation is a registry data defect
+// and must halt startup, not silently produce a finding with no category
+// or a wrong one.
+func (d FindingDefinition) validateCategories() error {
+	for _, raw := range d.References {
+		ref := classifyReference(raw)
+		if ref.Type != RefTypeNIST {
+			continue
+		}
+		if !nistFamilyPattern.MatchString(ref.Title) {
+			return fmt.Errorf("malformed NIST control-family reference: %q", ref.Title)
+		}
+	}
+	return nil
 }
 
 // detectPlatform returns the Platform from runtime.GOOS. Compile-time truth
@@ -265,7 +446,7 @@ func detectLinuxFamilies() []Distro {
 	if err != nil {
 		return []Distro{DistroGeneric}
 	}
-	defer file.Close() // nolint:errcheck // read-only file; no data at risk
+	defer file.Close() //nolint:errcheck // read-only file; no data at risk
 
 	var id, idLike string
 	scanner := bufio.NewScanner(file)
@@ -344,37 +525,24 @@ func containsDistro(families []Distro, d Distro) bool {
 	return false
 }
 
-// ToReferences classifies flat YAML reference strings into
-// structured types.Reference entries by kind.
-func (d FindingDefinition) ToReferences() []types.Reference {
-	if len(d.References) == 0 {
-		return nil
-	}
-	out := make([]types.Reference, 0, len(d.References))
-	for _, raw := range d.References {
-		out = append(out, classifyReference(raw))
-	}
-	return out
-}
-
-func classifyReference(raw string) types.Reference {
+func classifyReference(raw string) finding.Reference {
 	trimmed := strings.TrimSpace(raw)
 
 	switch {
 	case isCWEReference(trimmed):
-		return types.Reference{Title: trimmed, URL: cweURL(trimmed), Type: RefTypeCWE}
+		return finding.Reference{Title: trimmed, URL: cweURL(trimmed), Type: RefTypeCWE}
 	case isCVEReference(trimmed):
-		return types.Reference{Title: trimmed, URL: cveURL(trimmed), Type: RefTypeCVE}
+		return finding.Reference{Title: trimmed, URL: cveURL(trimmed), Type: RefTypeCVE}
 	case strings.HasPrefix(trimmed, "CIS "):
-		return types.Reference{Title: trimmed, Type: RefTypeCIS}
+		return finding.Reference{Title: trimmed, Type: RefTypeCIS}
 	case strings.HasPrefix(trimmed, "NIST "):
-		return types.Reference{Title: trimmed, Type: RefTypeNIST}
+		return finding.Reference{Title: trimmed, Type: RefTypeNIST}
 	case strings.HasPrefix(trimmed, "MITRE "):
-		return types.Reference{Title: trimmed, Type: RefTypeMITRE}
+		return finding.Reference{Title: trimmed, Type: RefTypeMITRE}
 	case strings.HasPrefix(trimmed, "https://") || strings.HasPrefix(trimmed, "http://"):
-		return types.Reference{Title: trimmed, URL: trimmed, Type: RefTypeURL}
+		return finding.Reference{Title: trimmed, URL: trimmed, Type: RefTypeURL}
 	default:
-		return types.Reference{Title: trimmed, Type: RefTypeOther}
+		return finding.Reference{Title: trimmed, Type: RefTypeOther}
 	}
 }
 
@@ -398,54 +566,4 @@ func cveURL(s string) string {
 		return s
 	}
 	return "https://nvd.nist.gov/vuln/detail/" + s
-}
-
-// validateCategories confirms every NIST-classified reference in d resolves
-// to a control-family code. Called once per finding at registry load time
-// so ToCategories can extract categories at finding-construction sites
-// without an error return: a malformed citation is a registry data defect
-// and must fail the build, not silently produce a finding with no category
-// or a wrong one.
-func (d FindingDefinition) validateCategories() error {
-	for _, raw := range d.References {
-		ref := classifyReference(raw)
-		if ref.Type != RefTypeNIST {
-			continue
-		}
-		if !nistFamilyPattern.MatchString(ref.Title) {
-			return fmt.Errorf("malformed NIST control-family reference: %q", ref.Title)
-		}
-	}
-	return nil
-}
-
-// ToCategories extracts deduplicated NIST SP 800-53 Rev 5 control-family
-// codes from d's NIST-classified references, in alphabetical order.
-// Every reference has already passed validateCategories at registry load
-// time, so a pattern mismatch here indicates the two functions have gone
-// out of sync with each other, not a data defect.
-func (d FindingDefinition) ToCategories() []string {
-	if len(d.References) == 0 {
-		return nil
-	}
-	var out []string
-	seen := make(map[string]struct{})
-	for _, raw := range d.References {
-		ref := classifyReference(raw)
-		if ref.Type != RefTypeNIST {
-			continue
-		}
-		match := nistFamilyPattern.FindStringSubmatch(ref.Title)
-		if match == nil {
-			panic("registry: NIST reference passed validateCategories but failed extraction: " + ref.Title)
-		}
-		family := match[1]
-		if _, dup := seen[family]; dup {
-			continue
-		}
-		seen[family] = struct{}{}
-		out = append(out, family)
-	}
-	sort.Strings(out)
-	return out
 }

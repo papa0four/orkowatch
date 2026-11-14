@@ -37,6 +37,7 @@ firewall.firewalld_not_running:
     - "NIST SP 800-53 Rev 5 SC-7 (Boundary Protection)"
     - "https://cwe.mitre.org/data/definitions/284.html"
 
+# Consumer: #142. No checker emits this definition yet.
 firewall.firewalld_not_installed:
   title: "No recognized firewall manager is installed"
   severity: "CRITICAL"
@@ -61,6 +62,7 @@ firewall.firewalld_not_installed:
     - "NIST SP 800-53 Rev 5 SC-7 (Boundary Protection)"
     - "https://cwe.mitre.org/data/definitions/284.html"
 
+# Consumer: #142. No checker emits this definition yet.
 firewall.firewalld_default_zone_public:
   title: "firewalld default zone is set to public"
   severity: "MEDIUM"
@@ -92,6 +94,7 @@ firewall.firewalld_default_zone_public:
 # User checker findings
 # -------------------------
 
+# Consumer: #142. No checker emits this definition yet.
 users.sudo_nopasswd:
   title: "Sudoers entry permits privilege escalation without password"
   severity: "HIGH"
@@ -117,6 +120,7 @@ users.sudo_nopasswd:
     - "NIST SP 800-53 Rev 5 AC-6 (Least Privilege)"
     - "https://cwe.mitre.org/data/definitions/269.html"
 
+# Consumer: #142. No checker emits this definition yet.
 users.wheel_group_empty:
   title: "The wheel group has no members"
   severity: "LOW"
@@ -143,6 +147,7 @@ users.wheel_group_empty:
     - "NIST SP 800-53 Rev 5 AC-6 (Least Privilege)"
     - "https://cwe.mitre.org/data/definitions/269.html"
 
+# Consumer: #142. No checker emits this definition yet.
 users.passwd_no_shadow:
   title: "Password hashes stored in /etc/passwd instead of /etc/shadow"
   severity: "HIGH"
@@ -171,6 +176,7 @@ users.passwd_no_shadow:
 # Permissions checker findings
 # -------------------------
 
+# Consumer: #142. No checker emits this definition yet.
 permissions.shadow_world_readable:
   title: "/etc/shadow is readable by non-root users"
   severity: "CRITICAL"
@@ -198,6 +204,7 @@ permissions.shadow_world_readable:
     - "NIST SP 800-53 Rev 5 AC-3 (Access Enforcement)"
     - "https://cwe.mitre.org/data/definitions/732.html"
 
+# Consumer: #142. No checker emits this definition yet.
 permissions.sudoers_world_readable:
   title: "/etc/sudoers has overly permissive permissions"
   severity: "HIGH"
@@ -224,6 +231,7 @@ permissions.sudoers_world_readable:
     - "NIST SP 800-53 Rev 5 AC-3 (Access Enforcement)"
     - "https://cwe.mitre.org/data/definitions/732.html"
 
+# Consumer: #142. No checker emits this definition yet.
 permissions.ssh_dir_permissions:
   title: "SSH directory or authorized_keys has incorrect permissions"
   severity: "HIGH"
@@ -252,6 +260,7 @@ permissions.ssh_dir_permissions:
     - "NIST SP 800-53 Rev 5 AC-3 (Access Enforcement)"
     - "https://cwe.mitre.org/data/definitions/732.html"
 
+# Consumer: #142. No checker emits this definition yet.
 permissions.selinux_disabled:
   title: "SELinux is disabled or set to permissive mode"
   severity: "HIGH"
