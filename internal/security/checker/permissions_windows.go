@@ -20,7 +20,7 @@ type (
 	// WindowsPermissionChecker implements PermissionChecker for Windows systems
 	WindowsPermissionChecker struct {
 		checkIdentity
-		Paths    []string
+		paths    []string
 		scanRoot string
 	}
 )
@@ -43,7 +43,7 @@ func NewPermissionChecker(osCtx registry.OSContext, scanRoot string) *WindowsPer
 			analyzes: "file and directory permissions",
 			osCtx:    osCtx,
 		},
-		Paths: []string{
+		paths: []string{
 			"C:\\Windows\\System32",
 			"C:\\Program Files",
 			"C:\\Program Files (x86)",
@@ -58,12 +58,12 @@ func NewPermissionChecker(osCtx registry.OSContext, scanRoot string) *WindowsPer
 func (p *WindowsPermissionChecker) Check(ctx context.Context) types.AuditResult {
 	r := newReport(p.checkIdentity)
 
-	paths, recursive := p.Paths, false
+	paths, recursive := p.paths, false
 	if p.scanRoot != "" {
 		paths, recursive = []string{p.scanRoot}, true
 		r.note(types.SymbolInfo, "Scanning %s", p.scanRoot)
 	} else {
-		r.note(types.SymbolInfo, "Scanning %d default system paths", len(p.Paths))
+		r.note(types.SymbolInfo, "Scanning %d default system paths", len(p.paths))
 	}
 
 	for _, path := range paths {
