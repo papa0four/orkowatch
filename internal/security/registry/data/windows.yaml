@@ -168,29 +168,70 @@ firewall.all_profiles_disabled:
 # -------------------------
 
 users.no_password_required:
-  title: "Active user account has no password required"
+  title: "Active account is permitted to have a blank password"
   severity: "HIGH"
-  cvss_score: 8.4
-  cvss_vector: "CVSS:3.1/AV:L/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"
+  cvss_score: 7.4
+  cvss_vector: "CVSS:3.1/AV:L/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:H"
   cwe: "CWE-309"
   description: >
-    One or more active user accounts have PasswordRequired set to false,
-    meaning Windows does not enforce a password for interactive or network
-    logon. This is distinct from a blank password — the system will not
-    prompt for or validate any credential for these accounts.
+    One or more enabled local accounts carry the account flag that exempts
+    them from the password requirement. The flag permits a blank password;
+    it does not show that the password is blank, and the stored credential
+    cannot be read to tell. An account Windows records as connected to a
+    Microsoft identity is reported separately and is not counted here.
   impact: >
-    Any local attacker, malicious process, or lateral movement attempt can
-    authenticate as this user without any credential. This eliminates the
-    authentication layer entirely for affected accounts and grants access
-    to all resources the account can reach.
+    If the password is blank, anyone at the console or holding another
+    local session can sign in as the account with no credential. The
+    exemption also lets a blank password be set later whatever minimum
+    length the password policy demands.
   resolution: >
-    Require passwords for all active accounts via: net user <username> *
-    or via Local Security Policy > Account Policies > Password Policy.
-    Set the account password and ensure PasswordRequired is enforced.
+    Clear the exemption with: net user <username> /passwordreq:yes. Then
+    set a password that meets policy with: net user <username> *.
   references:
     - "CIS Windows 11 Benchmark v3.0.0 §1.1"
     - "NIST SP 800-53 Rev 5 IA-5 (Authenticator Management)"
     - "https://cwe.mitre.org/data/definitions/309.html"
+
+# CIS citation pending for the two policy definitions below: #144.
+users.password_min_length_zero:
+  title: "Password policy sets no minimum password length"
+  severity: "MEDIUM"
+  cvss_score: 4.8
+  cvss_vector: "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:L/I:L/A:N"
+  cwe: "CWE-521"
+  description: >
+    The local password policy has a minimum password length of zero, so
+    Windows accepts a password of any length, including an empty one, when
+    an account password is set or changed.
+  impact: >
+    Accounts on this host can be given trivially short or blank passwords
+    without the policy objecting, which leaves authenticator strength to
+    each user's choice.
+  resolution: >
+    Set a minimum length in Local Security Policy > Account Policies >
+    Password Policy, or with: net accounts /minpwlen:<length>.
+  references:
+    - "NIST SP 800-53 Rev 5 IA-5 (Authenticator Management)"
+    - "https://cwe.mitre.org/data/definitions/521.html"
+
+users.lockout_threshold_disabled:
+  title: "Account lockout is disabled"
+  severity: "MEDIUM"
+  cvss_score: 4.8
+  cvss_vector: "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:L/I:L/A:N"
+  cwe: "CWE-307"
+  description: >
+    The local lockout policy has a threshold of zero, so no number of
+    consecutive failed logon attempts locks an account.
+  impact: >
+    Passwords for local accounts can be guessed without limit, at the
+    console or over any service that authenticates against them.
+  resolution: >
+    Set a lockout threshold in Local Security Policy > Account Policies >
+    Account Lockout Policy, or with: net accounts /lockoutthreshold:<count>.
+  references:
+    - "NIST SP 800-53 Rev 5 AC-7 (Unsuccessful Logon Attempts)"
+    - "https://cwe.mitre.org/data/definitions/307.html"
 
 users.administrator_account_active:
   title: "User account has local Administrator privileges"
@@ -273,6 +314,8 @@ users.microsoft_account_no_local_password:
     - "NIST SP 800-53 Rev 5 IA-2 (Identification and Authentication)"
     - "NIST SP 800-53 Rev 5 IA-8 (Identification and Authentication -- Non-Organizational Users)"
 
+# Consumer: #144. No checker emits this definition: the local account
+# database does not hold this kind of principal.
 users.azure_ad_account_no_local_password:
   title: "Azure AD account has no local password hash"
   severity: "NONE"
@@ -301,6 +344,8 @@ users.azure_ad_account_no_local_password:
     - "NIST SP 800-53 Rev 5 IA-3 (Device Identification and Authentication)"
     - "CIS Windows 11 Benchmark v3.0.0 §1.1"
 
+# Consumer: #144. No checker emits this definition: the local account
+# database does not hold this kind of principal.
 users.domain_account_no_local_password:
   title: "Active Directory domain account has no local password hash"
   severity: "NONE"
@@ -331,6 +376,8 @@ users.domain_account_no_local_password:
     - "NIST SP 800-53 Rev 5 IA-2 (Identification and Authentication)"
     - "NIST SP 800-53 Rev 5 SC-8 (Transmission Confidentiality and Integrity)"
 
+# Consumer: #144. No checker emits this definition: the local account
+# database does not hold this kind of principal.
 users.unknown_principal_no_local_password:
   title: "Account with undetermined principal source has no local password hash"
   severity: "MEDIUM"
