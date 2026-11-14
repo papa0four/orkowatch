@@ -464,6 +464,58 @@ permissions.users_full_control:
     - "NIST SP 800-53 Rev 5 AC-3 (Access Enforcement)"
     - "https://cwe.mitre.org/data/definitions/732.html"
 
+# CIS citation pending for the two access control definitions below: #144.
+permissions.broad_group_write_access:
+  title: "A broad group can change a path"
+  severity: "MEDIUM"
+  cvss_score: 4.4
+  cvss_vector: "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:N/I:L/A:L"
+  cwe: "CWE-732"
+  description: >
+    An access control entry grants write, modify or full control to
+    Everyone, Authenticated Users or the Users group. Any account in the
+    group, which for these groups is nearly every account on the host, can
+    create, alter or delete content at the path. Each piece of evidence
+    names the group, the access granted, and whether the grant is set on
+    the path or inherited by it.
+  impact: >
+    A standard user or a process running as one can plant or replace files
+    at the path. Where the path holds executables, libraries, scripts or
+    configuration that a more privileged account loads, that is a route to
+    running code with that account's rights.
+  resolution: >
+    Review each path in the evidence. Remove the grant where the group has
+    no need to write there, with: icacls <path> /remove:g <group>, or
+    narrow it to the accounts that need it. Some grants are Windows
+    defaults; confirm against a clean installation before removing one.
+  references:
+    - "NIST SP 800-53 Rev 5 AC-3 (Access Enforcement)"
+    - "NIST SP 800-53 Rev 5 AC-6 (Least Privilege)"
+    - "https://cwe.mitre.org/data/definitions/732.html"
+
+permissions.unresolved_sid_grant:
+  title: "Access is granted to an account that no longer exists"
+  severity: "LOW"
+  cvss_score: 3.6
+  cvss_vector: "CVSS:3.1/AV:L/AC:H/PR:L/UI:N/S:U/C:L/I:L/A:N"
+  cwe: "CWE-284"
+  description: >
+    An access control entry grants write, modify or full control to a
+    security identifier that resolves to no account. The entry outlived
+    the account it was written for.
+  impact: >
+    The grant is dormant, not harmless. It documents access nobody
+    reviews, and on a domain an identifier can come back into use through
+    account restoration or SID history, at which point the access is live
+    again.
+  resolution: >
+    Remove the entry with: icacls <path> /remove <SID>. Where many paths
+    are affected, find the account that was deleted and review what else
+    it had access to.
+  references:
+    - "NIST SP 800-53 Rev 5 AC-6 (Least Privilege)"
+    - "https://cwe.mitre.org/data/definitions/284.html"
+
 permissions.admin_share_present:
   title: "Default administrative shares are present"
   severity: "LOW"

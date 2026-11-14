@@ -5,37 +5,58 @@
 package checker
 
 import (
-	"bytes"
 	"context"
-	"errors"
 	"fmt"
+	"io/fs"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
+	"syscall"
+
+	"golang.org/x/sys/windows"
 
 	"github.com/papa0four/orkowatch/internal/security/finding"
 	"github.com/papa0four/orkowatch/internal/security/registry"
 )
 
+// The rules this check concludes: four judged on access control entries, one
+// on the share listing.
+const (
+	ruleEveryoneFull  registry.FindingKey = "permissions.everyone_full_control"
+	ruleUsersFull     registry.FindingKey = "permissions.users_full_control"
+	ruleBroadWrite    registry.FindingKey = "permissions.broad_group_write_access"
+	ruleUnresolvedSID registry.FindingKey = "permissions.unresolved_sid_grant"
+	ruleAdminShare    registry.FindingKey = "permissions.admin_share_present"
+)
+
 type (
-	// WindowsPermissionChecker implements PermissionChecker for Windows systems
+	// WindowsPermissionChecker implements PermissionChecker for Windows
+	// systems. paths are the system locations judged in full wherever they
+	// fall inside the traversal.
 	WindowsPermissionChecker struct {
 		checkIdentity
 		paths    []string
 		scanRoot string
 	}
+
+	// aclWalk carries the state one traversal accumulates. named holds the
+	// paths, folded to lower case, whose inherited grants are reported too.
+	aclWalk struct {
+		reader     *aclReader
+		report     *report
+		root       string
+		named      map[string]bool
+		unreadable int
+	}
 )
 
-// The rules this check concludes: two judged on access control entries, one
-// on the share listing.
-const (
-	ruleEveryoneFull registry.FindingKey = "permissions.everyone_full_control"
-	ruleUsersFull    registry.FindingKey = "permissions.users_full_control"
-	ruleAdminShare   registry.FindingKey = "permissions.admin_share_present"
-)
+// aclRules are the rules the traversal concludes.
+var aclRules = []registry.FindingKey{ruleEveryoneFull, ruleUsersFull, ruleBroadWrite, ruleUnresolvedSID}
 
 // NewPermissionChecker returns the file permission checker for Windows
-// hosts. scanRoot narrows the ACL traversal to one tree; empty means the
-// default system paths and the share listing.
+// hosts. scanRoot narrows the traversal to one tree; empty means the whole
+// system volume.
 func NewPermissionChecker(osCtx registry.OSContext, scanRoot string) *WindowsPermissionChecker {
 	return &WindowsPermissionChecker{
 		checkIdentity: checkIdentity{
@@ -58,18 +79,9 @@ func NewPermissionChecker(osCtx registry.OSContext, scanRoot string) *WindowsPer
 func (p *WindowsPermissionChecker) Check(ctx context.Context) finding.AuditResult {
 	r := newReport(p.checkIdentity)
 
-	paths, recursive := p.paths, false
-	if p.scanRoot != "" {
-		paths, recursive = []string{p.scanRoot}, true
-		r.note(finding.SymbolInfo, "Scanning %s", p.scanRoot)
-	} else {
-		r.note(finding.SymbolInfo, "Scanning %d default system paths", len(p.paths))
-	}
-
-	for _, path := range paths {
-		p.checkWindowsPermissions(ctx, path, recursive, r)
-	}
-	r.pass(ruleEveryoneFull, ruleUsersFull)
+	root := p.effectiveRoot()
+	r.note(finding.SymbolInfo, "Scanning %s", root)
+	p.scanACLs(ctx, root, r)
 
 	// Shares are a host-wide condition rather than a property of the scanned
 	// tree, so they are enumerated whether or not a path narrowed the run.
@@ -78,39 +90,143 @@ func (p *WindowsPermissionChecker) Check(ctx context.Context) finding.AuditResul
 	return r.finish()
 }
 
-// checkWindowsPermissions records the full-control grants on one path. A
-// grant found on several paths is one failed rule with several pieces of
-// evidence, because a definition describes the condition rather than the
-// path that carries it. A path that could not be read, in whole or in part,
-// leaves both rules in error unless something already failed them: entries
-// nobody examined prove nothing.
-func (p *WindowsPermissionChecker) checkWindowsPermissions(ctx context.Context, path string, recursive bool, r *report) {
-	output, skipped, err := runICACLS(ctx, path, recursive)
+// effectiveRoot returns the operator's scan root when one was supplied and
+// the root of the system volume otherwise, which is the Windows counterpart
+// of scanning from / on Unix.
+func (p *WindowsPermissionChecker) effectiveRoot() string {
+	if p.scanRoot != "" {
+		return filepath.Clean(p.scanRoot)
+	}
+	if volume := filepath.VolumeName(os.Getenv("SystemRoot")); volume != "" {
+		return volume + `\`
+	}
+	return `C:\`
+}
+
+// scanACLs walks root once and concludes the access control rules. The root
+// and the named system paths are judged on every grant they carry; every
+// other entry only on grants set on it directly, because an inherited grant
+// is the parent's finding and repeating it on each descendant is what buried
+// the report in duplicates. A rule nothing failed passes only when the
+// traversal read everything: after an incomplete one, finding nothing is not
+// the same as there being nothing to find.
+func (p *WindowsPermissionChecker) scanACLs(ctx context.Context, root string, r *report) {
+	reader, err := newACLReader()
 	if err != nil {
-		r.inconclusive(finding.ResultError, fmt.Sprintf("permissions on %s could not be read: %v", path, err),
-			ruleEveryoneFull, ruleUsersFull)
+		r.inconclusive(finding.ResultError, fmt.Sprintf("access control lists could not be read: %v", err), aclRules...)
 		return
 	}
 
-	for _, line := range strings.Split(string(output), "\n") {
-		line = strings.TrimSpace(line)
-		switch {
-		case line == "":
-		case strings.Contains(line, "Everyone:(OI)(CI)(F)"), strings.Contains(line, "Everyone:(F)"):
-			r.observed(ruleEveryoneFull, evidence(kindACL, line, "principal", "Everyone", "access", "full control"))
-		case strings.Contains(line, "Users:(OI)(CI)(F)"), strings.Contains(line, "Users:(F)"):
-			r.observed(ruleUsersFull, evidence(kindACL, line, "principal", "Users", "access", "full control"))
-		default:
-			r.note(finding.SymbolInfo, "%s", line)
-		}
+	w := &aclWalk{reader: reader, report: r, root: root, named: map[string]bool{strings.ToLower(root): true}}
+	for _, path := range p.paths {
+		w.named[strings.ToLower(path)] = true
 	}
 
-	if skipped > 0 {
-		reason := fmt.Sprintf("%d paths under %s were unreadable and went unscanned; rerun with elevated privileges for complete coverage",
-			skipped, path)
-		r.inconclusive(finding.ResultError, reason, ruleEveryoneFull, ruleUsersFull)
-		r.note(finding.SymbolWarning, "%s", reason)
+	err = filepath.WalkDir(root, func(path string, d fs.DirEntry, walkErr error) error {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
+		return w.visit(path, d, walkErr)
+	})
+
+	var incomplete string
+	switch {
+	case err != nil:
+		incomplete = fmt.Sprintf("traversal of %s did not complete: %v", root, err)
+	case w.unreadable > 0:
+		incomplete = fmt.Sprintf("%d paths under %s were unreadable and went unscanned; rerun with elevated privileges for complete coverage",
+			w.unreadable, root)
 	}
+	if incomplete != "" {
+		r.inconclusive(finding.ResultError, incomplete, aclRules...)
+		r.note(finding.SymbolWarning, "%s", incomplete)
+	}
+	r.pass(aclRules...)
+}
+
+// visit handles one traversal entry. An entry that cannot be read is counted.
+// A reparse point other than the root is not followed: junctions, symbolic
+// links and volume mount points all lead off the tree being scanned, which
+// keeps the walk on one volume the way the Unix scan stays on one filesystem.
+func (w *aclWalk) visit(path string, d fs.DirEntry, walkErr error) error {
+	if walkErr != nil {
+		w.unreadable++
+		if d != nil && d.IsDir() {
+			return fs.SkipDir
+		}
+		return nil
+	}
+
+	if path != w.root && isReparsePoint(d) {
+		if d.IsDir() {
+			return fs.SkipDir
+		}
+		return nil
+	}
+
+	grants, open, err := w.reader.grants(path)
+	switch {
+	case err != nil:
+		w.unreadable++
+	case open:
+		w.report.observed(ruleEveryoneFull, evidence(kindACL, path,
+			"principal", "everyone", "access", accessFull, "scope", "no access control list"))
+	default:
+		w.judge(path, grants, w.named[strings.ToLower(path)])
+	}
+	return nil
+}
+
+// judge records the rules path's grants trip. inherited selects whether
+// grants the entry inherited are judged along with the ones set on it.
+func (w *aclWalk) judge(path string, grants []aclGrant, inherited bool) {
+	for _, grant := range grants {
+		if !inherited && grant.flags&aceInherited != 0 {
+			continue
+		}
+		level := accessLevel(grant.mask)
+		if level == "" {
+			continue
+		}
+
+		group, broad := w.reader.broadGroup(grant.sid)
+		if broad {
+			who := w.reader.resolve(grant.sid)
+			subject := evidence(kindACL, path,
+				"principal", who.name, "sid", grant.sid.String(), "access", level, "scope", grantScope(grant.flags))
+			switch {
+			case level == accessFull && group == windows.WinWorldSid:
+				w.report.observed(ruleEveryoneFull, subject)
+			case level == accessFull && group == windows.WinBuiltinUsersSid:
+				w.report.observed(ruleUsersFull, subject)
+			default:
+				w.report.observed(ruleBroadWrite, subject)
+			}
+			continue
+		}
+
+		// Only account SIDs can be orphaned; resolving them is the one
+		// lookup the traversal makes, once per distinct SID.
+		sid := grant.sid.String()
+		if !strings.HasPrefix(sid, accountSIDPrefix) {
+			continue
+		}
+		if who := w.reader.resolve(grant.sid); !who.resolved {
+			w.report.observed(ruleUnresolvedSID, evidence(kindACL, path,
+				"sid", sid, "access", level, "scope", grantScope(grant.flags)))
+		}
+	}
+}
+
+// isReparsePoint reports whether a directory entry is a reparse point, read
+// from the attributes the directory listing already returned.
+func isReparsePoint(d fs.DirEntry) bool {
+	info, err := d.Info()
+	if err != nil {
+		return false
+	}
+	attrs, ok := info.Sys().(*syscall.Win32FileAttributeData)
+	return ok && attrs.FileAttributes&windows.FILE_ATTRIBUTE_REPARSE_POINT != 0
 }
 
 // checkNetworkShares concludes the administrative share rule and narrates
@@ -139,47 +255,4 @@ func (p *WindowsPermissionChecker) checkNetworkShares(ctx context.Context, r *re
 		}
 	}
 	r.pass(ruleAdminShare)
-}
-
-// runICACLS executes against the given path with optional recursion for tree
-// traversal. ctx bounds the invocation; icacls /T over a large tree is the
-// slowest operation in the Windows permission path.
-func runICACLS(ctx context.Context, path string, recursive bool) (output []byte, skipped int, err error) {
-	args := []string{path}
-	if recursive {
-		args = append(args, "/T")
-	}
-	cmd := exec.CommandContext(ctx, "icacls", args...) // #nosec G204 -- path validated by caller; flags are fixed literals
-
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	runErr := cmd.Run()
-
-	// icacls exits nonzero when any subtree entry is denied while still
-	// emitting valid ACL lines for everything it could read. An ExitError is
-	// therefore deliberately tolerated: partial output plus the denied-path
-	// count is the correct result, and only non-exit failures (binary
-	// missing, ctx kill) abort.
-	var exitErr *exec.ExitError
-	if runErr != nil && !errors.As(runErr, &exitErr) {
-		return nil, 0, runErr
-	}
-
-	return stdout.Bytes(), countDeniedPaths(stderr.Bytes()), nil
-}
-
-// countDeniedPaths counts the paths icacls could not access
-func countDeniedPaths(stderr []byte) int {
-	if len(stderr) == 0 {
-		return 0
-	}
-	count := 0
-	for _, line := range strings.Split(string(stderr), "\n") {
-		if strings.Contains(line, "Access is denied") {
-			count++
-		}
-	}
-	return count
 }
