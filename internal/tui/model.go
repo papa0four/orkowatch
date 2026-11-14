@@ -33,6 +33,16 @@ const (
 	// interruptKey is the key press that stops the work.
 	interruptKey = "ctrl+c"
 
+	// The display asks the terminal two questions as it starts, and the
+	// terminal answers by typing into the program's input. A run that ends
+	// before the answers arrive would leave them for the shell to print as
+	// stray text, so the display stays up until both are in. Not every
+	// terminal answers, so the wait is bounded: settleLimit is the longest a
+	// finished run is held, measured from when the display started, which
+	// only a run shorter than that ever notices.
+	terminalReplies = 2
+	settleLimit     = 400 * time.Millisecond
+
 	// feedLimit is how many of the most recent findings the feed keeps on
 	// screen; the full set is in the report that follows.
 	feedLimit = 10
@@ -80,6 +90,7 @@ type (
 		cancel      context.CancelFunc
 		interrupted bool
 		done        bool
+		replies     int
 	}
 
 	taskStartedMsg struct {
@@ -92,6 +103,9 @@ type (
 	}
 
 	workDoneMsg struct{}
+
+	// settledMsg says the wait for the terminal's replies has run out.
+	settledMsg struct{}
 )
 
 func newModel(opts Options, cancel context.CancelFunc) model {
@@ -158,6 +172,19 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case workDoneMsg:
 		m.done = true
+		if m.settled() {
+			return m, tea.Quit
+		}
+		return m, tea.Tick(time.Until(m.started.Add(settleLimit)), func(time.Time) tea.Msg { return settledMsg{} })
+
+	case tea.ModeReportMsg:
+		m.replies++
+		if m.done && m.settled() {
+			return m, tea.Quit
+		}
+		return m, nil
+
+	case settledMsg:
 		return m, tea.Quit
 
 	case spinner.TickMsg:
@@ -203,6 +230,12 @@ func (m model) render() string {
 		b.WriteString("\n" + styleMuted.Render("scan in progress") + "  " + styleNotice.Render("press ctrl+c to abort") + "\n")
 	}
 	return b.String()
+}
+
+// settled reports whether the terminal has answered everything the display
+// asked it, or has had as long as it is going to get.
+func (m model) settled() bool {
+	return m.replies >= terminalReplies || time.Since(m.started) >= settleLimit
 }
 
 // progress counts the tasks that will run and how many of them have.
