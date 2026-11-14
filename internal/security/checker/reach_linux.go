@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 
 	"golang.org/x/sys/unix"
 )
@@ -54,9 +55,11 @@ const (
 type (
 	// deniedJudge decides what a directory confers when its mode bits deny
 	// traversal. Whether root's group has another member is the same answer
-	// for every directory, so it is asked once and kept.
+	// for every directory, so it is asked once and kept; once makes that
+	// true when several workers reach the question together.
 	deniedJudge struct {
-		rootGroup *reachability
+		once      sync.Once
+		rootGroup reachability
 	}
 
 	// aclEntry is one entry of a POSIX access ACL.
@@ -128,11 +131,8 @@ func (j *deniedJudge) aclReach(ctx context.Context, entries []aclEntry) reachabi
 }
 
 func (j *deniedJudge) rootGroupReach(ctx context.Context) reachability {
-	if j.rootGroup == nil {
-		reach := rootGroupReach(ctx)
-		j.rootGroup = &reach
-	}
-	return *j.rootGroup
+	j.once.Do(func() { j.rootGroup = rootGroupReach(ctx) })
+	return j.rootGroup
 }
 
 // readPOSIXACL returns the access ACL of dir. A directory with no ACL fails

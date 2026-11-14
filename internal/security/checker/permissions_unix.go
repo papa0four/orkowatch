@@ -10,12 +10,15 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 
 	"github.com/papa0four/orkowatch/internal/security/finding"
 	"github.com/papa0four/orkowatch/internal/security/registry"
+	"github.com/papa0four/orkowatch/internal/treewalk"
 )
 
 type (
@@ -44,8 +47,10 @@ type (
 	// identityCache reports whether numeric owners and groups resolve to a real
 	// principal, memoizing by identifier. A filesystem holds orders of magnitude
 	// more entries than distinct identifiers, so resolution collapses from one
-	// lookup per file to one per identifier.
+	// lookup per file to one per identifier. mu guards both maps, because the
+	// scan's workers consult the cache at once.
 	identityCache struct {
+		mu     sync.RWMutex
 		users  map[uint32]bool
 		groups map[uint32]bool
 	}
@@ -71,25 +76,15 @@ type (
 		reach      reachability
 	}
 
-	// fsWalk carries the state one filesystem traversal accumulates. rootDev
-	// bounds the walk to the filesystem the root lives on, reach is the chain
-	// of directories currently open above the entry being visited, and denied
-	// is the platform's judgment of a directory whose mode bits deny traversal.
+	// fsWalk is what every worker of one filesystem traversal shares, all of
+	// it either read-only or guarding itself. rootDev bounds the walk to the
+	// filesystem the root lives on, and denied is the platform's judgment of
+	// a directory whose mode bits deny traversal. What a worker finds is
+	// returned from its visit rather than written here.
 	fsWalk struct {
 		ids     *identityCache
 		rootDev uint64
-		reach   []reachFrame
-		denied  deniedJudge
-		scan    fsScan
-	}
-
-	// reachFrame is one open directory and the reachability it confers on its
-	// contents. WalkDir visits a directory before its contents and keeps a
-	// subtree contiguous, so a stack bounded by tree depth tracks the chain
-	// where a map would be bounded by directory count.
-	reachFrame struct {
-		dir   string
-		reach reachability
+		denied  *deniedJudge
 	}
 
 	// reachability is whether a principal other than root can traverse to an
@@ -212,11 +207,25 @@ func (c *identityCache) resolution(ctx context.Context, uid, gid uint32) (userKn
 // known consults the cache, falling back to the name service for identifiers
 // the local database does not declare. Directory-provided accounts exist only
 // in the name service, so a local miss alone is not evidence of an orphan.
+//
+// Nearly every lookup is a hit and takes only the read lock. A miss takes the
+// write lock for the whole name service query and checks again once it holds
+// it, so two workers that miss on the same identifier produce one query, and
+// the map is never written while another worker reads it.
 func (c *identityCache) known(ctx context.Context, cache map[uint32]bool, kind identityKind, id uint32) bool {
+	c.mu.RLock()
+	resolved, seen := cache[id]
+	c.mu.RUnlock()
+	if seen {
+		return resolved
+	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	if resolved, seen := cache[id]; seen {
 		return resolved
 	}
-	resolved := nameServiceKnows(ctx, kind, id)
+	resolved = nameServiceKnows(ctx, kind, id)
 	cache[id] = resolved
 	return resolved
 }
@@ -371,76 +380,94 @@ func checkCriticalPath(cp criticalPath, r *report) {
 	}
 }
 
-// scanFilesystem walks the effective root once, collecting setuid, group- and
-// world-writable, and unowned entries together. Identity lookups are cached
-// per identifier rather than performed per entry, which is what makes a single
-// pass cheaper than the three it replaces. The walk stays on the root's
-// filesystem: pseudo-filesystems and network mounts are out of scope and can
-// be pathologically slow to traverse.
+// scanFilesystem reads the tree under the effective root once, collecting
+// setuid, group- and world-writable, and unowned entries together. Identity
+// lookups are cached per identifier rather than performed per entry, which is
+// what makes a single pass cheaper than the three it replaces. The walk stays
+// on the root's filesystem: pseudo-filesystems and network mounts are out of
+// scope and can be pathologically slow to traverse.
+//
+// Directories are read by scanWorkers workers at once. Each directory carries
+// the reachability its parent conferred, each visit returns what it found,
+// and the results are merged by one goroutine and sorted by path, so the
+// report is the same from run to run whatever order the workers finished in.
 func (p *UnixPermissionChecker) scanFilesystem(ctx context.Context, root string) (fsScan, error) {
 	rootInfo, err := os.Lstat(root)
 	if err != nil {
 		return fsScan{}, fmt.Errorf("stat scan root %s: %w", root, err)
 	}
-	_, _, rootDev, ok := fileIdentity(rootInfo)
+	uid, gid, rootDev, ok := fileIdentity(rootInfo)
 	if !ok {
 		return fsScan{}, fmt.Errorf("stat scan root %s: no filesystem identity", root)
 	}
 
-	w := fsWalk{ids: newIdentityCache(), rootDev: rootDev}
-	err = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
-		if ctxErr := ctx.Err(); ctxErr != nil {
-			return ctxErr
-		}
-		return w.visit(ctx, path, d, err)
-	})
+	w := &fsWalk{ids: newIdentityCache(), rootDev: rootDev, denied: &deniedJudge{}}
 
-	return w.scan, err
+	// The root is an entry too. Nothing above it is examined, so it starts
+	// reachable and confers on its contents whatever its own mode allows.
+	var scan fsScan
+	w.classify(ctx, &scan, root, rootInfo, uid, gid, reachNonRoot)
+	if !rootInfo.IsDir() {
+		return scan, nil
+	}
+	start := treewalk.Dir[reachability]{
+		Path:  root,
+		State: w.conferred(ctx, root, reachNonRoot, rootInfo.Mode(), uid, gid),
+	}
+
+	err = treewalk.Run(ctx, scanWorkers, start, w.readDir, scan.merge)
+	scan.sort()
+	return scan, err
 }
 
-// visit handles one traversal entry: an entry that cannot be read or
-// identified is counted, an entry on another filesystem is skipped along
-// with its subtree, and everything else is classified.
-func (w *fsWalk) visit(ctx context.Context, path string, d fs.DirEntry, err error) error {
+// readDir handles one directory: an entry that cannot be read or identified
+// is counted, an entry on another filesystem is skipped along with its
+// subtree, and everything else is classified. It runs on several workers at
+// once and keeps what it finds in its own result.
+func (w *fsWalk) readDir(ctx context.Context, dir treewalk.Dir[reachability]) ([]treewalk.Dir[reachability], fsScan) {
+	var found fsScan
+	entries, err := os.ReadDir(dir.Path)
 	if err != nil {
-		w.scan.unreadable++
-		if d != nil && d.IsDir() {
-			return fs.SkipDir
+		found.unreadable++
+		return nil, found
+	}
+
+	var subdirs []treewalk.Dir[reachability]
+	for _, entry := range entries {
+		if ctx.Err() != nil {
+			break
 		}
-		return nil
-	}
 
-	info, err := d.Info()
-	if err != nil {
-		w.scan.unreadable++
-		return nil
-	}
-
-	uid, gid, dev, ok := fileIdentity(info)
-	if !ok {
-		w.scan.unreadable++
-		return nil
-	}
-	if dev != w.rootDev {
-		if d.IsDir() {
-			return fs.SkipDir
+		info, err := entry.Info()
+		if err != nil {
+			found.unreadable++
+			continue
 		}
-		return nil
-	}
+		uid, gid, dev, ok := fileIdentity(info)
+		if !ok {
+			found.unreadable++
+			continue
+		}
+		if dev != w.rootDev {
+			continue
+		}
 
-	reach := w.reachOf(path)
-	if d.IsDir() {
-		w.descend(ctx, path, reach, info.Mode(), uid, gid)
+		path := filepath.Join(dir.Path, entry.Name())
+		w.classify(ctx, &found, path, info, uid, gid, dir.State)
+		if entry.IsDir() {
+			subdirs = append(subdirs, treewalk.Dir[reachability]{
+				Path:  path,
+				State: w.conferred(ctx, path, dir.State, info.Mode(), uid, gid),
+			})
+		}
 	}
-
-	w.classify(ctx, path, info, uid, gid, reach)
-	return nil
+	return subdirs, found
 }
 
-// classify records the entry under each category it belongs to. Setuid and
-// world-writable apply to regular files only; ownership applies to every
-// entry.
-func (w *fsWalk) classify(ctx context.Context, path string, info fs.FileInfo, uid, gid uint32, reach reachability) {
+// classify records the entry in found under each category it belongs to.
+// Setuid and world-writable apply to regular files only; ownership applies to
+// every entry.
+func (w *fsWalk) classify(ctx context.Context, found *fsScan, path string, info fs.FileInfo, uid, gid uint32, reach reachability) {
 	mode := info.Mode()
 	userKnown, groupKnown := w.ids.resolution(ctx, uid, gid)
 	entry := scanEntry{
@@ -455,43 +482,48 @@ func (w *fsWalk) classify(ctx context.Context, path string, info fs.FileInfo, ui
 
 	if mode.IsRegular() {
 		if mode&(os.ModeSetuid|os.ModeSetgid) != 0 {
-			w.scan.suid = append(w.scan.suid, entry)
+			found.suid = append(found.suid, entry)
 		}
 		if mode.Perm()&bitWorldWritable != 0 {
-			w.scan.worldWrite = append(w.scan.worldWrite, entry)
+			found.worldWrite = append(found.worldWrite, entry)
 		}
 	}
 
 	if !userKnown || !groupKnown {
-		w.scan.unowned = append(w.scan.unowned, entry)
+		found.unowned = append(found.unowned, entry)
 	}
 }
 
-// reachOf returns what the directory chain above path confers, discarding the
-// frames the walk has left. An entry is only as reachable as the directories
-// that must be traversed to arrive at it, whatever its own mode says.
-func (w *fsWalk) reachOf(path string) reachability {
-	for len(w.reach) > 0 {
-		top := w.reach[len(w.reach)-1]
-		if path != top.dir && pathWithin(path, top.dir) {
-			return top.reach
-		}
-		w.reach = w.reach[:len(w.reach)-1]
-	}
-	return reachNonRoot
-}
-
-// descend records what dir confers on its contents. A directory only root can
-// traverse makes everything beneath it root-only regardless of the modes those
-// entries carry, so reachability only ever narrows on the way down. The
-// platform is asked only about a directory mode bits deny and whose chain is
-// not already root-only, which keeps that cost off every other directory.
-func (w *fsWalk) descend(ctx context.Context, dir string, parent reachability, mode fs.FileMode, uid, gid uint32) {
-	conferred := parent
+// conferred returns what dir confers on its contents, given what its own
+// parent conferred on it. An entry is only as reachable as the directories
+// that must be traversed to arrive at it, whatever its own mode says, so a
+// directory only root can traverse makes everything beneath it root-only and
+// reachability only ever narrows on the way down. The platform is asked only
+// about a directory mode bits deny and whose chain is not already root-only,
+// which keeps that cost off every other directory.
+func (w *fsWalk) conferred(ctx context.Context, dir string, parent reachability, mode fs.FileMode, uid, gid uint32) reachability {
 	if parent != reachRootOnly && !traversableByNonRoot(mode, uid, gid) {
-		conferred = max(parent, w.denied.reach(ctx, dir, mode))
+		return max(parent, w.denied.reach(ctx, dir, mode))
 	}
-	w.reach = append(w.reach, reachFrame{dir: dir, reach: conferred})
+	return parent
+}
+
+// merge folds one visit's findings into s. The traversal calls it from one
+// goroutine at a time.
+func (s *fsScan) merge(found fsScan) {
+	s.suid = append(s.suid, found.suid...)
+	s.worldWrite = append(s.worldWrite, found.worldWrite...)
+	s.unowned = append(s.unowned, found.unowned...)
+	s.unreadable += found.unreadable
+}
+
+// sort orders every category by path, which is what makes the report
+// independent of the order the workers finished in.
+func (s *fsScan) sort() {
+	byPath := func(a, b scanEntry) int { return strings.Compare(a.path, b.path) }
+	slices.SortFunc(s.suid, byPath)
+	slices.SortFunc(s.worldWrite, byPath)
+	slices.SortFunc(s.unowned, byPath)
 }
 
 // traversableByNonRoot reports whether mode bits alone let a principal other
