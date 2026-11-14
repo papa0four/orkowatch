@@ -18,37 +18,6 @@ import (
 	"github.com/papa0four/orkowatch/internal/security/types"
 )
 
-// Expected file and directory permission modes: the shared vocabulary every
-// platform's critical paths draw from, declared together so a platform picks an
-// expectation rather than inventing one inline. Not every value is referenced on
-// every platform. permPrivateDir is used by Linux and the BSDs, permReadOnlyDir
-// only by Linux, and a constant no build references compiles away.
-const (
-	permStandardFile        os.FileMode = 0644
-	permOwnerWriteGroupRead os.FileMode = 0640
-	permSudoers             os.FileMode = 0440
-	permOwnerReadWrite      os.FileMode = 0600
-	permStandardDir         os.FileMode = 0755
-	permGroupWritableDir    os.FileMode = 0775
-	permPrivateDir          os.FileMode = 0700
-	permReadOnlyDir         os.FileMode = 0555
-
-	// Permission bit masks
-	bitWorldWritable os.FileMode = 0002
-	bitOwnerExecute  os.FileMode = 0100
-	bitGroupExecute  os.FileMode = 0010
-	bitOtherExecute  os.FileMode = 0001
-
-	// Account databases consulted before the name service, and the
-	// colon-delimited field holding each numeric identifier.
-	unixPasswdFile = "/etc/passwd"
-	unixGroupFile  = "/etc/group"
-	unixIDField    = 2
-
-	identityKindUser  identityKind = "user"
-	identityKindGroup identityKind = "group"
-)
-
 type (
 	// UnixPermissionChecker implements PermissionChecker for Unix-like
 	// systems. The platform supplies its own critical paths and name service
@@ -133,6 +102,37 @@ type (
 	identityKind string
 )
 
+// Expected file and directory permission modes: the shared vocabulary every
+// platform's critical paths draw from, declared together so a platform picks an
+// expectation rather than inventing one inline. Not every value is referenced on
+// every platform. permPrivateDir is used by Linux and the BSDs, permReadOnlyDir
+// only by Linux, and a constant no build references compiles away.
+const (
+	permStandardFile        os.FileMode = 0644
+	permOwnerWriteGroupRead os.FileMode = 0640
+	permSudoers             os.FileMode = 0440
+	permOwnerReadWrite      os.FileMode = 0600
+	permStandardDir         os.FileMode = 0755
+	permGroupWritableDir    os.FileMode = 0775
+	permPrivateDir          os.FileMode = 0700
+	permReadOnlyDir         os.FileMode = 0555
+
+	// Permission bit masks
+	bitWorldWritable os.FileMode = 0002
+	bitOwnerExecute  os.FileMode = 0100
+	bitGroupExecute  os.FileMode = 0010
+	bitOtherExecute  os.FileMode = 0001
+
+	// Account databases consulted before the name service, and the
+	// colon-delimited field holding each numeric identifier.
+	unixPasswdFile = "/etc/passwd"
+	unixGroupFile  = "/etc/group"
+	unixIDField    = 2
+
+	identityKindUser  identityKind = "user"
+	identityKindGroup identityKind = "group"
+)
+
 const (
 	// reachNonRoot means some principal other than root can traverse every
 	// directory leading to the entry. It is the zero value deliberately: a
@@ -155,6 +155,16 @@ const (
 	// chain: mode bits deny it, no access control list grants it, and root's
 	// group has no other member.
 	reachRootOnly
+)
+
+// The rules this check concludes: two judged on the critical paths, three on
+// every entry the traversal visits.
+const (
+	ruleExcessMode    registry.FindingKey = "permissions.path_exceeds_expected_mode"
+	ruleNotRootOwned  registry.FindingKey = "permissions.critical_path_not_root_owned"
+	ruleSetID         registry.FindingKey = "permissions.suid_sgid_binary"
+	ruleWorldWritable registry.FindingKey = "permissions.world_writable_file"
+	ruleUnowned       registry.FindingKey = "permissions.unowned_file"
 )
 
 // newIdentityCache seeds the cache from the local account databases. Anything
@@ -225,16 +235,6 @@ func NewPermissionChecker(osCtx registry.OSContext, scanRoot string) *UnixPermis
 		scanRoot: scanRoot,
 	}
 }
-
-// The rules this check concludes: two judged on the critical paths, three on
-// every entry the traversal visits.
-const (
-	ruleExcessMode    registry.FindingKey = "permissions.path_exceeds_expected_mode"
-	ruleNotRootOwned  registry.FindingKey = "permissions.critical_path_not_root_owned"
-	ruleSetID         registry.FindingKey = "permissions.suid_sgid_binary"
-	ruleWorldWritable registry.FindingKey = "permissions.world_writable_file"
-	ruleUnowned       registry.FindingKey = "permissions.unowned_file"
-)
 
 // Check implements PermissionChecker interface for Unix systems
 func (p *UnixPermissionChecker) Check(ctx context.Context) types.AuditResult {

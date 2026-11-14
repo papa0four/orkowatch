@@ -85,15 +85,6 @@ const (
 	rootGID = 0
 )
 
-// NewUserChecker returns the user account checker for Unix-like hosts.
-func NewUserChecker(osCtx registry.OSContext) *UnixUserChecker {
-	return &UnixUserChecker{checkIdentity: checkIdentity{
-		domain:   "User Account Security",
-		analyzes: "user accounts and security settings",
-		osCtx:    osCtx,
-	}}
-}
-
 // accountRules are the rules judged per account. credentialRules are the
 // subset that needs the credential store to be readable.
 var (
@@ -112,6 +103,15 @@ var (
 		"users.no_password_login_shell",
 	}
 )
+
+// NewUserChecker returns the user account checker for Unix-like hosts.
+func NewUserChecker(osCtx registry.OSContext) *UnixUserChecker {
+	return &UnixUserChecker{checkIdentity: checkIdentity{
+		domain:   "User Account Security",
+		analyzes: "user accounts and security settings",
+		osCtx:    osCtx,
+	}}
+}
 
 // Check implements UserChecker interface for Unix systems
 func (u *UnixUserChecker) Check(ctx context.Context) types.AuditResult {

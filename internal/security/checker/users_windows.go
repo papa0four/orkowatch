@@ -48,15 +48,6 @@ type (
 	}
 )
 
-// NewUserChecker returns the user account checker for Windows hosts.
-func NewUserChecker(osCtx registry.OSContext) *WindowsUserChecker {
-	return &WindowsUserChecker{checkIdentity: checkIdentity{
-		domain:   "User Account Security",
-		analyzes: "user accounts and security settings",
-		osCtx:    osCtx,
-	}}
-}
-
 // windowsAccountRules are the per-account rules that report fail. The rules
 // for accounts authenticated off the host are not among them: they describe
 // a state the local password rule does not apply to, and are recorded only
@@ -65,6 +56,15 @@ var windowsAccountRules = []registry.FindingKey{
 	"users.administrator_account_active",
 	"users.no_password_required",
 	"users.unknown_principal_no_local_password",
+}
+
+// NewUserChecker returns the user account checker for Windows hosts.
+func NewUserChecker(osCtx registry.OSContext) *WindowsUserChecker {
+	return &WindowsUserChecker{checkIdentity: checkIdentity{
+		domain:   "User Account Security",
+		analyzes: "user accounts and security settings",
+		osCtx:    osCtx,
+	}}
 }
 
 // Check implements UserChecker interface for Windows systems
