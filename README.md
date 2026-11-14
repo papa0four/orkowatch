@@ -124,7 +124,8 @@ With no check flags given, all checks run by default.
 | `--timeout` | Maximum audit duration | 10m |
 | `--enrich, -e` | Query external sources to annotate findings with CVEs mapped to referenced CWEs | false |
 | `--allow-elevated-write` | Permit an elevated write outside the allowlisted directories or into a directory other users control | false |
-| `-v, --verbose` | Show progress while checks run; does not change report content | false |
+| `-v, --verbose` | Add the live findings feed to the progress display, or print progress lines when output is not a terminal; does not change report content | false |
+| `-y, --yes` | Do not ask before a permissions check that scans the entire filesystem | false |
 
 ## `all` Flags (`owatch all`)
 
@@ -144,7 +145,8 @@ individual audit checks within the audit module, or both together.
 | `--timeout` | Maximum time to run all scans | 30m |
 | `--enrich, -e` | Query external sources to annotate findings with CVEs mapped to referenced CWEs | false |
 | `--allow-elevated-write` | Permit an elevated write outside the allowlisted directories or into a directory other users control | false |
-| `-v, --verbose` | Show module and check progress while scanning; does not change report content | false |
+| `-v, --verbose` | Add the live findings feed to the progress display; does not change report content | false |
+| `-y, --yes` | Do not ask before a permissions check that scans the entire filesystem | false |
 
 There is no individual audit check flag (`--ssh`, `--fwall`, etc.) on `all` —
 to run only specific checks as part of a full scan, skip the others instead:
@@ -153,6 +155,25 @@ to run only specific checks as part of a full scan, skip the others instead:
 # Equivalent to running only the SSH check, but as part of the all pipeline
 owatch all --skip-checks firewall,users,permissions
 ```
+
+## Progress Display
+
+When standard output is a terminal, `owatch audit` and `owatch all` show their
+progress while they run: one row per check or module with its state, an overall
+bar counting completed tasks, and the time elapsed. Each row ends with the task's
+result and finding count. `-v` adds a feed of findings as they arrive. The report
+is printed after the display finishes.
+
+Press ctrl+c to stop a run. Checks still running are asked to stop, whatever
+finished is reported, and the command exits with an error naming what did not
+complete.
+
+A permissions check with no `--fperms` path reads the entire filesystem, so on a
+terminal `owatch` asks before starting one. Answer `y` to proceed, pass `--yes`
+to skip the question, or narrow the scan with `--fperms <path>`.
+
+When output is piped or redirected there is no display and no question, and the
+run proceeds as it would from a script.
 
 ## Skips and Partial Runs
 

@@ -28,7 +28,7 @@ type (
 		firewallChecker   checker.FirewallChecker
 		userChecker       checker.UserChecker
 		permissionChecker checker.PermissionChecker
-		verbose           bool
+		observer          Observer
 		options           Options
 		osContext         registry.OSContext
 	}
@@ -37,7 +37,9 @@ type (
 	// Options: it arrives as the context passed to RunAudit, owned by the
 	// command layer, and bounds checks and enrichment together as one budget.
 	Options struct {
-		Verbose       bool
+		// Observer is told when each check starts and finishes. Nil means
+		// nobody is watching.
+		Observer      Observer
 		Checks        []string
 		FilePermsPath string
 		MinSeverity   string
@@ -48,7 +50,13 @@ type (
 	// Result represents the complete audit results. IncompleteChecks names,
 	// in canonical order, the checks interrupted before they finished, so a
 	// caller can report which ones to exclude or allow more time for.
+	//
+	// FingerprintError is set when no host identity was supplied and reading
+	// one failed. The audit does not depend on it and runs regardless; the
+	// report then carries no system block, and the caller decides whether to
+	// say why.
 	Result struct {
+		FingerprintError    error
 		StartTime           time.Time
 		EndTime             time.Time
 		Duration            time.Duration
@@ -77,6 +85,20 @@ type (
 		Findings        map[string]int         `json:"findings" yaml:"findings"`
 	}
 
+	// Observer is told what the audit is doing while it does it, which is how
+	// a caller shows progress without the audit knowing anything about
+	// terminals. CheckStarted is called in canonical check order before any
+	// check runs. CheckFinished is called from the goroutine that ran the
+	// check, so several may arrive at once and an implementation must be safe
+	// for concurrent use. A check excluded from the run produces neither call.
+	Observer interface {
+		CheckStarted(name string)
+		CheckFinished(name string, result finding.AuditResult)
+	}
+
+	// noObserver is the Observer used when the caller supplied none.
+	noObserver struct{}
+
 	// checkRunner pairs a check's canonical name with its execution function
 	checkRunner struct {
 		name        string
@@ -100,9 +122,12 @@ func NewSecurityAuditor(opts Options) *SecurityAuditor {
 	osCtx := registry.DetectOS()
 
 	auditor := &SecurityAuditor{
-		verbose:   opts.Verbose,
+		observer:  opts.Observer,
 		options:   opts,
 		osContext: osCtx,
+	}
+	if auditor.observer == nil {
+		auditor.observer = noObserver{}
 	}
 
 	auditor.sshChecker = checker.NewSSHChecker(osCtx)
@@ -112,6 +137,10 @@ func NewSecurityAuditor(opts Options) *SecurityAuditor {
 
 	return auditor
 }
+
+func (noObserver) CheckStarted(string) {}
+
+func (noObserver) CheckFinished(string, finding.AuditResult) {}
 
 // maxConcurrentChecks returns the bound on simultaneously executing checks.
 // The bound scales with the host rather than the check set, so adding checks
@@ -138,13 +167,13 @@ func (sa *SecurityAuditor) RunAudit(ctx context.Context) (*Result, error) {
 	}
 
 	fingerprint := sa.options.HostInfo
+	var fingerprintErr error
 	if fingerprint == nil {
-		if fingerprint, err = osfingerprint.GetOSFingerprint(); err != nil && sa.verbose {
-			fmt.Printf("[!] OS fingerprint unavailable: %v\n", err)
-		}
+		fingerprint, fingerprintErr = osfingerprint.GetOSFingerprint()
 	}
 
 	result := &Result{
+		FingerprintError:    fingerprintErr,
 		StartTime:           time.Now(),
 		HostInfo:            fingerprint,
 		Results:             make([]finding.AuditResult, len(runners)),
@@ -158,21 +187,17 @@ func (sa *SecurityAuditor) RunAudit(ctx context.Context) (*Result, error) {
 
 	for i, r := range runners {
 		if !enabled[r.name] {
-			if sa.verbose {
-				fmt.Printf("[*] Skipping %s check...\n", r.name)
-			}
 			result.Results[i] = skippedResult(r)
 			continue
 		}
-		if sa.verbose {
-			fmt.Printf("[*] Running %s check...\n", r.name)
-		}
+		sa.observer.CheckStarted(r.name)
 		wg.Add(1)
 		go func(idx int, c checkRunner) {
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
 			res, incomplete := timeCheck(ctx, c.run)
+			sa.observer.CheckFinished(c.name, res)
 			resultsChan <- indexedResult{index: idx, result: res, incomplete: incomplete}
 		}(i, r)
 	}

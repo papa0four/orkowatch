@@ -4,8 +4,10 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 	"time"
 
@@ -19,6 +21,7 @@ import (
 	"github.com/papa0four/orkowatch/internal/security/finding"
 	"github.com/papa0four/orkowatch/internal/selection"
 	"github.com/papa0four/orkowatch/internal/softwarelist"
+	"github.com/papa0four/orkowatch/internal/tui"
 )
 
 type (
@@ -102,8 +105,11 @@ Results can be output in various formats and saved to a file.`,
 		Example: `  # Run all scans with default settings
   owatch all
 
-  # Show module and check progress while scanning
+  # Add the live findings feed to the progress display
   owatch all -v
+
+  # Scan the whole filesystem without being asked first
+  owatch all --yes
 
   # Skip modules; skipped modules are still reported
   owatch all --skip-modules audit,software
@@ -221,17 +227,18 @@ func (c *allCmd) runAllScans(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// Verbose module headers print only when writing to an interactive
-	// terminal without --report-file, preventing duplication when piping
-	// or redirecting output. Computed once here as the single suppression
-	// point for the whole run.
-	verboseHeaders := c.verbose && render.StdoutIsTerminal() && !c.out.ToFile()
+	interactive := render.StdoutIsTerminal()
+	switch err := c.audit.ConfirmFullScan(c.auditMask(mask), "", interactive && render.StdinIsTerminal(), os.Stdin, os.Stderr); {
+	case errors.Is(err, security.ErrScanDeclined):
+		fmt.Fprintln(os.Stderr, "Scan cancelled.")
+		return nil
+	case err != nil:
+		return err
+	}
 
-	// The whole scan runs synchronously under one deadline. Cancellation
-	// reaches the audit's checkers and the software module's package-manager
-	// invocations, so a timed-out scan leaves nothing running -- the prior
-	// goroutine-and-select pattern reported the timeout but abandoned the
-	// scan to keep executing against the host.
+	// The whole scan runs under one deadline. Cancellation reaches the
+	// audit's checkers and the software module's package-manager
+	// invocations, so a timed-out or interrupted scan leaves nothing running.
 	ctx, cancel := context.WithTimeout(cmd.Context(), c.timeout)
 	defer cancel()
 
@@ -240,37 +247,18 @@ func (c *allCmd) runAllScans(cmd *cobra.Command, args []string) error {
 		Errors:    make([]string, 0),
 	}
 
-	if c.isModuleSkipped("osinfo") {
-		result.Modules = append(result.Modules, skippedModule("osinfo"))
-	} else if osInfo, err := runOSFingerprint(verboseHeaders); err != nil {
-		result.Errors = append(result.Errors,
-			fmt.Sprintf("OS fingerprint error: %v", err))
-		result.Modules = append(result.Modules, erroredModule("osinfo", err))
-	} else {
-		result.OSInfo = osInfo
-		result.Modules = append(result.Modules, inventoryModule("osinfo"))
-	}
-
-	if c.isModuleSkipped("software") {
-		result.Modules = append(result.Modules, skippedModule("software"))
-	} else if software, err := runSoftwareInventory(ctx, verboseHeaders); err != nil {
-		result.Errors = append(result.Errors,
-			fmt.Sprintf("Software inventory error: %v", err))
-		result.Modules = append(result.Modules, erroredModule("software", err))
-	} else {
-		result.Software = software
-		result.Modules = append(result.Modules, inventoryModule("software"))
-	}
-
-	if c.isModuleSkipped("audit") {
-		result.Modules = append(result.Modules, skippedModule("audit"))
-	} else if securityResult, err := c.runSecurityAuditModule(ctx, mask, result.OSInfo, verboseHeaders); err != nil {
-		result.Errors = append(result.Errors,
-			fmt.Sprintf("Security audit error: %v", err))
-		result.Modules = append(result.Modules, erroredModule("audit", err))
-	} else {
-		result.SecurityAudit = securityResult
-		result.Modules = append(result.Modules, auditModule(securityResult))
+	runErr := tui.Run(ctx, tui.Options{
+		Title:       "owatch all",
+		Tasks:       c.tasks(mask),
+		Interactive: interactive,
+		Verbose:     c.verbose,
+	}, func(ctx context.Context, reporter tui.Reporter) error {
+		c.runModules(ctx, mask, result, reporter)
+		return nil
+	})
+	interrupted := errors.Is(runErr, tui.ErrInterrupted)
+	if runErr != nil && !interrupted {
+		return runErr
 	}
 
 	result.Duration = time.Since(startTime)
@@ -278,10 +266,93 @@ func (c *allCmd) runAllScans(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	if ctx.Err() == context.DeadlineExceeded {
+	switch {
+	case interrupted:
+		return fmt.Errorf("scan interrupted; %s", incompleteDetail(result))
+	case ctx.Err() == context.DeadlineExceeded:
 		return fmt.Errorf("scan timed out after %v; %s", c.timeout, incompleteDetail(result))
+	default:
+		return nil
 	}
-	return nil
+}
+
+// Display task identifiers for the two inventory modules. The audit's checks
+// use their own names.
+const (
+	taskOSInfo   = "osinfo"
+	taskSoftware = "software"
+)
+
+// auditMask returns the checks the audit module will run, which is none of
+// them when the module itself is skipped.
+func (c *allCmd) auditMask(mask selection.CheckMask) selection.CheckMask {
+	if c.isModuleSkipped("audit") {
+		return 0
+	}
+	return mask
+}
+
+// tasks lists what the progress display shows a row for: the two inventory
+// modules, then every audit check.
+func (c *allCmd) tasks(mask selection.CheckMask) []tui.Task {
+	tasks := []tui.Task{
+		{ID: taskOSInfo, Label: "OS fingerprint", Skipped: c.isModuleSkipped("osinfo")},
+		{ID: taskSoftware, Label: "software inventory", Skipped: c.isModuleSkipped("software")},
+	}
+	return append(tasks, security.CheckTasks(c.auditMask(mask))...)
+}
+
+// runModules runs each module that was not skipped, recording its outcome in
+// result and reporting it to the display as it happens.
+func (c *allCmd) runModules(ctx context.Context, mask selection.CheckMask, result *ScanResult, reporter tui.Reporter) {
+	if c.isModuleSkipped("osinfo") {
+		result.Modules = append(result.Modules, skippedModule("osinfo"))
+	} else {
+		reporter.Start(taskOSInfo)
+		osInfo, err := osfingerprint.GetOSFingerprint()
+		if err != nil {
+			result.Errors = append(result.Errors, fmt.Sprintf("OS fingerprint error: %v", err))
+			result.Modules = append(result.Modules, erroredModule("osinfo", err))
+		} else {
+			result.OSInfo = osInfo
+			result.Modules = append(result.Modules, inventoryModule("osinfo"))
+		}
+		reporter.Finish(taskOSInfo, moduleOutcome(result.Modules))
+	}
+
+	if c.isModuleSkipped("software") {
+		result.Modules = append(result.Modules, skippedModule("software"))
+	} else {
+		reporter.Start(taskSoftware)
+		software, err := softwarelist.GetInstalledSoftwareList(ctx)
+		if err != nil {
+			result.Errors = append(result.Errors, fmt.Sprintf("Software inventory error: %v", err))
+			result.Modules = append(result.Modules, erroredModule("software", err))
+		} else {
+			result.Software = software
+			result.Modules = append(result.Modules, inventoryModule("software"))
+		}
+		reporter.Finish(taskSoftware, moduleOutcome(result.Modules))
+	}
+
+	if c.isModuleSkipped("audit") {
+		result.Modules = append(result.Modules, skippedModule("audit"))
+		return
+	}
+	securityResult, err := c.runSecurityAuditModule(ctx, mask, result.OSInfo, reporter)
+	if err != nil {
+		result.Errors = append(result.Errors, fmt.Sprintf("Security audit error: %v", err))
+		result.Modules = append(result.Modules, erroredModule("audit", err))
+		return
+	}
+	result.SecurityAudit = securityResult
+	result.Modules = append(result.Modules, auditModule(securityResult))
+}
+
+// moduleOutcome is the display outcome of the module most recently recorded.
+func moduleOutcome(modules []moduleRun) tui.Outcome {
+	last := modules[len(modules)-1]
+	return tui.Outcome{Result: last.Result, Reason: last.Reason}
 }
 
 // skippedModule is the row for a module the operator excluded.
@@ -312,14 +383,6 @@ func auditModule(result *audit.Result) moduleRun {
 	return moduleRun{Name: "audit", Result: aggregate.Result, Reason: aggregate.Reason}
 }
 
-func runOSFingerprint(verboseHeaders bool) (*osfingerprint.OSInfo, error) {
-	if verboseHeaders {
-		fmt.Println("[*] OS Fingerprint Scan")
-	}
-
-	return osfingerprint.GetOSFingerprint()
-}
-
 // incompleteDetail names the modules and checks that did not finish, so a
 // timed-out run tells the operator what to exclude or allow more time for.
 func incompleteDetail(result *ScanResult) string {
@@ -347,31 +410,14 @@ func incompleteDetail(result *ScanResult) string {
 	return "results above are incomplete; rerun with a longer --timeout or " + strings.Join(parts, " ")
 }
 
-// runSoftwareInventory enumerates installed software packages. verboseHeaders
-// gates only the progress announcement; the inventory itself always renders
-// in renderAllText, matching structured output.
-func runSoftwareInventory(ctx context.Context, verboseHeaders bool) ([]softwarelist.SoftwareEntry, error) {
-	if verboseHeaders {
-		fmt.Println("[*] Software Inventory Scan")
-	}
-
-	return softwarelist.GetInstalledSoftwareList(ctx)
-}
-
-func (c *allCmd) runSecurityAuditModule(ctx context.Context, mask selection.CheckMask, hostInfo *osfingerprint.OSInfo, verboseHeaders bool) (*audit.Result, error) {
-	if verboseHeaders {
-		fmt.Println("[*] Security Audit Scan")
-	}
-
-	opts := audit.Options{
-		Verbose:     verboseHeaders,
+func (c *allCmd) runSecurityAuditModule(ctx context.Context, mask selection.CheckMask, hostInfo *osfingerprint.OSInfo, reporter tui.Reporter) (*audit.Result, error) {
+	auditor := audit.NewSecurityAuditor(audit.Options{
+		Observer:    security.Observe(reporter),
 		MinSeverity: c.audit.MinSeverity(),
 		Enrich:      c.audit.Enrich(),
 		Checks:      selection.EnabledChecks(mask),
 		HostInfo:    hostInfo,
-	}
-
-	auditor := audit.NewSecurityAuditor(opts)
+	})
 	return auditor.RunAudit(ctx)
 }
 

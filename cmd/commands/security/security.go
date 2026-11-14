@@ -23,6 +23,7 @@ import (
 	"github.com/papa0four/orkowatch/internal/security/audit"
 	"github.com/papa0four/orkowatch/internal/security/finding"
 	"github.com/papa0four/orkowatch/internal/selection"
+	"github.com/papa0four/orkowatch/internal/tui"
 )
 
 type (
@@ -33,6 +34,7 @@ type (
 		skipChecks  []string
 		minSeverity string
 		enrich      bool
+		yes         bool
 
 		// skipMask is the resolved exclusion set, computed once in Resolve
 		// from skipChecks.
@@ -80,6 +82,8 @@ func BindAudit(cmd *cobra.Command) *AuditFlags {
 		fmt.Sprintf("Minimum severity level to report (%s)", finding.SeverityNames()))
 	cmd.Flags().BoolVarP(&a.enrich, "enrich", "e", false,
 		"Query external sources to annotate findings with CVEs mapped to referenced CWEs")
+	cmd.Flags().BoolVarP(&a.yes, "yes", "y", false,
+		"Do not ask before a permissions check that scans the entire filesystem")
 	return a
 }
 
@@ -165,6 +169,9 @@ You can run all checks or specify individual checks to run.`,
   # Set minimum severity level
   owatch audit --min-severity HIGH
 
+  # Scan the whole filesystem without being asked first
+  owatch audit --yes
+
   # Run checks and save report to file
   owatch audit -o json --report-file /path/to/reports`,
 	}
@@ -241,6 +248,15 @@ func (c *auditCmd) runE(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
+	interactive := render.StdoutIsTerminal() && render.StdinIsTerminal()
+	switch err := c.audit.ConfirmFullScan(mask, c.checkFilePerms, interactive, os.Stdin, os.Stderr); {
+	case errors.Is(err, ErrScanDeclined):
+		fmt.Fprintln(os.Stderr, "Scan cancelled.")
+		return nil
+	case err != nil:
+		return err
+	}
+
 	if c.verbose && !c.out.ToFile() {
 		fmt.Printf("[*] Running security audit for OS: %s\n", runtime.GOOS)
 	}
@@ -282,42 +298,72 @@ func (c *auditCmd) logVerboseConfig(mask selection.CheckMask) {
 	fmt.Println()
 }
 
-// runAuditWithTimeout executes the audit synchronously under a deadline.
-// Cancellation propagates through RunAudit into checker exec and filesystem
-// work, so on timeout nothing owatch started is left running -- the prior
-// goroutine-and-select pattern reported the timeout but abandoned the scan
-// to keep executing against the host.
+// runAuditWithTimeout executes the audit under a deadline, showing its
+// progress while it runs. Cancellation propagates through RunAudit into
+// checker exec and filesystem work, so on timeout or interrupt nothing owatch
+// started is left running. Whatever finished is reported before the error
+// that says the run was cut short.
 func (c *auditCmd) runAuditWithTimeout(cmd *cobra.Command, mask selection.CheckMask) error {
-	opts := audit.Options{
-		Verbose:       c.verbose && !c.out.ToFile(),
-		FilePermsPath: c.checkFilePerms,
-		MinSeverity:   c.audit.MinSeverity(),
-		Checks:        selection.EnabledChecks(mask),
-		Enrich:        c.audit.Enrich(),
-	}
-
-	auditor := audit.NewSecurityAuditor(opts)
-
 	ctx, cancel := context.WithTimeout(cmd.Context(), c.timeout)
 	defer cancel()
 
-	result, err := auditor.RunAudit(ctx)
-	if err != nil {
-		return fmt.Errorf("audit failed: %w", err)
+	var result *audit.Result
+	runErr := tui.Run(ctx, c.progressOptions(mask), func(ctx context.Context, reporter tui.Reporter) error {
+		auditor := audit.NewSecurityAuditor(audit.Options{
+			Observer:      Observe(reporter),
+			FilePermsPath: c.checkFilePerms,
+			MinSeverity:   c.audit.MinSeverity(),
+			Checks:        selection.EnabledChecks(mask),
+			Enrich:        c.audit.Enrich(),
+		})
+		var err error
+		result, err = auditor.RunAudit(ctx)
+		return err
+	})
+	interrupted := errors.Is(runErr, tui.ErrInterrupted)
+	if runErr != nil && !interrupted {
+		return fmt.Errorf("audit failed: %w", runErr)
+	}
+
+	if c.verbose && result != nil && result.FingerprintError != nil {
+		fmt.Fprintf(os.Stderr, "[!] OS fingerprint unavailable: %v\n", result.FingerprintError)
 	}
 
 	if err := c.outputResults(result, mask); err != nil {
 		return err
 	}
 
-	if ctx.Err() == context.DeadlineExceeded {
-		if hint := selection.SkipHint(selection.CategoryCheck, result.IncompleteChecks); hint != "" {
-			return fmt.Errorf("audit timeout after %v; results above are incomplete; rerun with a longer --timeout or %s",
-				c.timeout, hint)
-		}
-		return fmt.Errorf("audit timeout after %v; results above are incomplete", c.timeout)
+	var cause string
+	switch {
+	case interrupted:
+		cause = "audit interrupted"
+	case ctx.Err() == context.DeadlineExceeded:
+		cause = fmt.Sprintf("audit timeout after %v", c.timeout)
+	default:
+		return nil
 	}
-	return nil
+	if hint := selection.SkipHint(selection.CategoryCheck, result.IncompleteChecks); hint != "" {
+		return fmt.Errorf("%s; results above are incomplete; rerun with a longer --timeout or %s", cause, hint)
+	}
+	return fmt.Errorf("%s; results above are incomplete", cause)
+}
+
+// progressOptions describes this run to the progress display. The live
+// display is used when standard output is a terminal. Otherwise verbose runs
+// keep the plain progress lines they have always printed, and those are
+// withheld when the report is going to a file so they cannot interleave with
+// the one line that confirms where it was saved.
+func (c *auditCmd) progressOptions(mask selection.CheckMask) tui.Options {
+	opts := tui.Options{
+		Title:       "owatch audit",
+		Tasks:       CheckTasks(mask),
+		Interactive: render.StdoutIsTerminal(),
+		Verbose:     c.verbose,
+	}
+	if c.verbose && !c.out.ToFile() {
+		opts.Lines = os.Stdout
+	}
+	return opts
 }
 
 func (c *auditCmd) outputResults(result *audit.Result, mask selection.CheckMask) error {
