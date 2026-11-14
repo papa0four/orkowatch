@@ -10,8 +10,8 @@ import (
 	"os/exec"
 	"strings"
 
+	"github.com/papa0four/orkowatch/internal/security/finding"
 	"github.com/papa0four/orkowatch/internal/security/registry"
-	"github.com/papa0four/orkowatch/internal/security/types"
 )
 
 type (
@@ -44,7 +44,7 @@ func NewFirewallChecker(osCtx registry.OSContext) *WindowsFirewallChecker {
 // which no profile state is recognized is concluded as unknown: netsh prints
 // localized headings, and reading none of them is not the same as reading
 // every profile off.
-func (f *WindowsFirewallChecker) Check(ctx context.Context) types.AuditResult {
+func (f *WindowsFirewallChecker) Check(ctx context.Context) finding.AuditResult {
 	const (
 		partialRule registry.FindingKey = "firewall.profile_inactive"
 		totalRule   registry.FindingKey = "firewall.all_profiles_disabled"
@@ -54,22 +54,22 @@ func (f *WindowsFirewallChecker) Check(ctx context.Context) types.AuditResult {
 
 	output, err := exec.CommandContext(ctx, "netsh", "advfirewall", "show", "allprofiles", "state").Output()
 	if err != nil {
-		r.inconclusive(types.ResultError,
+		r.inconclusive(finding.ResultError,
 			fmt.Sprintf("Windows Firewall status could not be read: %v", execError(err)), partialRule, totalRule)
 		return r.finish()
 	}
 
 	profiles := parseWindowsFirewallStatus(string(output))
 	if len(profiles) == 0 {
-		r.inconclusive(types.ResultUnknown,
+		r.inconclusive(finding.ResultUnknown,
 			"no profile state was recognized in the netsh output", partialRule, totalRule)
 		return r.finish()
 	}
 
-	var inactive []types.Evidence
+	var inactive []finding.Evidence
 	for _, profile := range profiles {
 		if profile.active {
-			r.note(types.SymbolOK, "%s profile is active", profile.name)
+			r.note(finding.SymbolOK, "%s profile is active", profile.name)
 			continue
 		}
 		inactive = append(inactive, evidence(kindProfile, profile.name, "state", "OFF"))
@@ -80,7 +80,7 @@ func (f *WindowsFirewallChecker) Check(ctx context.Context) types.AuditResult {
 		r.pass(partialRule, totalRule)
 	case len(inactive) == len(profiles):
 		r.observed(totalRule, inactive...)
-		r.inconclusive(types.ResultNotChecked, "superseded by "+string(totalRule), partialRule)
+		r.inconclusive(finding.ResultNotChecked, "superseded by "+string(totalRule), partialRule)
 		return r.finish()
 	default:
 		r.observed(partialRule, inactive...)
@@ -96,7 +96,7 @@ func (f *WindowsFirewallChecker) Check(ctx context.Context) types.AuditResult {
 func (f *WindowsFirewallChecker) reportRules(ctx context.Context, r *report) {
 	output, err := exec.CommandContext(ctx, "netsh", "advfirewall", "firewall", "show", "rule", "name=all", "verbose").Output()
 	if err != nil {
-		r.note(types.SymbolError, "Error enumerating firewall rules: %v", execError(err))
+		r.note(finding.SymbolError, "Error enumerating firewall rules: %v", execError(err))
 		return
 	}
 

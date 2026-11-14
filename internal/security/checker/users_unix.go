@@ -14,8 +14,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/papa0four/orkowatch/internal/security/finding"
 	"github.com/papa0four/orkowatch/internal/security/registry"
-	"github.com/papa0four/orkowatch/internal/security/types"
 )
 
 type (
@@ -85,15 +85,6 @@ const (
 	rootGID = 0
 )
 
-// NewUserChecker returns the user account checker for Unix-like hosts.
-func NewUserChecker(osCtx registry.OSContext) *UnixUserChecker {
-	return &UnixUserChecker{checkIdentity: checkIdentity{
-		domain:   "User Account Security",
-		analyzes: "user accounts and security settings",
-		osCtx:    osCtx,
-	}}
-}
-
 // accountRules are the rules judged per account. credentialRules are the
 // subset that needs the credential store to be readable.
 var (
@@ -113,15 +104,24 @@ var (
 	}
 )
 
+// NewUserChecker returns the user account checker for Unix-like hosts.
+func NewUserChecker(osCtx registry.OSContext) *UnixUserChecker {
+	return &UnixUserChecker{checkIdentity: checkIdentity{
+		domain:   "User Account Security",
+		analyzes: "user accounts and security settings",
+		osCtx:    osCtx,
+	}}
+}
+
 // Check implements UserChecker interface for Unix systems
-func (u *UnixUserChecker) Check(ctx context.Context) types.AuditResult {
+func (u *UnixUserChecker) Check(ctx context.Context) finding.AuditResult {
 	r := newReport(u.checkIdentity)
 
 	u.checkAuthConfig(r)
 
 	users, err := u.getUsers(ctx)
 	if err != nil {
-		r.inconclusive(types.ResultError, fmt.Sprintf("user accounts could not be read: %v", err), accountRules...)
+		r.inconclusive(finding.ResultError, fmt.Sprintf("user accounts could not be read: %v", err), accountRules...)
 		return r.finish()
 	}
 
@@ -159,23 +159,23 @@ func (u *UnixUserChecker) analyzeUsers(users []userAccount, r *report) {
 	}
 
 	if !u.shadowReadable {
-		r.inconclusive(types.ResultError,
+		r.inconclusive(finding.ResultError,
 			"/etc/shadow is not readable without elevated privileges", credentialRules...)
 	}
 	if u.adminLookupErr != nil {
-		r.inconclusive(types.ResultError,
+		r.inconclusive(finding.ResultError,
 			fmt.Sprintf("privileged group membership could not be determined: %v", u.adminLookupErr),
 			"users.regular_user_admin_privileges")
 	}
 	r.pass(accountRules...)
 
 	for _, warning := range u.readWarnings {
-		r.note(types.SymbolWarning, "%s", warning)
+		r.note(finding.SymbolWarning, "%s", warning)
 	}
 
-	appendAccountSection(r, "Administrative Users:", types.SymbolWarning, adminUsers)
-	appendAccountSection(r, "Regular Users:", types.SymbolOK, regularUsers)
-	appendAccountSection(r, "Suspicious Users:", types.SymbolWarning, suspiciousUsers)
+	appendAccountSection(r, "Administrative Users:", finding.SymbolWarning, adminUsers)
+	appendAccountSection(r, "Regular Users:", finding.SymbolOK, regularUsers)
+	appendAccountSection(r, "Suspicious Users:", finding.SymbolWarning, suspiciousUsers)
 }
 
 // judgeAccount records the rules a single account trips. UID 0 is judged
@@ -260,7 +260,7 @@ func (u *UnixUserChecker) checkAuthConfig(r *report) {
 		case errors.Is(err, fs.ErrNotExist):
 			r.pass(source.key)
 		default:
-			r.inconclusive(types.ResultError,
+			r.inconclusive(finding.ResultError,
 				fmt.Sprintf("%s configuration could not be checked: %v", source.label, err), source.key)
 		}
 	}
@@ -305,18 +305,18 @@ func (u *UnixUserChecker) reportPAMModules(r *report) {
 	case errors.Is(err, fs.ErrNotExist):
 		return
 	case err != nil:
-		r.note(types.SymbolWarning, "PAM configuration could not be checked: %v", err)
+		r.note(finding.SymbolWarning, "PAM configuration could not be checked: %v", err)
 		return
 	}
 
-	r.note(types.SymbolInfo, "PAM authentication is configured")
+	r.note(finding.SymbolInfo, "PAM authentication is configured")
 	for _, module := range modules {
 		if found[module] {
-			r.note(types.SymbolInfo, "Found authentication module: %s", module)
+			r.note(finding.SymbolInfo, "Found authentication module: %s", module)
 		}
 	}
 	if unreadable > 0 {
-		r.note(types.SymbolWarning, "%d PAM configuration files could not be read; module detection is incomplete", unreadable)
+		r.note(finding.SymbolWarning, "%d PAM configuration files could not be read; module detection is incomplete", unreadable)
 	}
 }
 

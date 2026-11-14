@@ -7,8 +7,8 @@ package checker
 import (
 	"context"
 
+	"github.com/papa0four/orkowatch/internal/security/finding"
 	"github.com/papa0four/orkowatch/internal/security/registry"
-	"github.com/papa0four/orkowatch/internal/security/types"
 )
 
 // sshdConfigPath is where OpenSSH reads its server configuration on every
@@ -30,7 +30,7 @@ func NewSSHChecker(osCtx registry.OSContext) *UnixSSHChecker {
 }
 
 // Check implements SSHChecker interface for Unix systems
-func (s *UnixSSHChecker) Check(_ context.Context) types.AuditResult {
+func (s *UnixSSHChecker) Check(_ context.Context) finding.AuditResult {
 	r := newReport(s.checkIdentity)
 	checkSSHDConfig(r, sshdConfigPath, sshdAbsentKeys{
 		rootLogin:    "ssh.permit_root_login_not_set",

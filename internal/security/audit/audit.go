@@ -17,8 +17,8 @@ import (
 	"github.com/papa0four/orkowatch/internal/osfingerprint"
 	"github.com/papa0four/orkowatch/internal/security/checker"
 	"github.com/papa0four/orkowatch/internal/security/enrichment"
+	"github.com/papa0four/orkowatch/internal/security/finding"
 	"github.com/papa0four/orkowatch/internal/security/registry"
-	"github.com/papa0four/orkowatch/internal/security/types"
 )
 
 type (
@@ -52,7 +52,7 @@ type (
 		StartTime           time.Time
 		EndTime             time.Time
 		Duration            time.Duration
-		Results             []types.AuditResult
+		Results             []finding.AuditResult
 		IncompleteChecks    []string
 		HostInfo            *osfingerprint.OSInfo
 		Summary             Summary
@@ -69,12 +69,12 @@ type (
 	// from one that could not determine anything. Only results and
 	// severities that occurred are present in the maps.
 	Summary struct {
-		TotalChecks     int                  `json:"total_checks" yaml:"total_checks"`
-		Checks          map[types.Result]int `json:"checks" yaml:"checks"`
-		TotalConditions int                  `json:"total_conditions" yaml:"total_conditions"`
-		Conditions      map[types.Result]int `json:"conditions" yaml:"conditions"`
-		TotalFindings   int                  `json:"total_findings" yaml:"total_findings"`
-		Findings        map[string]int       `json:"findings" yaml:"findings"`
+		TotalChecks     int                    `json:"total_checks" yaml:"total_checks"`
+		Checks          map[finding.Result]int `json:"checks" yaml:"checks"`
+		TotalConditions int                    `json:"total_conditions" yaml:"total_conditions"`
+		Conditions      map[finding.Result]int `json:"conditions" yaml:"conditions"`
+		TotalFindings   int                    `json:"total_findings" yaml:"total_findings"`
+		Findings        map[string]int         `json:"findings" yaml:"findings"`
 	}
 
 	// checkRunner pairs a check's canonical name with its execution function
@@ -82,7 +82,7 @@ type (
 		name        string
 		display     string
 		description string
-		run         func(ctx context.Context) types.AuditResult
+		run         func(ctx context.Context) finding.AuditResult
 	}
 
 	// indexedResult pairs a check result with its canonical index so
@@ -90,7 +90,7 @@ type (
 	// incomplete marks a check interrupted before it finished.
 	indexedResult struct {
 		index      int
-		result     types.AuditResult
+		result     finding.AuditResult
 		incomplete bool
 	}
 )
@@ -147,7 +147,7 @@ func (sa *SecurityAuditor) RunAudit(ctx context.Context) (*Result, error) {
 	result := &Result{
 		StartTime:           time.Now(),
 		HostInfo:            fingerprint,
-		Results:             make([]types.AuditResult, len(runners)),
+		Results:             make([]finding.AuditResult, len(runners)),
 		EnrichmentRequested: sa.options.Enrich,
 	}
 
@@ -250,11 +250,11 @@ func enabledSet(runners []checkRunner, checks []string) (map[string]bool, error)
 
 // skippedResult returns the result row for a check excluded by flag, so a
 // skip occupies its canonical index rather than vanishing from the set
-func skippedResult(r checkRunner) types.AuditResult {
-	return types.AuditResult{
+func skippedResult(r checkRunner) finding.AuditResult {
+	return finding.AuditResult{
 		Name:        r.display,
 		Description: r.description,
-		Result:      types.ResultNotSelected,
+		Result:      finding.ResultNotSelected,
 		Reason:      "excluded by --skip-checks",
 	}
 }
@@ -300,12 +300,12 @@ func (sa *SecurityAuditor) finalize(ctx context.Context, result *Result) {
 // deduplicated in order of first occurrence. Each comes from the typed field
 // its registry definition was validated to carry, so there is nothing to
 // parse and nothing that can fail.
-func failedCWEs(results []types.AuditResult) []string {
+func failedCWEs(results []finding.AuditResult) []string {
 	var cwes []string
-	seen := make(map[types.CWE]struct{})
+	seen := make(map[finding.CWE]struct{})
 	for _, result := range results {
 		for _, condition := range result.Conditions {
-			if condition.Result != types.ResultFail || condition.Finding == nil || condition.Finding.CWE == "" {
+			if condition.Result != finding.ResultFail || condition.Finding == nil || condition.Finding.CWE == "" {
 				continue
 			}
 			if _, dup := seen[condition.Finding.CWE]; dup {
@@ -321,11 +321,11 @@ func failedCWEs(results []types.AuditResult) []string {
 // summarize counts checks and conditions by result and findings by severity.
 // Everything derives from the conditions the checks recorded, so a check is
 // never counted as passed for the mere absence of findings.
-func summarize(results []types.AuditResult) Summary {
+func summarize(results []finding.AuditResult) Summary {
 	summary := Summary{
 		TotalChecks: len(results),
-		Checks:      make(map[types.Result]int),
-		Conditions:  make(map[types.Result]int),
+		Checks:      make(map[finding.Result]int),
+		Conditions:  make(map[finding.Result]int),
 		Findings:    make(map[string]int),
 	}
 
@@ -334,9 +334,9 @@ func summarize(results []types.AuditResult) Summary {
 		for _, condition := range result.Conditions {
 			summary.TotalConditions++
 			summary.Conditions[condition.Result]++
-			if condition.Result == types.ResultFail && condition.Finding != nil {
+			if condition.Result == finding.ResultFail && condition.Finding != nil {
 				summary.TotalFindings++
-				summary.Findings[strings.ToUpper(types.EffectiveSeverity(*condition.Finding))]++
+				summary.Findings[strings.ToUpper(finding.EffectiveSeverity(*condition.Finding))]++
 			}
 		}
 	}
@@ -348,7 +348,7 @@ func summarize(results []types.AuditResult) Summary {
 // concluded: its output reflects an interrupted run and cannot stand as a
 // completed evaluation. The second return value reports whether the check
 // was interrupted.
-func timeCheck(ctx context.Context, fn func(context.Context) types.AuditResult) (types.AuditResult, bool) {
+func timeCheck(ctx context.Context, fn func(context.Context) finding.AuditResult) (finding.AuditResult, bool) {
 	start := time.Now()
 	result := fn(ctx)
 	end := time.Now()
@@ -357,7 +357,7 @@ func timeCheck(ctx context.Context, fn func(context.Context) types.AuditResult) 
 	result.Duration = end.Sub(start)
 
 	if ctx.Err() != nil {
-		result.Result = types.ResultError
+		result.Result = finding.ResultError
 		result.Reason = fmt.Sprintf("check did not complete: %v", ctx.Err())
 		return result, true
 	}

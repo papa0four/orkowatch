@@ -1,11 +1,11 @@
-// internal/scan/checks.go
+// internal/selection/checks.go
 
-// Package scan defines the CheckMask type, category taxonomy, and registry
+// Package selection defines the CheckMask type, category taxonomy, and registry
 // used to identify which audit checks, modules, enrichment adapters, and
 // composing flags are enabled for a given scan. The bitmask representation
 // keeps check composition O(1) and scales to 64 discrete entries across four
 // fixed bit ranges without structural changes.
-package scan
+package selection
 
 import (
 	"fmt"

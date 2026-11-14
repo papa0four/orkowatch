@@ -8,7 +8,7 @@ import (
 
 	"github.com/papa0four/orkowatch/internal/osfingerprint"
 	"github.com/papa0four/orkowatch/internal/security/enrichment"
-	"github.com/papa0four/orkowatch/internal/security/types"
+	"github.com/papa0four/orkowatch/internal/security/finding"
 )
 
 type (
@@ -35,7 +35,7 @@ type (
 	// is empty for a check that was not selected.
 	CheckView struct {
 		Name        string          `json:"name" yaml:"name"`
-		Result      types.Result    `json:"result" yaml:"result"`
+		Result      finding.Result  `json:"result" yaml:"result"`
 		Reason      string          `json:"reason,omitempty" yaml:"reason,omitempty"`
 		Description string          `json:"description" yaml:"description"`
 		Duration    string          `json:"duration,omitempty" yaml:"duration,omitempty"`
@@ -47,23 +47,23 @@ type (
 	// Evidence sits beside the finding it caused, so a consumer associates
 	// the two without parsing headings out of free text.
 	ConditionView struct {
-		Key      string           `json:"key" yaml:"key"`
-		Result   types.Result     `json:"result" yaml:"result"`
-		Reason   string           `json:"reason,omitempty" yaml:"reason,omitempty"`
-		Finding  *FindingView     `json:"finding,omitempty" yaml:"finding,omitempty"`
-		Evidence []types.Evidence `json:"evidence,omitempty" yaml:"evidence,omitempty"`
+		Key      string             `json:"key" yaml:"key"`
+		Result   finding.Result     `json:"result" yaml:"result"`
+		Reason   string             `json:"reason,omitempty" yaml:"reason,omitempty"`
+		Finding  *FindingView       `json:"finding,omitempty" yaml:"finding,omitempty"`
+		Evidence []finding.Evidence `json:"evidence,omitempty" yaml:"evidence,omitempty"`
 	}
 
 	// FindingView is the serializable projection of a condition's registry
 	// description.
 	FindingView struct {
-		Title       string            `json:"title" yaml:"title"`
-		Severity    string            `json:"severity" yaml:"severity"`
-		Categories  []string          `json:"categories,omitempty" yaml:"categories,omitempty"`
-		Description string            `json:"description,omitempty" yaml:"description,omitempty"`
-		Impact      string            `json:"impact,omitempty" yaml:"impact,omitempty"`
-		Resolution  string            `json:"resolution,omitempty" yaml:"resolution,omitempty"`
-		References  []types.Reference `json:"references,omitempty" yaml:"references,omitempty"`
+		Title       string              `json:"title" yaml:"title"`
+		Severity    string              `json:"severity" yaml:"severity"`
+		Categories  []string            `json:"categories,omitempty" yaml:"categories,omitempty"`
+		Description string              `json:"description,omitempty" yaml:"description,omitempty"`
+		Impact      string              `json:"impact,omitempty" yaml:"impact,omitempty"`
+		Resolution  string              `json:"resolution,omitempty" yaml:"resolution,omitempty"`
+		References  []finding.Reference `json:"references,omitempty" yaml:"references,omitempty"`
 	}
 )
 
@@ -100,7 +100,7 @@ func (r *Result) View(minSeverity string) View {
 			Description: check.Description,
 			Details:     check.Details,
 		}
-		if check.Result != types.ResultNotSelected {
+		if check.Result != finding.ResultNotSelected {
 			cv.Duration = check.Duration.String()
 		}
 
@@ -125,7 +125,7 @@ func (r *Result) View(minSeverity string) View {
 
 // conditionView projects one condition, reporting false when it is a
 // finding the severity threshold suppresses.
-func conditionView(condition types.Condition, minSeverity string) (ConditionView, bool) {
+func conditionView(condition finding.Condition, minSeverity string) (ConditionView, bool) {
 	view := ConditionView{
 		Key:      condition.Key,
 		Result:   condition.Result,
@@ -136,8 +136,8 @@ func conditionView(condition types.Condition, minSeverity string) (ConditionView
 		return view, true
 	}
 
-	severity := types.EffectiveSeverity(*condition.Finding)
-	if condition.Result == types.ResultFail && !types.MeetsMinSeverity(severity, minSeverity) {
+	severity := finding.EffectiveSeverity(*condition.Finding)
+	if condition.Result == finding.ResultFail && !finding.MeetsMinSeverity(severity, minSeverity) {
 		return ConditionView{}, false
 	}
 

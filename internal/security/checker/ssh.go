@@ -11,8 +11,8 @@ import (
 	"os"
 	"strings"
 
+	"github.com/papa0four/orkowatch/internal/security/finding"
 	"github.com/papa0four/orkowatch/internal/security/registry"
-	"github.com/papa0four/orkowatch/internal/security/types"
 )
 
 type (
@@ -21,7 +21,7 @@ type (
 	SSHChecker interface {
 		Name() string
 		Description() string
-		Check(ctx context.Context) types.AuditResult
+		Check(ctx context.Context) finding.AuditResult
 	}
 
 	// sshConfig holds the sshd_config directives the audit evaluates.
@@ -108,17 +108,17 @@ func checkSSHDConfig(r *report, path string, absent sshdAbsentKeys) {
 	switch {
 	case errors.Is(err, os.ErrNotExist):
 		r.observed("ssh.config_not_found", evidence(kindFile, path))
-		r.inconclusive(types.ResultNotChecked, "OpenSSH configuration file not found: "+path, directives...)
+		r.inconclusive(finding.ResultNotChecked, "OpenSSH configuration file not found: "+path, directives...)
 		return
 	case err != nil:
-		r.inconclusive(types.ResultError, fmt.Sprintf("cannot read OpenSSH configuration: %v", err),
+		r.inconclusive(finding.ResultError, fmt.Sprintf("cannot read OpenSSH configuration: %v", err),
 			append(directives, "ssh.config_not_found")...)
 		return
 	}
 	defer file.Close() //nolint:errcheck // read-only file; close error does not affect scan results
 
 	r.pass("ssh.config_not_found")
-	r.note(types.SymbolInfo, "Configuration file: %s", path)
+	r.note(finding.SymbolInfo, "Configuration file: %s", path)
 
 	config, readErr := parseSSHDConfig(file)
 
@@ -148,11 +148,11 @@ func checkSSHDConfig(r *report, path string, absent sshdAbsentKeys) {
 func reportSSHDirective(r *report, readErr error, rule sshRule) {
 	switch {
 	case !rule.setting.found && readErr != nil:
-		r.inconclusive(types.ResultError,
+		r.inconclusive(finding.ResultError,
 			fmt.Sprintf("OpenSSH configuration could not be read in full: %v", readErr),
 			rule.unsafeKey, rule.absentKey)
 	case !rule.setting.found:
-		r.inconclusive(types.ResultNotChecked,
+		r.inconclusive(finding.ResultNotChecked,
 			rule.name+" is not set; the sshd default applies and is not read", rule.unsafeKey)
 		if rule.absentKey != "" {
 			r.observed(rule.absentKey, evidence(kindDirective, rule.name, "state", "not set"))

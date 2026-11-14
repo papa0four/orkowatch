@@ -6,7 +6,7 @@ import (
 	"context"
 	"strings"
 
-	"github.com/papa0four/orkowatch/internal/security/types"
+	"github.com/papa0four/orkowatch/internal/security/finding"
 )
 
 // FirewallChecker is the firewall configuration check as the audit sees it.
@@ -14,7 +14,7 @@ import (
 type FirewallChecker interface {
 	Name() string
 	Description() string
-	Check(ctx context.Context) types.AuditResult
+	Check(ctx context.Context) finding.AuditResult
 }
 
 // filterLines returns the trimmed lines of output that keep accepts. Every

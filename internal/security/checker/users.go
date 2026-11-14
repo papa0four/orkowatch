@@ -5,7 +5,7 @@ package checker
 import (
 	"context"
 
-	"github.com/papa0four/orkowatch/internal/security/types"
+	"github.com/papa0four/orkowatch/internal/security/finding"
 )
 
 // UserChecker is the user account check as the audit sees it. Each platform
@@ -13,5 +13,5 @@ import (
 type UserChecker interface {
 	Name() string
 	Description() string
-	Check(ctx context.Context) types.AuditResult
+	Check(ctx context.Context) finding.AuditResult
 }

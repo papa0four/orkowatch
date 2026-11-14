@@ -15,9 +15,9 @@ import (
 	"github.com/papa0four/orkowatch/cmd/commands/security"
 	"github.com/papa0four/orkowatch/internal/osfingerprint"
 	"github.com/papa0four/orkowatch/internal/render"
-	"github.com/papa0four/orkowatch/internal/scan"
 	"github.com/papa0four/orkowatch/internal/security/audit"
-	"github.com/papa0four/orkowatch/internal/security/types"
+	"github.com/papa0four/orkowatch/internal/security/finding"
+	"github.com/papa0four/orkowatch/internal/selection"
 	"github.com/papa0four/orkowatch/internal/softwarelist"
 )
 
@@ -57,9 +57,9 @@ type (
 	// fail. A skipped or errored module keeps its row rather than vanishing
 	// from the run record.
 	moduleRun struct {
-		Name   string       `json:"name" yaml:"name"`
-		Result types.Result `json:"result" yaml:"result"`
-		Reason string       `json:"reason,omitempty" yaml:"reason,omitempty"`
+		Name   string         `json:"name" yaml:"name"`
+		Result finding.Result `json:"result" yaml:"result"`
+		Reason string         `json:"reason,omitempty" yaml:"reason,omitempty"`
 	}
 
 	// allResult is the typed serialization structure for all command JSON and
@@ -119,7 +119,7 @@ Results can be output in various formats and saved to a file.`,
 		"Enable verbose output for all scans")
 	cmd.Flags().StringSliceVar(&c.skipModules, "skip-modules", []string{},
 		fmt.Sprintf("Modules to skip (comma-separated: %s)",
-			scan.ValidNamesFor(scan.CategoryModule)))
+			selection.ValidNamesFor(selection.CategoryModule)))
 	cmd.Flags().DurationVar(&c.timeout, "timeout", 30*time.Minute,
 		"Maximum time to run all scans")
 
@@ -130,16 +130,16 @@ Results can be output in various formats and saved to a file.`,
 }
 
 // buildAllMask composes a CheckMask from the active module and security check flags
-func (c *allCmd) buildAllMask() (scan.CheckMask, error) {
-	var mask scan.CheckMask
+func (c *allCmd) buildAllMask() (selection.CheckMask, error) {
+	var mask selection.CheckMask
 	if !c.isModuleSkipped("osinfo") {
-		mask |= scan.ModuleOS
+		mask |= selection.ModuleOS
 	}
 	if !c.isModuleSkipped("software") {
-		mask |= scan.ModuleSoftware
+		mask |= selection.ModuleSoftware
 	}
 	if !c.isModuleSkipped("audit") {
-		allChecks := scan.CheckSSH | scan.CheckFirewall | scan.CheckUsers | scan.CheckPerms
+		allChecks := selection.CheckSSH | selection.CheckFirewall | selection.CheckUsers | selection.CheckPerms
 		allChecks &^= c.audit.SkipMask()
 		if allChecks == 0 {
 			return 0, fmt.Errorf("all audit checks were skipped; use --skip-modules audit to skip the audit module")
@@ -151,29 +151,29 @@ func (c *allCmd) buildAllMask() (scan.CheckMask, error) {
 
 // toAllResult converts a ScanResult into the typed serialization structure
 // for all command output.
-func (c *allCmd) toAllResult(scan *ScanResult) allResult {
+func (c *allCmd) toAllResult(result *ScanResult) allResult {
 	out := allResult{
-		Timestamp: scan.Timestamp.UTC().Format(time.RFC3339),
-		Duration:  scan.Duration.String(),
-		Modules:   scan.Modules,
-		Errors:    scan.Errors,
+		Timestamp: result.Timestamp.UTC().Format(time.RFC3339),
+		Duration:  result.Duration.String(),
+		Modules:   result.Modules,
+		Errors:    result.Errors,
 	}
 
 	// system info
-	if scan.OSInfo != nil {
-		view := scan.OSInfo.View()
+	if result.OSInfo != nil {
+		view := result.OSInfo.View()
 		out.System = &view
 	}
 
 	// software inventory
-	if len(scan.Software) > 0 {
-		view := softwarelist.View(scan.Software)
+	if len(result.Software) > 0 {
+		view := softwarelist.View(result.Software)
 		out.Software = &view
 	}
 
 	// security audit
-	if scan.SecurityAudit != nil {
-		view := scan.SecurityAudit.View(c.audit.MinSeverity())
+	if result.SecurityAudit != nil {
+		view := result.SecurityAudit.View(c.audit.MinSeverity())
 		if out.System != nil {
 			// avoid duplicating hist identity alread in out.System
 			view.SystemInfo = nil
@@ -186,7 +186,7 @@ func (c *allCmd) toAllResult(scan *ScanResult) allResult {
 
 // validateSkipModules rejects any --skip-modules value that is not recognized
 func (c *allCmd) validateSkipModules() error {
-	if _, err := scan.MaskFromNames(c.skipModules, scan.CategoryModule); err != nil {
+	if _, err := selection.MaskFromNames(c.skipModules, selection.CategoryModule); err != nil {
 		return err
 	}
 	return nil
@@ -286,27 +286,27 @@ func (c *allCmd) runAllScans(cmd *cobra.Command, args []string) error {
 
 // skippedModule is the row for a module the operator excluded.
 func skippedModule(name string) moduleRun {
-	return moduleRun{Name: name, Result: types.ResultNotSelected, Reason: "excluded by --skip-modules"}
+	return moduleRun{Name: name, Result: finding.ResultNotSelected, Reason: "excluded by --skip-modules"}
 }
 
 // erroredModule is the row for a module that could not complete.
 func erroredModule(name string, err error) moduleRun {
-	return moduleRun{Name: name, Result: types.ResultError, Reason: err.Error()}
+	return moduleRun{Name: name, Result: finding.ResultError, Reason: err.Error()}
 }
 
 // inventoryModule is the row for a module that enumerates facts about the
 // host. It produces no compliance judgment, so it can neither pass nor fail.
 func inventoryModule(name string) moduleRun {
-	return moduleRun{Name: name, Result: types.ResultInformational, Reason: "inventory, not a compliance judgment"}
+	return moduleRun{Name: name, Result: finding.ResultInformational, Reason: "inventory, not a compliance judgment"}
 }
 
 // auditModule is the row for the audit, whose result is the aggregate of the
 // checks it ran: the audit asserts no outcome of its own.
 func auditModule(result *audit.Result) moduleRun {
-	aggregate := types.AuditResult{}
+	aggregate := finding.AuditResult{}
 	for _, check := range result.Results {
 		aggregate.Conditions = append(aggregate.Conditions,
-			types.Condition{Result: check.Result, Reason: check.Reason})
+			finding.Condition{Result: check.Result, Reason: check.Reason})
 	}
 	aggregate.Conclude()
 	return moduleRun{Name: "audit", Result: aggregate.Result, Reason: aggregate.Reason}
@@ -327,16 +327,16 @@ func incompleteDetail(result *ScanResult) string {
 
 	var modules []string
 	for _, m := range result.Modules {
-		if m.Result == types.ResultError {
+		if m.Result == finding.ResultError {
 			modules = append(modules, m.Name)
 		}
 	}
-	if hint := scan.SkipHint(scan.CategoryModule, modules); hint != "" {
+	if hint := selection.SkipHint(selection.CategoryModule, modules); hint != "" {
 		parts = append(parts, hint)
 	}
 
 	if result.SecurityAudit != nil {
-		if hint := scan.SkipHint(scan.CategoryCheck, result.SecurityAudit.IncompleteChecks); hint != "" {
+		if hint := selection.SkipHint(selection.CategoryCheck, result.SecurityAudit.IncompleteChecks); hint != "" {
 			parts = append(parts, hint)
 		}
 	}
@@ -358,7 +358,7 @@ func runSoftwareInventory(ctx context.Context, verboseHeaders bool) ([]softwarel
 	return softwarelist.GetInstalledSoftwareList(ctx)
 }
 
-func (c *allCmd) runSecurityAuditModule(ctx context.Context, mask scan.CheckMask, hostInfo *osfingerprint.OSInfo, verboseHeaders bool) (*audit.Result, error) {
+func (c *allCmd) runSecurityAuditModule(ctx context.Context, mask selection.CheckMask, hostInfo *osfingerprint.OSInfo, verboseHeaders bool) (*audit.Result, error) {
 	if verboseHeaders {
 		fmt.Println("[*] Security Audit Scan")
 	}
@@ -367,7 +367,7 @@ func (c *allCmd) runSecurityAuditModule(ctx context.Context, mask scan.CheckMask
 		Verbose:     verboseHeaders,
 		MinSeverity: c.audit.MinSeverity(),
 		Enrich:      c.audit.Enrich(),
-		Checks:      scan.EnabledChecks(mask),
+		Checks:      selection.EnabledChecks(mask),
 		HostInfo:    hostInfo,
 	}
 

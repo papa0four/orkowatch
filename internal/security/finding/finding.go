@@ -1,10 +1,10 @@
-// internal/security/types/types.go
+// internal/security/finding/finding.go
 
-// Package types defines the vocabulary shared by every checker, renderer, and
+// Package finding defines the vocabulary shared by every checker, renderer, and
 // report: the check, condition, finding and evidence shapes, the result and
 // severity values that appear in output, and CWE identifiers. The result and
 // severity values are output contract values.
-package types
+package finding
 
 import (
 	"strings"

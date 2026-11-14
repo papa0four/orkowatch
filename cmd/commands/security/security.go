@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"runtime"
 	"strings"
 	"time"
 
@@ -19,9 +20,9 @@ import (
 	"github.com/papa0four/orkowatch/cmd/commands/delivery"
 	"github.com/papa0four/orkowatch/internal/osfingerprint"
 	"github.com/papa0four/orkowatch/internal/render"
-	"github.com/papa0four/orkowatch/internal/scan"
 	"github.com/papa0four/orkowatch/internal/security/audit"
-	"github.com/papa0four/orkowatch/internal/security/types"
+	"github.com/papa0four/orkowatch/internal/security/finding"
+	"github.com/papa0four/orkowatch/internal/selection"
 )
 
 type (
@@ -35,7 +36,7 @@ type (
 
 		// skipMask is the resolved exclusion set, computed once in Resolve
 		// from skipChecks.
-		skipMask scan.CheckMask
+		skipMask selection.CheckMask
 	}
 
 	// auditCmd holds one invocation's flag state. Cobra binds flags directly into
@@ -74,9 +75,9 @@ func BindAudit(cmd *cobra.Command) *AuditFlags {
 
 	cmd.Flags().StringSliceVar(&a.skipChecks, "skip-checks", []string{},
 		fmt.Sprintf("Audit checks to skip (comma-separated: %s)",
-			scan.ValidNamesFor(scan.CategoryCheck)))
-	cmd.Flags().StringVar(&a.minSeverity, "min-severity", types.SeverityNone,
-		fmt.Sprintf("Minimum severity level to report (%s)", types.SeverityNames()))
+			selection.ValidNamesFor(selection.CategoryCheck)))
+	cmd.Flags().StringVar(&a.minSeverity, "min-severity", finding.SeverityNone,
+		fmt.Sprintf("Minimum severity level to report (%s)", finding.SeverityNames()))
 	cmd.Flags().BoolVarP(&a.enrich, "enrich", "e", false,
 		"Query external sources to annotate findings with CVEs mapped to referenced CWEs")
 	return a
@@ -91,15 +92,15 @@ func (a *AuditFlags) Resolve() error {
 		return errors.New("audit flags were not bound to the command")
 	}
 
-	skipMask, err := scan.MaskFromNames(a.skipChecks, scan.CategoryCheck)
+	skipMask, err := selection.MaskFromNames(a.skipChecks, selection.CategoryCheck)
 	if err != nil {
 		return err
 	}
 	a.skipMask = skipMask
 
-	normalized, ok := types.NormalizeSeverity(a.minSeverity)
+	normalized, ok := finding.NormalizeSeverity(a.minSeverity)
 	if !ok {
-		return fmt.Errorf("invalid min-severity: %s (valid: %s)", a.minSeverity, types.SeverityNames())
+		return fmt.Errorf("invalid min-severity: %s (valid: %s)", a.minSeverity, finding.SeverityNames())
 	}
 	a.minSeverity = normalized
 
@@ -118,7 +119,7 @@ func (a *AuditFlags) Enrich() bool {
 
 // SkipMask returns the checks excluded by --skip-checks. Callers clear these
 // bits from the set they would otherwise run.
-func (a *AuditFlags) SkipMask() scan.CheckMask {
+func (a *AuditFlags) SkipMask() selection.CheckMask {
 	return a.skipMask
 }
 
@@ -128,10 +129,7 @@ func (a *AuditFlags) SkipChecks() []string {
 	return a.skipChecks
 }
 
-// NewCmd returns the security audit command. RunE is bound to platformRunE, a
-// method provided by exactly one build-tagged file per compiled target, so a
-// target missing its platform file fails to compile rather than shipping a nil
-// RunE.
+// NewCmd returns the security audit command.
 func NewCmd() *cobra.Command {
 	c := &auditCmd{}
 
@@ -140,7 +138,7 @@ func NewCmd() *cobra.Command {
 		Args:    cobra.NoArgs,
 		Aliases: []string{"security_audit"},
 		Short:   "Perform a security audit of the system",
-		RunE:    c.platformRunE,
+		RunE:    c.runE,
 		Long: `Perform a comprehensive security audit of the system.
 This command checks various security aspects including:
 - SSH configuration
@@ -191,22 +189,22 @@ You can run all checks or specify individual checks to run.`,
 }
 
 // buildMask composes a CheckMask from the active flag values
-func (c *auditCmd) buildMask() (scan.CheckMask, error) {
-	mask := scan.CheckSSH | scan.CheckFirewall | scan.CheckUsers | scan.CheckPerms
+func (c *auditCmd) buildMask() (selection.CheckMask, error) {
+	mask := selection.CheckSSH | selection.CheckFirewall | selection.CheckUsers | selection.CheckPerms
 
 	if c.checkSSH || c.checkFirewall || c.checkUsers || c.checkFilePerms != "" {
 		mask = 0
 		if c.checkSSH {
-			mask |= scan.CheckSSH
+			mask |= selection.CheckSSH
 		}
 		if c.checkFirewall {
-			mask |= scan.CheckFirewall
+			mask |= selection.CheckFirewall
 		}
 		if c.checkUsers {
-			mask |= scan.CheckUsers
+			mask |= selection.CheckUsers
 		}
 		if c.checkFilePerms != "" {
-			mask |= scan.CheckPerms
+			mask |= selection.CheckPerms
 		}
 	}
 
@@ -231,6 +229,26 @@ func (c *auditCmd) validateFlags(cmd *cobra.Command) error {
 	return c.validateFilePermsPath(cmd)
 }
 
+// runE is the audit command's entry point. Nothing in it differs by platform:
+// the checkers behind RunAudit carry the build constraints.
+func (c *auditCmd) runE(cmd *cobra.Command, _ []string) error {
+	if err := c.validateFlags(cmd); err != nil {
+		return err
+	}
+
+	mask, err := c.buildMask()
+	if err != nil {
+		return err
+	}
+
+	if c.verbose && !c.out.ToFile() {
+		fmt.Printf("[*] Running security audit for OS: %s\n", runtime.GOOS)
+	}
+	c.logVerboseConfig(mask)
+
+	return c.runAuditWithTimeout(cmd, mask)
+}
+
 // validateFilePermsPath enforces existing path and file rejecting explicit empty value
 func (c *auditCmd) validateFilePermsPath(cmd *cobra.Command) error {
 	if !cmd.Flags().Changed("fperms") {
@@ -245,11 +263,11 @@ func (c *auditCmd) validateFilePermsPath(cmd *cobra.Command) error {
 	return nil
 }
 
-func (c *auditCmd) logVerboseConfig(mask scan.CheckMask) {
+func (c *auditCmd) logVerboseConfig(mask selection.CheckMask) {
 	if !c.verbose || c.out.ToFile() {
 		return
 	}
-	checks := scan.EnabledChecks(mask)
+	checks := selection.EnabledChecks(mask)
 	if len(checks) > 0 {
 		fmt.Printf("[*] Running checks: %s\n", strings.Join(checks, ", "))
 	} else {
@@ -269,12 +287,12 @@ func (c *auditCmd) logVerboseConfig(mask scan.CheckMask) {
 // work, so on timeout nothing owatch started is left running -- the prior
 // goroutine-and-select pattern reported the timeout but abandoned the scan
 // to keep executing against the host.
-func (c *auditCmd) runAuditWithTimeout(cmd *cobra.Command, mask scan.CheckMask) error {
+func (c *auditCmd) runAuditWithTimeout(cmd *cobra.Command, mask selection.CheckMask) error {
 	opts := audit.Options{
 		Verbose:       c.verbose && !c.out.ToFile(),
 		FilePermsPath: c.checkFilePerms,
 		MinSeverity:   c.audit.MinSeverity(),
-		Checks:        scan.EnabledChecks(mask),
+		Checks:        selection.EnabledChecks(mask),
 		Enrich:        c.audit.Enrich(),
 	}
 
@@ -293,7 +311,7 @@ func (c *auditCmd) runAuditWithTimeout(cmd *cobra.Command, mask scan.CheckMask) 
 	}
 
 	if ctx.Err() == context.DeadlineExceeded {
-		if hint := scan.SkipHint(scan.CategoryCheck, result.IncompleteChecks); hint != "" {
+		if hint := selection.SkipHint(selection.CategoryCheck, result.IncompleteChecks); hint != "" {
 			return fmt.Errorf("audit timeout after %v; results above are incomplete; rerun with a longer --timeout or %s",
 				c.timeout, hint)
 		}
@@ -302,7 +320,7 @@ func (c *auditCmd) runAuditWithTimeout(cmd *cobra.Command, mask scan.CheckMask) 
 	return nil
 }
 
-func (c *auditCmd) outputResults(result *audit.Result, mask scan.CheckMask) error {
+func (c *auditCmd) outputResults(result *audit.Result, mask selection.CheckMask) error {
 	if result == nil || len(result.Results) == 0 {
 		return fmt.Errorf("audit produced no results")
 	}

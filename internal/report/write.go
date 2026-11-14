@@ -14,11 +14,6 @@ import (
 )
 
 type (
-	// Format identifies an output encoding. ParseFormat is the only
-	// constructor from operator input, so a Format reaching a writer names
-	// one of the canonical set.
-	Format string
-
 	// Options carries caller decisions that affect write policy.
 	Options struct {
 		// AllowElevatedWrite is set when --allow-elevated-write is passed.
@@ -29,14 +24,6 @@ type (
 )
 
 const (
-	// FormatText is the default human-readable encoding.
-	FormatText Format = "text"
-	// FormatJSON is the structured encoding, and the implied format when a
-	// report file is written without an explicit --output.
-	FormatJSON Format = "json"
-	// FormatYAML is the alternate structured encoding.
-	FormatYAML Format = "yaml"
-
 	// maxOperatorHomes bounds the operator identities a write is judged
 	// against: the effective user's and, on Unix under sudo, the invoking
 	// user's. Windows has no effective/invoking split, but the same bound
@@ -54,19 +41,6 @@ var (
 	ErrRefusedLocation     = errors.New("destination is a protected location")
 	ErrElevatedWriteDenied = errors.New("elevated write outside allowlisted roots requires explicit confirmation")
 	ErrElevatedExposedDir  = errors.New("elevated write refused: destination directory is exposed to other users")
-
-	// formats is the canonical ordered format set paired with its filename
-	// extension. ParseFormat, FormatNames, and Extension all derive from it,
-	// so the set is enumerated once. The first entry supplies the fallback
-	// extension for an unrecognized Format.
-	formats = []struct {
-		name Format
-		ext  string
-	}{
-		{FormatText, "txt"},
-		{FormatJSON, "json"},
-		{FormatYAML, "yaml"},
-	}
 
 	// hostnameRe matches every character that is not safe in a filename on
 	// all supported platforms; ResolveHostname replaces each with a hyphen.
@@ -158,16 +132,18 @@ func ValidateDir(path string) error {
 
 // DefaultPath returns the full path for a generated report file inside dir.
 // The filename follows the pattern owatch-<hostname>-<codes>-<timestamp>.<ext>
-// where codes is the category-prefixed segment string produced by scan.Codes
-// (e.g. "m.os-c.fpsu"). Empty code segments are omitted by the caller.
-// dir must be an existing directory; the caller is responsible for validating it.
-func DefaultPath(dir, hostname, codes string, format Format) string {
+// where codes is the category-prefixed segment string produced by selection.Codes
+// (e.g. "m.os-c.fpsu"). Empty code segments are omitted by the caller. ext
+// is the filename extension without a leading dot, which the caller derives
+// from the encoding it chose. dir must be an existing directory; the caller
+// is responsible for validating it.
+func DefaultPath(dir, hostname, codes, ext string) string {
 	stamp := time.Now().UTC().Format("20060102T150405Z")
 	var name string
 	if codes != "" {
-		name = fmt.Sprintf("owatch-%s-%s-%s.%s", hostname, codes, stamp, format.Extension())
+		name = fmt.Sprintf("owatch-%s-%s-%s.%s", hostname, codes, stamp, ext)
 	} else {
-		name = fmt.Sprintf("owatch-%s-%s.%s", hostname, stamp, format.Extension())
+		name = fmt.Sprintf("owatch-%s-%s.%s", hostname, stamp, ext)
 	}
 	return filepath.Join(dir, name)
 }
@@ -208,37 +184,6 @@ func ResolveHostname() string {
 	}
 
 	return "unknown"
-}
-
-// ParseFormat resolves s to a canonical Format, reporting whether it names a
-// supported encoding
-func ParseFormat(s string) (Format, bool) {
-	for _, spec := range formats {
-		if string(spec.name) == s {
-			return spec.name, true
-		}
-	}
-	return "", false
-}
-
-// FormatNames returns the canonical format names in declaration order for
-// operator-facing messages.
-func FormatNames() string {
-	names := make([]string, 0, len(formats))
-	for _, spec := range formats {
-		names = append(names, string(spec.name))
-	}
-	return strings.Join(names, ", ")
-}
-
-// Extension returns f's filename extension without a leading dot
-func (f Format) Extension() string {
-	for _, spec := range formats {
-		if spec.name == f {
-			return spec.ext
-		}
-	}
-	return formats[0].ext
 }
 
 // pathWithin compares on path boundaries so a sibling is not mistaken for a child

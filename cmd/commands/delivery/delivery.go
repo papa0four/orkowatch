@@ -21,7 +21,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/papa0four/orkowatch/internal/report"
-	"github.com/papa0four/orkowatch/internal/scan"
+	"github.com/papa0four/orkowatch/internal/selection"
 )
 
 type (
@@ -43,7 +43,7 @@ type (
 
 		// format is the effective encoding, resolved once in Resolve from
 		// outputFormat and reportFile.
-		format report.Format
+		format Format
 	}
 )
 
@@ -52,8 +52,8 @@ type (
 func Bind(cmd *cobra.Command) *Flags {
 	f := &Flags{}
 
-	cmd.Flags().StringVarP(&f.outputFormat, "output", "o", string(report.FormatText),
-		fmt.Sprintf("Output format (%s)", report.FormatNames()))
+	cmd.Flags().StringVarP(&f.outputFormat, "output", "o", string(FormatText),
+		fmt.Sprintf("Output format (%s)", FormatNames()))
 	cmd.Flags().StringVar(&f.reportFile, "report-file", "",
 		"Save the report to the specified directory; filename is generated automatically")
 	cmd.Flags().BoolVar(&f.allowElevatedWrite, "allow-elevated-write", false,
@@ -70,18 +70,18 @@ func (f *Flags) Resolve(cmd *cobra.Command) error {
 		return errors.New("output flags were not bound to the command")
 	}
 
-	format, ok := report.ParseFormat(f.outputFormat)
+	format, ok := ParseFormat(f.outputFormat)
 	if !ok {
-		return fmt.Errorf("invalid output format: %s (valid: %s)", f.outputFormat, report.FormatNames())
+		return fmt.Errorf("invalid output format: %s (valid: %s)", f.outputFormat, FormatNames())
 	}
 
 	switch {
 	case cmd.Flags().Changed("output"):
 		f.format = format
 	case f.reportFile != "":
-		f.format = report.FormatJSON
+		f.format = FormatJSON
 	default:
-		f.format = report.FormatText
+		f.format = FormatText
 	}
 
 	if cmd.Flags().Changed("report-file") {
@@ -94,7 +94,7 @@ func (f *Flags) Resolve(cmd *cobra.Command) error {
 }
 
 // Format returns the encoding Resolve settled on.
-func (f *Flags) Format() report.Format {
+func (f *Flags) Format() Format {
 	return f.format
 }
 
@@ -109,20 +109,20 @@ func (f *Flags) ToFile() bool {
 // the reason this dispatch exists once rather than per command: a format added
 // to report.formats and not handled here fails loudly instead of silently
 // falling back to text.
-func (f *Flags) Deliver(r Report, mask scan.CheckMask) error {
+func (f *Flags) Deliver(r Report, mask selection.CheckMask) error {
 	var buf bytes.Buffer
 	switch f.format {
-	case report.FormatJSON:
+	case FormatJSON:
 		enc := json.NewEncoder(&buf)
 		enc.SetIndent("", "  ")
 		if err := enc.Encode(r.View()); err != nil {
 			return fmt.Errorf("failed to encode JSON: %w", err)
 		}
-	case report.FormatYAML:
+	case FormatYAML:
 		if err := yaml.NewEncoder(&buf).Encode(r.View()); err != nil {
 			return fmt.Errorf("failed to encode YAML: %w", err)
 		}
-	case report.FormatText:
+	case FormatText:
 		if err := r.WriteText(&buf); err != nil {
 			return fmt.Errorf("failed to render text output: %w", err)
 		}
@@ -137,7 +137,7 @@ func (f *Flags) Deliver(r Report, mask scan.CheckMask) error {
 // named from mask, or stdout. The payload is newline-terminated first, so a
 // report file ends in a newline and a shell prompt returns to column zero
 // whichever encoder produced it.
-func (f *Flags) emit(payload []byte, mask scan.CheckMask) error {
+func (f *Flags) emit(payload []byte, mask selection.CheckMask) error {
 	if len(payload) == 0 || payload[len(payload)-1] != '\n' {
 		payload = append(payload, '\n')
 	}
@@ -147,7 +147,7 @@ func (f *Flags) emit(payload []byte, mask scan.CheckMask) error {
 		return nil
 	}
 
-	path := report.DefaultPath(f.reportFile, report.ResolveHostname(), scan.Codes(mask), f.format)
+	path := report.DefaultPath(f.reportFile, report.ResolveHostname(), selection.Codes(mask), f.format.Extension())
 	opts := report.Options{AllowElevatedWrite: f.allowElevatedWrite}
 	if err := report.Write(path, payload, opts); err != nil {
 		if errors.Is(err, report.ErrElevatedWriteDenied) || errors.Is(err, report.ErrElevatedExposedDir) {

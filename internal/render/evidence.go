@@ -9,7 +9,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/papa0four/orkowatch/internal/security/types"
+	"github.com/papa0four/orkowatch/internal/security/finding"
 )
 
 // HostText returns text read from the host in a form that occupies exactly
@@ -35,7 +35,7 @@ func HostText(text string) string {
 // EvidenceLine writes one evidence entry as its subject followed by its
 // facts in recorded order, prefixed by indent. Subject and values come from
 // the host and pass through HostText.
-func EvidenceLine(w io.Writer, indent string, evidence types.Evidence) error {
+func EvidenceLine(w io.Writer, indent string, evidence finding.Evidence) error {
 	var line strings.Builder
 	line.WriteString(indent)
 	line.WriteString("- ")

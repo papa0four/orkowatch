@@ -22,7 +22,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/papa0four/orkowatch/internal/security/types"
+	"github.com/papa0four/orkowatch/internal/security/finding"
 )
 
 type (
@@ -53,23 +53,23 @@ type (
 	// registry knows about a condition, independent of the host it is found
 	// on. Finding projects everything but CVSSScore and CVSSVector, which
 	// have no reader yet: they are the static baseline #86 derives severity
-	// from, the value a live score overrides through types.EffectiveSeverity.
+	// from, the value a live score overrides through finding.EffectiveSeverity.
 	//
 	// Result is what the condition reports when a checker observes it. It
 	// defaults to fail. A definition that describes a state the rule does
 	// not apply to declares notapplicable instead, and only a definition
 	// that can fail must name the weakness it maps to in CWE.
 	FindingDefinition struct {
-		Title       string       `yaml:"title"`
-		Severity    string       `yaml:"severity"`
-		Result      types.Result `yaml:"result"`
-		CVSSScore   float64      `yaml:"cvss_score"`
-		CVSSVector  string       `yaml:"cvss_vector"`
-		CWE         types.CWE    `yaml:"cwe"`
-		Description string       `yaml:"description"`
-		Impact      string       `yaml:"impact"`
-		Resolution  string       `yaml:"resolution"`
-		References  []string     `yaml:"references"`
+		Title       string         `yaml:"title"`
+		Severity    string         `yaml:"severity"`
+		Result      finding.Result `yaml:"result"`
+		CVSSScore   float64        `yaml:"cvss_score"`
+		CVSSVector  string         `yaml:"cvss_vector"`
+		CWE         finding.CWE    `yaml:"cwe"`
+		Description string         `yaml:"description"`
+		Impact      string         `yaml:"impact"`
+		Resolution  string         `yaml:"resolution"`
+		References  []string       `yaml:"references"`
 	}
 )
 
@@ -214,7 +214,7 @@ func definitionsFor(ctx OSContext) []map[FindingKey]FindingDefinition {
 // registry YAML files apply to the host (family-chain precision from
 // ID/ID_LIKE), not host identity for reporting, and wiring it to
 // osfingerprint would violate the pinned import direction (registry
-// imports types only).
+// imports finding only).
 func DetectOS() OSContext {
 	switch platform := detectPlatform(); platform {
 	case PlatformLinux:
@@ -261,8 +261,8 @@ func (c OSContext) DisplayLabel() string {
 }
 
 // Finding returns the description of d a condition carries.
-func (d FindingDefinition) Finding() *types.Finding {
-	return &types.Finding{
+func (d FindingDefinition) Finding() *finding.Finding {
+	return &finding.Finding{
 		Title:       d.Title,
 		Description: d.Description,
 		Severity:    d.Severity,
@@ -275,12 +275,12 @@ func (d FindingDefinition) Finding() *types.Finding {
 }
 
 // ToReferences classifies flat YAML reference strings into
-// structured types.Reference entries by kind.
-func (d FindingDefinition) ToReferences() []types.Reference {
+// structured finding.Reference entries by kind.
+func (d FindingDefinition) ToReferences() []finding.Reference {
 	if len(d.References) == 0 {
 		return nil
 	}
-	out := make([]types.Reference, 0, len(d.References))
+	out := make([]finding.Reference, 0, len(d.References))
 	for _, raw := range d.References {
 		out = append(out, classifyReference(raw))
 	}
@@ -376,24 +376,24 @@ func (d FindingDefinition) validated() (FindingDefinition, error) {
 		return d, err
 	}
 
-	severity, ok := types.NormalizeSeverity(d.Severity)
+	severity, ok := finding.NormalizeSeverity(d.Severity)
 	if !ok {
-		return d, fmt.Errorf("severity %q is not one of %s", d.Severity, types.SeverityNames())
+		return d, fmt.Errorf("severity %q is not one of %s", d.Severity, finding.SeverityNames())
 	}
 	d.Severity = severity
 
 	switch d.Result {
 	case "":
-		d.Result = types.ResultFail
-	case types.ResultFail, types.ResultNotApplicable:
+		d.Result = finding.ResultFail
+	case finding.ResultFail, finding.ResultNotApplicable:
 	default:
 		return d, fmt.Errorf("result %q is not one a definition can declare", d.Result)
 	}
 
-	if d.Result != types.ResultFail && d.CWE == "" {
+	if d.Result != finding.ResultFail && d.CWE == "" {
 		return d, nil
 	}
-	cwe, err := types.ParseCWE(string(d.CWE))
+	cwe, err := finding.ParseCWE(string(d.CWE))
 	if err != nil {
 		return d, err
 	}
@@ -525,24 +525,24 @@ func containsDistro(families []Distro, d Distro) bool {
 	return false
 }
 
-func classifyReference(raw string) types.Reference {
+func classifyReference(raw string) finding.Reference {
 	trimmed := strings.TrimSpace(raw)
 
 	switch {
 	case isCWEReference(trimmed):
-		return types.Reference{Title: trimmed, URL: cweURL(trimmed), Type: RefTypeCWE}
+		return finding.Reference{Title: trimmed, URL: cweURL(trimmed), Type: RefTypeCWE}
 	case isCVEReference(trimmed):
-		return types.Reference{Title: trimmed, URL: cveURL(trimmed), Type: RefTypeCVE}
+		return finding.Reference{Title: trimmed, URL: cveURL(trimmed), Type: RefTypeCVE}
 	case strings.HasPrefix(trimmed, "CIS "):
-		return types.Reference{Title: trimmed, Type: RefTypeCIS}
+		return finding.Reference{Title: trimmed, Type: RefTypeCIS}
 	case strings.HasPrefix(trimmed, "NIST "):
-		return types.Reference{Title: trimmed, Type: RefTypeNIST}
+		return finding.Reference{Title: trimmed, Type: RefTypeNIST}
 	case strings.HasPrefix(trimmed, "MITRE "):
-		return types.Reference{Title: trimmed, Type: RefTypeMITRE}
+		return finding.Reference{Title: trimmed, Type: RefTypeMITRE}
 	case strings.HasPrefix(trimmed, "https://") || strings.HasPrefix(trimmed, "http://"):
-		return types.Reference{Title: trimmed, URL: trimmed, Type: RefTypeURL}
+		return finding.Reference{Title: trimmed, URL: trimmed, Type: RefTypeURL}
 	default:
-		return types.Reference{Title: trimmed, Type: RefTypeOther}
+		return finding.Reference{Title: trimmed, Type: RefTypeOther}
 	}
 }
 
