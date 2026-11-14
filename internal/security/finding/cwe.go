@@ -1,6 +1,6 @@
-// internal/security/types/cwe.go
+// internal/security/finding/cwe.go
 
-package types
+package finding
 
 import (
 	"errors"

@@ -10,8 +10,8 @@ import (
 	"os/exec"
 	"strings"
 
+	"github.com/papa0four/orkowatch/internal/security/finding"
 	"github.com/papa0four/orkowatch/internal/security/registry"
-	"github.com/papa0four/orkowatch/internal/security/types"
 )
 
 // sshdConfigPath is where the OpenSSH Server feature reads its configuration.
@@ -35,13 +35,13 @@ func NewSSHChecker(osCtx registry.OSContext) *WindowsSSHChecker {
 // the OpenSSH server has nothing for the server rules to apply to. Windows
 // defines no rule for an unset directive, so the zero sshdAbsentKeys is
 // passed.
-func (s *WindowsSSHChecker) Check(ctx context.Context) types.AuditResult {
+func (s *WindowsSSHChecker) Check(ctx context.Context) finding.AuditResult {
 	r := newReport(s.checkIdentity)
 
 	if s.reportSSHDPresence(ctx, r) {
 		checkSSHDConfig(r, sshdConfigPath, sshdAbsentKeys{})
 	} else {
-		r.inconclusive(types.ResultNotApplicable, "OpenSSH Server is not installed",
+		r.inconclusive(finding.ResultNotApplicable, "OpenSSH Server is not installed",
 			"ssh.server_not_running", "ssh.config_not_found",
 			"ssh.root_login_permitted", "ssh.password_auth_enabled")
 	}
@@ -69,13 +69,13 @@ func (s *WindowsSSHChecker) reportSSHDPresence(ctx context.Context, r *report) b
 		case "Stopped":
 			r.observed(serviceRule, evidence(kindService, "sshd", "status", serviceStatus))
 		default:
-			r.inconclusive(types.ResultUnknown, "OpenSSH Server service state is "+serviceStatus, serviceRule)
+			r.inconclusive(finding.ResultUnknown, "OpenSSH Server service state is "+serviceStatus, serviceRule)
 		}
 		return true
 	}
 
 	if _, err := os.Stat(sshdBinaryPath); err == nil {
-		r.inconclusive(types.ResultNotChecked,
+		r.inconclusive(finding.ResultNotChecked,
 			"OpenSSH Server binary found but no sshd service is registered", serviceRule)
 		return true
 	}
@@ -95,14 +95,14 @@ func (s *WindowsSSHChecker) checkPuTTY(ctx context.Context, r *report) {
 		return
 	}
 
-	r.note(types.SymbolInfo, "PuTTY is installed")
+	r.note(finding.SymbolInfo, "PuTTY is installed")
 
 	output, err := exec.CommandContext(ctx, "reg", "query", puttySessionsKey).Output()
 	if err != nil || len(output) == 0 {
 		return
 	}
 
-	r.note(types.SymbolInfo, "PuTTY configured sessions:")
+	r.note(finding.SymbolInfo, "PuTTY configured sessions:")
 	for _, session := range strings.Split(string(output), "\n") {
 		if name := strings.TrimSpace(session); name != "" {
 			r.lines(" - " + name)

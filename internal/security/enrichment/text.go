@@ -6,7 +6,7 @@ import (
 	"io"
 
 	"github.com/papa0four/orkowatch/internal/render"
-	"github.com/papa0four/orkowatch/internal/security/types"
+	"github.com/papa0four/orkowatch/internal/security/finding"
 )
 
 // Data carries everything the enrichment text block needs to
@@ -74,7 +74,7 @@ func writeEntries(ew *render.ErrWriter, entries []EntryView) {
 // writeMatch writes one CVE match as its severity line followed by each
 // populated detail, indented beneath it.
 func writeMatch(ew *render.ErrWriter, match MatchView) {
-	symbol, label := types.SeverityFormat(match.CVSSSeverity)
+	symbol, label := finding.SeverityFormat(match.CVSSSeverity)
 	ew.Printf("    %s %s  %s (%.1f) [%s]\n",
 		symbol, label, match.CVEID, match.CVSSBaseScore, match.Source)
 	if match.Description != "" {

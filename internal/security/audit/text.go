@@ -10,7 +10,7 @@ import (
 
 	"github.com/papa0four/orkowatch/internal/render"
 	"github.com/papa0four/orkowatch/internal/security/enrichment"
-	"github.com/papa0four/orkowatch/internal/security/types"
+	"github.com/papa0four/orkowatch/internal/security/finding"
 )
 
 // WriteText renders a completed audit as text: each check with its
@@ -63,7 +63,7 @@ func writeCheck(ew *render.ErrWriter, check CheckView, minSeverity string) error
 	if check.Description != "" {
 		ew.Printf("Description: %s\n", check.Description)
 	}
-	if check.Result == types.ResultNotSelected {
+	if check.Result == finding.ResultNotSelected {
 		ew.Printf("\n")
 		return ew.Err()
 	}
@@ -71,7 +71,7 @@ func writeCheck(ew *render.ErrWriter, check CheckView, minSeverity string) error
 
 	var findings, others []ConditionView
 	for _, condition := range check.Conditions {
-		if condition.Result == types.ResultFail && condition.Finding != nil {
+		if condition.Result == finding.ResultFail && condition.Finding != nil {
 			findings = append(findings, condition)
 			continue
 		}
@@ -81,7 +81,7 @@ func writeCheck(ew *render.ErrWriter, check CheckView, minSeverity string) error
 	ew.Printf("Findings:\n")
 	if len(findings) == 0 {
 		ew.Printf("%s No findings at or above %s severity\n",
-			types.SymbolOK, strings.ToUpper(minSeverity))
+			finding.SymbolOK, strings.ToUpper(minSeverity))
 	}
 	for _, condition := range findings {
 		if err := writeFinding(ew, condition); err != nil {
@@ -111,26 +111,26 @@ func writeCheck(ew *render.ErrWriter, check CheckView, minSeverity string) error
 // the rule it failed, each populated field of the finding, and the evidence
 // that caused it, indented beneath.
 func writeFinding(ew *render.ErrWriter, condition ConditionView) error {
-	finding := condition.Finding
-	if err := render.FindingLine(ew, "", finding.Severity, finding.Title); err != nil {
+	def := condition.Finding
+	if err := render.FindingLine(ew, "", def.Severity, def.Title); err != nil {
 		return err
 	}
 	ew.Printf("  Rule: %s\n", condition.Key)
-	if len(finding.Categories) > 0 {
-		ew.Printf("  Categories: %s\n", strings.Join(finding.Categories, ", "))
+	if len(def.Categories) > 0 {
+		ew.Printf("  Categories: %s\n", strings.Join(def.Categories, ", "))
 	}
-	if finding.Description != "" {
-		ew.Printf("  Description: %s\n", finding.Description)
+	if def.Description != "" {
+		ew.Printf("  Description: %s\n", def.Description)
 	}
-	if finding.Impact != "" {
-		ew.Printf("  Impact: %s\n", finding.Impact)
+	if def.Impact != "" {
+		ew.Printf("  Impact: %s\n", def.Impact)
 	}
-	if finding.Resolution != "" {
-		ew.Printf("  Resolution: %s\n", finding.Resolution)
+	if def.Resolution != "" {
+		ew.Printf("  Resolution: %s\n", def.Resolution)
 	}
-	if len(finding.References) > 0 {
+	if len(def.References) > 0 {
 		ew.Printf("  References:\n")
-		for _, ref := range finding.References {
+		for _, ref := range def.References {
 			writeReference(ew, ref)
 		}
 	}
@@ -142,9 +142,9 @@ func writeFinding(ew *render.ErrWriter, condition ConditionView) error {
 // follows for a condition that recorded any, as one that does not apply to
 // the subjects it names.
 func writeCondition(ew *render.ErrWriter, condition ConditionView) error {
-	symbol := types.SymbolInfo
-	if condition.Result == types.ResultPass {
-		symbol = types.SymbolOK
+	symbol := finding.SymbolInfo
+	if condition.Result == finding.ResultPass {
+		symbol = finding.SymbolOK
 	}
 
 	ew.Printf("  %s %-13s  %s", symbol, strings.ToUpper(string(condition.Result)), condition.Key)
@@ -156,7 +156,7 @@ func writeCondition(ew *render.ErrWriter, condition ConditionView) error {
 }
 
 // writeEvidence renders the subjects a condition was concluded on.
-func writeEvidence(ew *render.ErrWriter, indent string, evidence []types.Evidence) error {
+func writeEvidence(ew *render.ErrWriter, indent string, evidence []finding.Evidence) error {
 	if len(evidence) == 0 {
 		return ew.Err()
 	}
@@ -187,7 +187,7 @@ func writeDetails(ew *render.ErrWriter, details []string) {
 // URL in parentheses when it differs from Title. registry.classifyReference
 // always sets Title to the human- or ID-readable form and sets URL only
 // when a distinct link exists, so the two are never printed twice.
-func writeReference(ew *render.ErrWriter, ref types.Reference) {
+func writeReference(ew *render.ErrWriter, ref finding.Reference) {
 	if ref.URL != "" && ref.URL != ref.Title {
 		ew.Printf("    %s: %s (%s)\n", ref.Type, ref.Title, ref.URL)
 		return
@@ -212,7 +212,7 @@ func writeSummary(ew *render.ErrWriter, v View, duration time.Duration) {
 		ew.Printf("Total Findings:    %d\n", v.Summary.TotalFindings)
 	}
 
-	severities := types.Severities()
+	severities := finding.Severities()
 	for i := len(severities) - 1; i >= 0; i-- {
 		label := severities[i][:1] + strings.ToLower(severities[i][1:]) + ":"
 		ew.Printf("  %-15s  %d\n", label, v.Summary.Findings[severities[i]])
@@ -222,8 +222,8 @@ func writeSummary(ew *render.ErrWriter, v View, duration time.Duration) {
 
 // writeResultCounts renders one count per result that occurred, in
 // precedence order.
-func writeResultCounts(ew *render.ErrWriter, counts map[types.Result]int) {
-	for _, result := range types.Results() {
+func writeResultCounts(ew *render.ErrWriter, counts map[finding.Result]int) {
+	for _, result := range finding.Results() {
 		if count := counts[result]; count > 0 {
 			ew.Printf("  %-15s  %d\n", string(result)+":", count)
 		}

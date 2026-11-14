@@ -12,8 +12,8 @@ import (
 	"os/exec"
 	"strings"
 
+	"github.com/papa0four/orkowatch/internal/security/finding"
 	"github.com/papa0four/orkowatch/internal/security/registry"
-	"github.com/papa0four/orkowatch/internal/security/types"
 )
 
 type (
@@ -55,15 +55,15 @@ func NewPermissionChecker(osCtx registry.OSContext, scanRoot string) *WindowsPer
 }
 
 // Check implements PermissionChecker interface for Windows systems
-func (p *WindowsPermissionChecker) Check(ctx context.Context) types.AuditResult {
+func (p *WindowsPermissionChecker) Check(ctx context.Context) finding.AuditResult {
 	r := newReport(p.checkIdentity)
 
 	paths, recursive := p.paths, false
 	if p.scanRoot != "" {
 		paths, recursive = []string{p.scanRoot}, true
-		r.note(types.SymbolInfo, "Scanning %s", p.scanRoot)
+		r.note(finding.SymbolInfo, "Scanning %s", p.scanRoot)
 	} else {
-		r.note(types.SymbolInfo, "Scanning %d default system paths", len(p.paths))
+		r.note(finding.SymbolInfo, "Scanning %d default system paths", len(p.paths))
 	}
 
 	for _, path := range paths {
@@ -87,7 +87,7 @@ func (p *WindowsPermissionChecker) Check(ctx context.Context) types.AuditResult 
 func (p *WindowsPermissionChecker) checkWindowsPermissions(ctx context.Context, path string, recursive bool, r *report) {
 	output, skipped, err := runICACLS(ctx, path, recursive)
 	if err != nil {
-		r.inconclusive(types.ResultError, fmt.Sprintf("permissions on %s could not be read: %v", path, err),
+		r.inconclusive(finding.ResultError, fmt.Sprintf("permissions on %s could not be read: %v", path, err),
 			ruleEveryoneFull, ruleUsersFull)
 		return
 	}
@@ -101,15 +101,15 @@ func (p *WindowsPermissionChecker) checkWindowsPermissions(ctx context.Context, 
 		case strings.Contains(line, "Users:(OI)(CI)(F)"), strings.Contains(line, "Users:(F)"):
 			r.observed(ruleUsersFull, evidence(kindACL, line, "principal", "Users", "access", "full control"))
 		default:
-			r.note(types.SymbolInfo, "%s", line)
+			r.note(finding.SymbolInfo, "%s", line)
 		}
 	}
 
 	if skipped > 0 {
 		reason := fmt.Sprintf("%d paths under %s were unreadable and went unscanned; rerun with elevated privileges for complete coverage",
 			skipped, path)
-		r.inconclusive(types.ResultError, reason, ruleEveryoneFull, ruleUsersFull)
-		r.note(types.SymbolWarning, "%s", reason)
+		r.inconclusive(finding.ResultError, reason, ruleEveryoneFull, ruleUsersFull)
+		r.note(finding.SymbolWarning, "%s", reason)
 	}
 }
 
@@ -118,7 +118,7 @@ func (p *WindowsPermissionChecker) checkWindowsPermissions(ctx context.Context, 
 func (p *WindowsPermissionChecker) checkNetworkShares(ctx context.Context, r *report) {
 	output, err := exec.CommandContext(ctx, "net", "share").Output()
 	if err != nil {
-		r.inconclusive(types.ResultError,
+		r.inconclusive(finding.ResultError,
 			fmt.Sprintf("network shares could not be listed: %v", execError(err)), ruleAdminShare)
 		return
 	}
@@ -135,7 +135,7 @@ func (p *WindowsPermissionChecker) checkNetworkShares(ctx context.Context, r *re
 		case "ADMIN$", "C$", "IPC$":
 			r.observed(ruleAdminShare, evidence(kindShare, name, "listing", share))
 		default:
-			r.note(types.SymbolInfo, "%s", share)
+			r.note(finding.SymbolInfo, "%s", share)
 		}
 	}
 	r.pass(ruleAdminShare)

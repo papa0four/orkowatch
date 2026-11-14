@@ -11,8 +11,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/papa0four/orkowatch/internal/security/finding"
 	"github.com/papa0four/orkowatch/internal/security/registry"
-	"github.com/papa0four/orkowatch/internal/security/types"
 )
 
 const (
@@ -68,12 +68,12 @@ func NewUserChecker(osCtx registry.OSContext) *WindowsUserChecker {
 }
 
 // Check implements UserChecker interface for Windows systems
-func (u *WindowsUserChecker) Check(ctx context.Context) types.AuditResult {
+func (u *WindowsUserChecker) Check(ctx context.Context) finding.AuditResult {
 	r := newReport(u.checkIdentity)
 
 	users, err := u.getWindowsUsers(ctx)
 	if err != nil {
-		r.inconclusive(types.ResultError,
+		r.inconclusive(finding.ResultError,
 			fmt.Sprintf("user accounts could not be read: %v", err), windowsAccountRules...)
 	} else {
 		u.analyzeWindowsUsers(users, r)
@@ -193,10 +193,10 @@ func (u *WindowsUserChecker) analyzeWindowsUsers(users []windowsUserInfo, r *rep
 			"enabled", strconv.FormatBool(user.Enabled), "source", user.PrincipalSource)
 
 		if !user.Enabled {
-			r.note(types.SymbolInfo, "%s (Disabled)", user.Name)
+			r.note(finding.SymbolInfo, "%s (Disabled)", user.Name)
 			continue
 		}
-		r.note(types.SymbolInfo, "%s", user.Name)
+		r.note(finding.SymbolInfo, "%s", user.Name)
 
 		if user.IsAdmin {
 			r.observed("users.administrator_account_active", account)
@@ -207,7 +207,7 @@ func (u *WindowsUserChecker) analyzeWindowsUsers(users []windowsUserInfo, r *rep
 	}
 
 	if u.adminLookupErr != nil {
-		r.inconclusive(types.ResultError,
+		r.inconclusive(finding.ResultError,
 			fmt.Sprintf("Administrator membership could not be determined: %v", u.adminLookupErr),
 			"users.administrator_account_active")
 	}
@@ -221,7 +221,7 @@ func (u *WindowsUserChecker) analyzeWindowsUsers(users []windowsUserInfo, r *rep
 func (u *WindowsUserChecker) checkPasswordPolicy(ctx context.Context, r *report) {
 	output, err := exec.CommandContext(ctx, "net", "accounts").Output()
 	if err != nil {
-		r.note(types.SymbolWarning, "Password policy could not be read: %v", execError(err))
+		r.note(finding.SymbolWarning, "Password policy could not be read: %v", execError(err))
 		return
 	}
 
@@ -229,7 +229,7 @@ func (u *WindowsUserChecker) checkPasswordPolicy(ctx context.Context, r *report)
 	for _, policy := range strings.Split(string(output), "\n") {
 		policy = strings.TrimSpace(policy)
 		if policy != "" && !strings.HasPrefix(policy, "The command completed") {
-			r.note(types.SymbolInfo, "%s", policy)
+			r.note(finding.SymbolInfo, "%s", policy)
 		}
 	}
 }
@@ -243,7 +243,7 @@ func (u *WindowsUserChecker) checkUAC(r *report) {
 	enabled, err := uacEnabled()
 	switch {
 	case err != nil:
-		r.inconclusive(types.ResultError,
+		r.inconclusive(finding.ResultError,
 			fmt.Sprintf("User Account Control state could not be determined: %v", err), rule)
 	case enabled:
 		r.pass(rule)

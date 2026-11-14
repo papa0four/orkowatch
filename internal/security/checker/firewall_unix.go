@@ -10,8 +10,8 @@ import (
 	"os/exec"
 	"strings"
 
+	"github.com/papa0four/orkowatch/internal/security/finding"
 	"github.com/papa0four/orkowatch/internal/security/registry"
-	"github.com/papa0four/orkowatch/internal/security/types"
 )
 
 type (
@@ -54,7 +54,7 @@ type (
 	// recognized, in which case result and reason say which.
 	toolOutcome struct {
 		state  firewallState
-		result types.Result
+		result finding.Result
 		reason string
 	}
 )
@@ -132,7 +132,7 @@ func unixFirewallTools() []firewallTool {
 // same netfilter rule set iptables reports on is one enforcing firewall.
 // A query that fails, or output no parser recognizes, is concluded as such:
 // it is not evidence of protection and not evidence of its absence.
-func (f *UnixFirewallChecker) Check(ctx context.Context) types.AuditResult {
+func (f *UnixFirewallChecker) Check(ctx context.Context) finding.AuditResult {
 	const hostRule registry.FindingKey = "firewall.no_active_manager"
 
 	r := newReport(f.checkIdentity)
@@ -141,7 +141,7 @@ func (f *UnixFirewallChecker) Check(ctx context.Context) types.AuditResult {
 
 	for _, tool := range unixFirewallTools() {
 		if _, err := exec.LookPath(tool.stateArgs[0]); err != nil {
-			r.inconclusive(types.ResultNotApplicable, tool.name+" is not installed", tool.disabledKey)
+			r.inconclusive(finding.ResultNotApplicable, tool.name+" is not installed", tool.disabledKey)
 			continue
 		}
 		outcome := f.reportTool(ctx, tool, r)
@@ -157,7 +157,7 @@ func (f *UnixFirewallChecker) Check(ctx context.Context) types.AuditResult {
 	case len(enforcing) > 0:
 		r.pass(hostRule)
 		if len(enforcing) > 1 {
-			r.note(types.SymbolInfo, "NOTE: %d independent packet filters are enforcing - verify their rule sets do not conflict",
+			r.note(finding.SymbolInfo, "NOTE: %d independent packet filters are enforcing - verify their rule sets do not conflict",
 				len(enforcing))
 		}
 	case undetermined.reason != "":
@@ -178,7 +178,7 @@ func (f *UnixFirewallChecker) reportTool(ctx context.Context, tool firewallTool,
 	output, err := exec.CommandContext(ctx, tool.stateArgs[0], tool.stateArgs[1:]...).Output() // #nosec G204 -- command and arguments are hardcoded literals in unixFirewallTools
 	if err != nil {
 		outcome := toolOutcome{
-			result: types.ResultError,
+			result: finding.ResultError,
 			reason: fmt.Sprintf("%s is installed but its state could not be determined: %v", tool.name, execError(err)),
 		}
 		r.inconclusive(outcome.result, outcome.reason, tool.disabledKey)
@@ -188,19 +188,19 @@ func (f *UnixFirewallChecker) reportTool(ctx context.Context, tool firewallTool,
 	switch state := tool.parseState(output); state {
 	case firewallEnforcing:
 		r.pass(tool.disabledKey)
-		r.note(types.SymbolOK, "%s is enforcing", tool.name)
+		r.note(finding.SymbolOK, "%s is enforcing", tool.name)
 		f.reportRules(ctx, tool, output, r)
 		return toolOutcome{state: state}
 	case firewallDisabled:
 		if tool.disabledKey == "" {
-			r.note(types.SymbolWarning, "%s is installed but not enforcing", tool.name)
+			r.note(finding.SymbolWarning, "%s is installed but not enforcing", tool.name)
 			return toolOutcome{state: state}
 		}
 		r.observed(tool.disabledKey, evidence(kindManager, tool.name, "state", "installed, not enforcing"))
 		return toolOutcome{state: state}
 	default:
 		outcome := toolOutcome{
-			result: types.ResultUnknown,
+			result: finding.ResultUnknown,
 			reason: tool.name + " state could not be determined from its output",
 		}
 		r.inconclusive(outcome.result, outcome.reason, tool.disabledKey)
@@ -215,7 +215,7 @@ func (f *UnixFirewallChecker) reportRules(ctx context.Context, tool firewallTool
 	if len(tool.rulesArgs) > 0 {
 		listed, err := exec.CommandContext(ctx, tool.rulesArgs[0], tool.rulesArgs[1:]...).Output() // #nosec G204 -- command and arguments are hardcoded literals in unixFirewallTools
 		if err != nil {
-			r.note(types.SymbolInfo, "%s rules could not be listed: %v", tool.name, execError(err))
+			r.note(finding.SymbolInfo, "%s rules could not be listed: %v", tool.name, execError(err))
 			return
 		}
 		output = listed
@@ -223,7 +223,7 @@ func (f *UnixFirewallChecker) reportRules(ctx context.Context, tool firewallTool
 
 	rules := tool.parseRules(output)
 	if len(rules) == 0 {
-		r.note(types.SymbolInfo, "%s reported no rules", tool.name)
+		r.note(finding.SymbolInfo, "%s reported no rules", tool.name)
 		return
 	}
 	r.lines(rules...)

@@ -14,8 +14,8 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/papa0four/orkowatch/internal/security/finding"
 	"github.com/papa0four/orkowatch/internal/security/registry"
-	"github.com/papa0four/orkowatch/internal/security/types"
 )
 
 type (
@@ -237,17 +237,17 @@ func NewPermissionChecker(osCtx registry.OSContext, scanRoot string) *UnixPermis
 }
 
 // Check implements PermissionChecker interface for Unix systems
-func (p *UnixPermissionChecker) Check(ctx context.Context) types.AuditResult {
+func (p *UnixPermissionChecker) Check(ctx context.Context) finding.AuditResult {
 	r := newReport(p.checkIdentity)
 
 	root, err := p.effectiveRoot()
 	if err != nil {
-		r.inconclusive(types.ResultError, fmt.Sprintf("scan root could not be resolved: %v", err),
+		r.inconclusive(finding.ResultError, fmt.Sprintf("scan root could not be resolved: %v", err),
 			ruleExcessMode, ruleNotRootOwned, ruleSetID, ruleWorldWritable, ruleUnowned)
 		return r.finish()
 	}
 
-	r.note(types.SymbolInfo, "Scanning %s", root)
+	r.note(finding.SymbolInfo, "Scanning %s", root)
 	p.checkCriticalPaths(root, r)
 
 	scan, err := p.scanFilesystem(ctx, root)
@@ -290,7 +290,7 @@ func (p *UnixPermissionChecker) checkCriticalPaths(root string, r *report) {
 	}
 
 	if checked == 0 {
-		r.inconclusive(types.ResultNotApplicable, "no critical system paths lie within "+root,
+		r.inconclusive(finding.ResultNotApplicable, "no critical system paths lie within "+root,
 			ruleExcessMode, ruleNotRootOwned)
 		return
 	}
@@ -340,10 +340,10 @@ func checkCriticalPath(cp criticalPath, r *report) {
 	info, err := os.Stat(cp.path)
 	switch {
 	case os.IsNotExist(err):
-		r.note(types.SymbolInfo, "Path does not exist: %s", cp.path)
+		r.note(finding.SymbolInfo, "Path does not exist: %s", cp.path)
 		return
 	case err != nil:
-		r.inconclusive(types.ResultError, fmt.Sprintf("%s could not be checked: %v", cp.path, err),
+		r.inconclusive(finding.ResultError, fmt.Sprintf("%s could not be checked: %v", cp.path, err),
 			ruleExcessMode, ruleNotRootOwned)
 		return
 	}
@@ -360,14 +360,14 @@ func checkCriticalPath(cp criticalPath, r *report) {
 	uid, _, _, ok := fileIdentity(info)
 	switch {
 	case !ok:
-		r.inconclusive(types.ResultError, cp.path+" ownership could not be determined", ruleNotRootOwned)
+		r.inconclusive(finding.ResultError, cp.path+" ownership could not be determined", ruleNotRootOwned)
 	case uid != rootUID:
 		r.observed(ruleNotRootOwned, evidence(kindFile, cp.path,
 			"description", cp.description,
 			"uid", strconv.FormatUint(uint64(uid), decimalBase),
 			"expected", "root"))
 	case modeOK:
-		r.note(types.SymbolOK, "%s has correct permissions and ownership: %s root", cp.path, formatMode(mode))
+		r.note(finding.SymbolOK, "%s has correct permissions and ownership: %s root", cp.path, formatMode(mode))
 	}
 }
 
@@ -547,7 +547,7 @@ func fileIdentity(info fs.FileInfo) (uid, gid uint32, dev uint64, ok bool) {
 // evidence returns the entry as the facts observed about it. The identifiers
 // stay numeric deliberately: when one of them failed to resolve it is the
 // value that failed, and a name would be misleading.
-func (e scanEntry) evidence() types.Evidence {
+func (e scanEntry) evidence() finding.Evidence {
 	return evidence(kindFile, e.path,
 		"mode", formatMode(e.mode),
 		"uid", strconv.FormatUint(uint64(e.uid), decimalBase),
@@ -649,19 +649,19 @@ func reportScan(r *report, scan fsScan, scanErr error) {
 	for _, category := range categories {
 		switch {
 		case len(category.entries) > 0:
-			found := make([]types.Evidence, 0, len(category.entries))
+			found := make([]finding.Evidence, 0, len(category.entries))
 			for _, entry := range category.entries {
 				found = append(found, entry.evidence())
 			}
 			r.observed(category.key, found...)
 		case incomplete != "":
-			r.inconclusive(types.ResultError, incomplete, category.key)
+			r.inconclusive(finding.ResultError, incomplete, category.key)
 		default:
 			r.pass(category.key)
 		}
 	}
 
 	if incomplete != "" {
-		r.note(types.SymbolWarning, "%s", incomplete)
+		r.note(finding.SymbolWarning, "%s", incomplete)
 	}
 }

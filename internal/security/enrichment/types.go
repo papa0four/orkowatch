@@ -1,4 +1,4 @@
-// internal/security/enrichment/types.go
+// internal/security/enrichment/finding.go
 
 package enrichment
 

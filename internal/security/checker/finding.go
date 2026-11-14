@@ -5,8 +5,8 @@ package checker
 import (
 	"fmt"
 
+	"github.com/papa0four/orkowatch/internal/security/finding"
 	"github.com/papa0four/orkowatch/internal/security/registry"
-	"github.com/papa0four/orkowatch/internal/security/types"
 )
 
 // Evidence kinds: what sort of thing an evidence subject is. Not every kind
@@ -34,14 +34,14 @@ const (
 // aggregate of its conditions.
 type report struct {
 	osCtx  registry.OSContext
-	result types.AuditResult
+	result finding.AuditResult
 	index  map[registry.FindingKey]int
 }
 
 func newReport(id checkIdentity) *report {
 	return &report{
 		osCtx: id.osCtx,
-		result: types.AuditResult{
+		result: finding.AuditResult{
 			Name:        id.Name(),
 			Description: id.Description(),
 		},
@@ -71,7 +71,7 @@ func (r *report) lines(lines ...string) {
 // with no definition is a defect in the checker or the data file, not a host
 // condition, so it panics rather than letting a detected condition report
 // clean.
-func (r *report) observed(key registry.FindingKey, evidence ...types.Evidence) {
+func (r *report) observed(key registry.FindingKey, evidence ...finding.Evidence) {
 	if i, ok := r.index[key]; ok && r.result.Conditions[i].Finding != nil {
 		r.result.Conditions[i].Evidence = append(r.result.Conditions[i].Evidence, evidence...)
 		return
@@ -82,7 +82,7 @@ func (r *report) observed(key registry.FindingKey, evidence ...types.Evidence) {
 		panic("checker: no registry definition for finding key " + string(key) + " on platform " + string(r.osCtx.Platform))
 	}
 
-	condition := types.Condition{
+	condition := finding.Condition{
 		Key:      string(key),
 		Result:   def.Result,
 		Finding:  def.Finding(),
@@ -99,26 +99,26 @@ func (r *report) observed(key registry.FindingKey, evidence ...types.Evidence) {
 // is how a platform that defines no rule for a condition opts out of it.
 func (r *report) pass(keys ...registry.FindingKey) {
 	for _, key := range keys {
-		r.record(key, types.Condition{Key: string(key), Result: types.ResultPass})
+		r.record(key, finding.Condition{Key: string(key), Result: finding.ResultPass})
 	}
 }
 
 // inconclusive records that each rule produced no judgment, and why. The
 // reason is mandatory: a result that is neither pass nor fail tells the
 // operator nothing without it, so omitting one is a defect in the checker.
-func (r *report) inconclusive(result types.Result, reason string, keys ...registry.FindingKey) {
+func (r *report) inconclusive(result finding.Result, reason string, keys ...registry.FindingKey) {
 	if !result.NeedsReason() || reason == "" {
 		panic("checker: inconclusive result " + string(result) + " recorded without a reason")
 	}
 	for _, key := range keys {
-		r.record(key, types.Condition{Key: string(key), Result: result, Reason: reason})
+		r.record(key, finding.Condition{Key: string(key), Result: result, Reason: reason})
 	}
 }
 
 // record merges condition into the rule's standing conclusion. The result
 // higher in precedence wins, so the order in which a checker reaches its
 // conclusions does not change what it reports.
-func (r *report) record(key registry.FindingKey, condition types.Condition) {
+func (r *report) record(key registry.FindingKey, condition finding.Condition) {
 	if key == "" {
 		return
 	}
@@ -140,7 +140,7 @@ func (r *report) record(key registry.FindingKey, condition types.Condition) {
 }
 
 // finish derives the check's result from its conditions and returns it.
-func (r *report) finish() types.AuditResult {
+func (r *report) finish() finding.AuditResult {
 	r.result.Conclude()
 	return r.result
 }
@@ -148,14 +148,14 @@ func (r *report) finish() types.AuditResult {
 // evidence builds one evidence entry from a subject and alternating fact
 // names and values. A fact with an empty value is omitted, so a caller can
 // pass an observation that may not apply without branching.
-func evidence(kind, subject string, nameValues ...string) types.Evidence {
+func evidence(kind, subject string, nameValues ...string) finding.Evidence {
 	if len(nameValues)%factPair != 0 {
 		panic("checker: evidence facts must be name and value pairs")
 	}
-	entry := types.Evidence{Kind: kind, Subject: subject}
+	entry := finding.Evidence{Kind: kind, Subject: subject}
 	for ; len(nameValues) >= factPair; nameValues = nameValues[factPair:] {
 		if name, value := nameValues[0], nameValues[1]; value != "" {
-			entry.Facts = append(entry.Facts, types.Fact{Name: name, Value: value})
+			entry.Facts = append(entry.Facts, finding.Fact{Name: name, Value: value})
 		}
 	}
 	return entry
