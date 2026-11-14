@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"runtime"
 	"strings"
 	"time"
 
@@ -128,10 +129,7 @@ func (a *AuditFlags) SkipChecks() []string {
 	return a.skipChecks
 }
 
-// NewCmd returns the security audit command. RunE is bound to platformRunE, a
-// method provided by exactly one build-tagged file per compiled target, so a
-// target missing its platform file fails to compile rather than shipping a nil
-// RunE.
+// NewCmd returns the security audit command.
 func NewCmd() *cobra.Command {
 	c := &auditCmd{}
 
@@ -140,7 +138,7 @@ func NewCmd() *cobra.Command {
 		Args:    cobra.NoArgs,
 		Aliases: []string{"security_audit"},
 		Short:   "Perform a security audit of the system",
-		RunE:    c.platformRunE,
+		RunE:    c.runE,
 		Long: `Perform a comprehensive security audit of the system.
 This command checks various security aspects including:
 - SSH configuration
@@ -229,6 +227,26 @@ func (c *auditCmd) validateFlags(cmd *cobra.Command) error {
 	}
 
 	return c.validateFilePermsPath(cmd)
+}
+
+// runE is the audit command's entry point. Nothing in it differs by platform:
+// the checkers behind RunAudit carry the build constraints.
+func (c *auditCmd) runE(cmd *cobra.Command, _ []string) error {
+	if err := c.validateFlags(cmd); err != nil {
+		return err
+	}
+
+	mask, err := c.buildMask()
+	if err != nil {
+		return err
+	}
+
+	if c.verbose && !c.out.ToFile() {
+		fmt.Printf("[*] Running security audit for OS: %s\n", runtime.GOOS)
+	}
+	c.logVerboseConfig(mask)
+
+	return c.runAuditWithTimeout(cmd, mask)
 }
 
 // validateFilePermsPath enforces existing path and file rejecting explicit empty value
