@@ -4,6 +4,7 @@ package security
 
 import (
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -12,36 +13,133 @@ import (
 	"github.com/papa0four/orkowatch/internal/render"
 	"github.com/papa0four/orkowatch/internal/security/audit"
 	"github.com/papa0four/orkowatch/internal/security/finding"
+	"github.com/papa0four/orkowatch/internal/softwarelist"
 	"github.com/papa0four/orkowatch/internal/tui"
 )
 
-// BrowserReport builds what the results browser shows from a finished audit.
-// view is nil when the audit did not run, which leaves the browser only the
-// plain report in text to page through. Every string the browser draws is
-// made safe for the terminal here, through safeLines or, for evidence,
-// render.EvidenceText, because the browser writes them straight to the
-// terminal and any of them can carry text from the host or from a report
-// file.
-func BrowserReport(title string, view *audit.View, system *osfingerprint.SystemView, text string) tui.Report {
-	report := tui.Report{Title: safeLines(title), Text: safeLines(text)}
-	if system != nil {
-		report.Host = safeLines(system.Hostname)
-	}
-	if view == nil {
-		return report
+// BrowserSource is what a finished run holds for the browser to show. Audit,
+// System and Software are the projections a saved report carries, so a live
+// run and a saved file are shown from the same data. Modules says how each
+// module of an all run ended, which is what a tab with no data explains
+// itself with; the audit command has none.
+type BrowserSource struct {
+	Title    string
+	Audit    *audit.View
+	System   *osfingerprint.SystemView
+	Software *softwarelist.SoftwareView
+	Modules  []ModuleNote
+	Text     string
+}
+
+// ModuleNote is how one module of an all run ended.
+type ModuleNote struct {
+	Name   string
+	Result finding.Result
+	Reason string
+}
+
+// BrowserReport builds what the results browser shows. A source that did not
+// run still gets its tab when the run said why, so the operator sees that
+// nothing was collected rather than wondering whether the tab is missing.
+// Every string the browser draws is made safe for the terminal here, through
+// safeLines or, for evidence, render.EvidenceText, because the browser writes
+// them straight to the terminal and any of them can carry text from the host
+// or from a report file.
+func BrowserReport(src BrowserSource) tui.Report {
+	report := tui.Report{Title: safeLines(src.Title), Text: safeLines(src.Text)}
+	if src.System != nil {
+		report.Host = safeLines(src.System.Hostname)
 	}
 
-	report.When = safeLines(view.Timestamp)
-	report.Summary = summaryLines(view)
-	for _, check := range view.Results {
-		if len(check.Conditions) == 0 {
-			report.Items = append(report.Items, checkItem(check))
+	if view := src.Audit; view != nil {
+		report.When = safeLines(view.Timestamp)
+		report.Summary = summaryLines(view)
+		for _, check := range view.Results {
+			if len(check.Conditions) == 0 {
+				report.Items = append(report.Items, checkItem(check))
+			}
+			for _, condition := range check.Conditions {
+				report.Items = append(report.Items, browserItem(condition))
+			}
 		}
-		for _, condition := range check.Conditions {
-			report.Items = append(report.Items, browserItem(condition))
-		}
+	} else if note, ok := moduleNote(src.Modules, "audit"); ok {
+		report.FindingsNote = note
+	}
+
+	if src.System != nil {
+		report.Tabs = append(report.Tabs, systemTab(*src.System))
+	} else if note, ok := moduleNote(src.Modules, "osinfo"); ok {
+		report.Tabs = append(report.Tabs, tui.Tab{ID: tui.TabSystem, Name: "System", Note: note})
+	}
+
+	if src.Software != nil {
+		report.Tabs = append(report.Tabs, softwareTab(*src.Software))
+	} else if note, ok := moduleNote(src.Modules, "software"); ok {
+		report.Tabs = append(report.Tabs, tui.Tab{ID: tui.TabSoftware, Name: "Software", Note: note})
 	}
 	return report
+}
+
+// moduleNote says why a module has no data: its result and reason as the run
+// recorded them. It reports false when the run recorded nothing for the
+// module, which is every module of an audit run.
+func moduleNote(modules []ModuleNote, name string) (string, bool) {
+	for _, m := range modules {
+		if m.Name != name {
+			continue
+		}
+		note := string(m.Result)
+		if m.Reason != "" {
+			note += ": " + m.Reason
+		}
+		return safeLines(note + "; nothing was collected"), true
+	}
+	return "", false
+}
+
+// systemTab is the host's fingerprint as one record, shown whole.
+func systemTab(system osfingerprint.SystemView) tui.Tab {
+	fields := []tui.SummaryLine{{Label: "os", Value: safeLines(system.OS)}}
+	add := func(label, value string) {
+		if value != "" {
+			fields = append(fields, tui.SummaryLine{Label: label, Value: safeLines(value)})
+		}
+	}
+	add("hostname", system.Hostname)
+	add("platform", system.Platform)
+	add("version", system.PlatformVersion)
+	add("kernel", system.KernelVersion)
+	add("architecture", system.Architecture)
+	extra := make([]string, 0, len(system.AdditionalInfo))
+	for name := range system.AdditionalInfo {
+		extra = append(extra, name)
+	}
+	slices.Sort(extra)
+	for _, name := range extra {
+		add(name, system.AdditionalInfo[name])
+	}
+	return tui.Tab{ID: tui.TabSystem, Name: "System", Records: []tui.Record{{
+		Title:    safeLines(system.Hostname),
+		Subtitle: safeLines(system.OS + " " + system.PlatformVersion),
+		Fields:   fields,
+	}}}
+}
+
+// softwareTab is the installed packages, one record each.
+func softwareTab(software softwarelist.SoftwareView) tui.Tab {
+	records := make([]tui.Record, 0, len(software.Packages))
+	for _, pkg := range software.Packages {
+		fields := []tui.SummaryLine{{Label: "name", Value: safeLines(pkg.Name)}}
+		if pkg.Version != "" {
+			fields = append(fields, tui.SummaryLine{Label: "version", Value: safeLines(pkg.Version)})
+		}
+		records = append(records, tui.Record{
+			Title:    safeLines(pkg.Name),
+			Subtitle: safeLines(pkg.Version),
+			Fields:   fields,
+		})
+	}
+	return tui.Tab{ID: tui.TabSoftware, Name: "Software", Records: records}
 }
 
 // checkItem is the row for a check that has no conditions to list, one that

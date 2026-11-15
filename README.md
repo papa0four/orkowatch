@@ -183,19 +183,23 @@ run proceeds as it would from a script.
 
 On a terminal, `owatch audit` and `owatch all` end in an interactive results
 browser instead of printing the report, because a whole-filesystem scan produces
-far more lines than a terminal keeps. The browser lists each finding with its
-severity, shows the selected one in full with its evidence, and can page through
-the complete plain report.
+far more lines than a terminal keeps. The browser has a tab for each part of the
+run: Findings lists each finding with its severity and shows the selected one in
+full with its evidence; System shows the host's fingerprint; Software lists the
+installed packages and can be searched. A tab for a module that was skipped or
+failed says so. The complete plain report is one key away.
 
 | Key | Action |
 |---|---|
+| `f`, `o`, `s` | Switch to the Findings, System or Software tab; each tab's letter is shown in the tab bar |
+| `[`, `]`, `1` to `9` | Step to the previous or next tab, or go to a tab by its number |
 | `tab`, `shift+tab` | Move between the filter, list and detail panes |
-| up/down, `j`/`k`, pgup/pgdn, `g`/`G` | Move through the focused pane |
+| up/down, pgup/pgdn, home/end | Move through the focused pane |
 | left/right | Pan the detail pane or the full report sideways |
 | `enter` | Apply a filter, or open the selected item in the detail pane |
-| `/` | Search titles, rule keys, descriptions, references and evidence; the detail pane then shows only the matching evidence lines; `enter` keeps the search, `esc` clears it |
-| `a` | Show every evaluated rule, not only findings and rules that could not be evaluated |
-| `e` | Load all of a finding's evidence when only the first 500 lines are shown |
+| `/` | Search the active tab: on Findings, titles, rule keys, descriptions, references and evidence, and the detail pane then shows only the matching evidence lines; on Software, package names and versions. `enter` keeps the search, `esc` clears it, and each tab keeps its own |
+| `a` | On Findings, show every evaluated rule, not only findings and rules that could not be evaluated |
+| `x` | On Findings, load all of a finding's evidence when only the first 500 lines are shown |
 | `t` | Show the complete plain report; `t` or `esc` returns |
 | `esc` | Return from the detail pane to the list |
 | `q`, ctrl+c | Quit |

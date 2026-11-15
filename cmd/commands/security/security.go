@@ -386,7 +386,7 @@ func (r auditReport) View() any {
 // severity-filtered projection View returns.
 func (r auditReport) Browse(text string) tui.Report {
 	view := r.result.View(r.c.audit.MinSeverity())
-	return BrowserReport("owatch audit", &view, view.SystemInfo, text)
+	return BrowserReport(BrowserSource{Title: "owatch audit", Audit: &view, System: view.SystemInfo, Text: text})
 }
 
 // WriteText renders the audit as human-readable text: the system block via
