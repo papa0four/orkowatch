@@ -1,10 +1,10 @@
 // cmd/commands/delivery/delivery.go
 
 // Package delivery owns the output destination surface shared by the owatch
-// commands that produce a report: the --output, --report-file and
-// --allow-elevated-write flags, the rule that resolves the effective encoding,
-// the encoding of a command's result at that format, and its emission to
-// stdout or to a generated file.
+// commands that produce a report: the --output, --report-file,
+// --allow-elevated-write and --plain flags, the rule that resolves the
+// effective encoding, the encoding of a command's result at that format, and
+// its emission to stdout, to a generated file, or to the results browser.
 //
 // It lives under cmd because binding flags requires pflag, which the write
 // guards in internal/report must not depend on.
@@ -20,8 +20,10 @@ import (
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 
+	"github.com/papa0four/orkowatch/internal/render"
 	"github.com/papa0four/orkowatch/internal/report"
 	"github.com/papa0four/orkowatch/internal/selection"
+	"github.com/papa0four/orkowatch/internal/tui"
 )
 
 type (
@@ -33,6 +35,13 @@ type (
 		WriteText(w io.Writer) error
 	}
 
+	// Browsable is implemented by a report the results browser can show.
+	// text is the report's complete plain rendering, which the browser can
+	// page through.
+	Browsable interface {
+		Browse(text string) tui.Report
+	}
+
 	// Flags holds one invocation's output destination state. Cobra binds the flags
 	// directly into these fields, so the values Deliver reads are the values that
 	// invocation parsed.
@@ -40,6 +49,7 @@ type (
 		outputFormat       string
 		reportFile         string
 		allowElevatedWrite bool
+		plain              bool
 
 		// format is the effective encoding, resolved once in Resolve from
 		// outputFormat and reportFile.
@@ -58,6 +68,8 @@ func Bind(cmd *cobra.Command) *Flags {
 		"Save the report to the specified directory; filename is generated automatically")
 	cmd.Flags().BoolVar(&f.allowElevatedWrite, "allow-elevated-write", false,
 		"Permit an elevated write outside the allowlisted directories or into a directory other users control")
+	cmd.Flags().BoolVar(&f.plain, "plain", false,
+		"Print the report as text instead of opening the results browser")
 
 	return f
 }
@@ -105,10 +117,21 @@ func (f *Flags) ToFile() bool {
 	return f.reportFile != ""
 }
 
-// Deliver encodes r at the resolved format and emits it. The default arm is
-// the reason this dispatch exists once rather than per command: a format added
-// to report.formats and not handled here fails loudly instead of silently
-// falling back to text.
+// browses reports whether a text report opens in the results browser rather
+// than being printed. It does only when a person is at a terminal to use it,
+// on both input and output, and nothing asked for the text itself: no
+// --plain, no report file, no structured format. Anything that reads
+// owatch's output, a pipe, a redirect or a script, still gets the text.
+func (f *Flags) browses() bool {
+	return f.format == FormatText && f.reportFile == "" && !f.plain &&
+		render.StdoutIsTerminal() && render.StdinIsTerminal()
+}
+
+// Deliver encodes r at the resolved format and emits it, or shows a text
+// report in the results browser when browses says to and r can be browsed.
+// The default arm is the reason this dispatch exists once rather than per
+// command: a format added to report.formats and not handled here fails
+// loudly instead of silently falling back to text.
 func (f *Flags) Deliver(r Report, mask selection.CheckMask) error {
 	var buf bytes.Buffer
 	switch f.format {
@@ -125,6 +148,12 @@ func (f *Flags) Deliver(r Report, mask selection.CheckMask) error {
 	case FormatText:
 		if err := r.WriteText(&buf); err != nil {
 			return fmt.Errorf("failed to render text output: %w", err)
+		}
+		if b, ok := r.(Browsable); ok && f.browses() {
+			if err := tui.Browse(b.Browse(buf.String())); err != nil {
+				return fmt.Errorf("results browser: %w", err)
+			}
+			return nil
 		}
 	default:
 		return fmt.Errorf("unsupported output format: %s", f.format)

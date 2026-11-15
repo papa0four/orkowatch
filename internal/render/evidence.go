@@ -32,12 +32,19 @@ func HostText(text string) string {
 	return strconv.Quote(text)
 }
 
-// EvidenceLine writes one evidence entry as its subject followed by its
-// facts in recorded order, prefixed by indent. Subject and values come from
-// the host and pass through HostText.
+// EvidenceLine writes one evidence entry as EvidenceText renders it,
+// prefixed by indent.
 func EvidenceLine(w io.Writer, indent string, evidence finding.Evidence) error {
+	_, err := fmt.Fprintln(w, indent+EvidenceText(evidence))
+	return err
+}
+
+// EvidenceText renders one evidence entry as its subject followed by its
+// facts in recorded order. Subject and values come from the host and pass
+// through HostText. The text report and the results browser both render
+// evidence through it, so the two show an entry alike.
+func EvidenceText(evidence finding.Evidence) string {
 	var line strings.Builder
-	line.WriteString(indent)
 	line.WriteString("- ")
 	line.WriteString(HostText(evidence.Subject))
 	for _, fact := range evidence.Facts {
@@ -46,6 +53,5 @@ func EvidenceLine(w io.Writer, indent string, evidence finding.Evidence) error {
 		line.WriteString("=")
 		line.WriteString(HostText(fact.Value))
 	}
-	_, err := fmt.Fprintln(w, line.String())
-	return err
+	return line.String()
 }

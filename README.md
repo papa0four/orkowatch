@@ -60,6 +60,7 @@ and open an issue against this doc.
 | `owatch software` | List installed software packages |
 | `owatch audit` | Run security audit checks |
 | `owatch all` | Run all available scans |
+| `owatch browse [report-file]` | Open a saved JSON or YAML report in the results browser |
 | `owatch completion` | Generate shell completion scripts (see Shell Completion below) |
 | `owatch help` | Show the full command menu (equivalent to `-h`/`--help`) |
 | `owatch version` | Display current version |
@@ -126,6 +127,7 @@ With no check flags given, all checks run by default.
 | `--allow-elevated-write` | Permit an elevated write outside the allowlisted directories or into a directory other users control | false |
 | `-v, --verbose` | Add the live findings feed to the progress display, or print progress lines when output is not a terminal; does not change report content | false |
 | `-y, --yes` | Do not ask before a permissions check that scans the entire filesystem | false |
+| `--plain` | Print the report as text instead of opening the results browser | false |
 
 ## `all` Flags (`owatch all`)
 
@@ -147,6 +149,7 @@ individual audit checks within the audit module, or both together.
 | `--allow-elevated-write` | Permit an elevated write outside the allowlisted directories or into a directory other users control | false |
 | `-v, --verbose` | Add the live findings feed to the progress display; does not change report content | false |
 | `-y, --yes` | Do not ask before a permissions check that scans the entire filesystem | false |
+| `--plain` | Print the report as text instead of opening the results browser | false |
 
 There is no individual audit check flag (`--ssh`, `--fwall`, etc.) on `all` —
 to run only specific checks as part of a full scan, skip the others instead:
@@ -161,8 +164,9 @@ owatch all --skip-checks firewall,users,permissions
 When standard output is a terminal, `owatch audit` and `owatch all` show their
 progress while they run: one row per check or module with its state, an overall
 bar counting completed tasks, and the time elapsed. Each row ends with the task's
-result and finding count. `-v` adds a feed of findings as they arrive. The report
-is printed after the display finishes.
+result and finding count; the permissions row also shows how many entries the scan
+has read. `-v` adds a feed of findings as they arrive. When the display finishes,
+the results open in the results browser (see below).
 
 Press ctrl+c to stop a run. Checks still running are asked to stop, whatever
 finished is reported, and the command exits with an error naming what did not
@@ -174,6 +178,41 @@ to skip the question, or narrow the scan with `--fperms <path>`.
 
 When output is piped or redirected there is no display and no question, and the
 run proceeds as it would from a script.
+
+## Results Browser
+
+On a terminal, `owatch audit` and `owatch all` end in an interactive results
+browser instead of printing the report, because a whole-filesystem scan produces
+far more lines than a terminal keeps. The browser lists each finding with its
+severity, shows the selected one in full with its evidence, and can page through
+the complete plain report.
+
+| Key | Action |
+|---|---|
+| `tab`, `shift+tab` | Move between the filter, list and detail panes |
+| up/down, `j`/`k`, pgup/pgdn, `g`/`G` | Move through the focused pane |
+| left/right | Pan the detail pane or the full report sideways |
+| `enter` | Apply a filter, or open the selected item in the detail pane |
+| `/` | Search titles, rule keys, descriptions, references and evidence; the detail pane then shows only the matching evidence lines; `enter` keeps the search, `esc` clears it |
+| `a` | Show every evaluated rule, not only findings and rules that could not be evaluated |
+| `e` | Load all of a finding's evidence when only the first 500 lines are shown |
+| `t` | Show the complete plain report; `t` or `esc` returns |
+| `esc` | Return from the detail pane to the list |
+| `q`, ctrl+c | Quit |
+
+The report is printed as text instead when `--plain` is given, when `-o json` or
+`-o yaml` is chosen, when `--report-file` is used, or when input or output is not
+a terminal. Scripts and pipelines get the same text they always have.
+
+A report saved as JSON or YAML can be reopened in the browser later:
+
+```bash
+# Open the newest owatch report in the current directory
+owatch browse
+
+# Open a specific report
+owatch browse /path/to/reports/owatch-host-SFUP-20261114T120000Z.json
+```
 
 ## Skips and Partial Runs
 

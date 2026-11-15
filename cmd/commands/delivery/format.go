@@ -63,3 +63,15 @@ func (f Format) Extension() string {
 	}
 	return formats[0].ext
 }
+
+// FormatForExtension returns the format a filename extension, without its
+// leading dot, was written in, so a report is read back by the same table
+// that named it.
+func FormatForExtension(ext string) (Format, bool) {
+	for _, spec := range formats {
+		if strings.EqualFold(spec.ext, ext) {
+			return spec.name, true
+		}
+	}
+	return "", false
+}

@@ -49,8 +49,11 @@ type (
 
 	// Reporter is how running work tells the display what it is doing. The
 	// methods may be called from several goroutines at once.
+	// Progress attaches a short note to a running task, such as how much it
+	// has read; the latest note stays on the task's row.
 	Reporter interface {
 		Start(id string)
+		Progress(id string, note string)
 		Finish(id string, outcome Outcome)
 	}
 
@@ -130,6 +133,10 @@ func (r programReporter) Start(id string) {
 	r.program.Send(taskStartedMsg{id: id})
 }
 
+func (r programReporter) Progress(id string, note string) {
+	r.program.Send(taskProgressMsg{id: id, note: note})
+}
+
 func (r programReporter) Finish(id string, outcome Outcome) {
 	r.program.Send(taskFinishedMsg{id: id, outcome: outcome})
 }
@@ -152,5 +159,7 @@ func (r lineReporter) Start(id string) {
 		_, _ = fmt.Fprintf(r.w, "[*] Running %s...\n", r.labels[id]) //nolint:errcheck // progress line; a failed write must not fail the scan
 	}
 }
+
+func (lineReporter) Progress(string, string) {}
 
 func (lineReporter) Finish(string, Outcome) {}

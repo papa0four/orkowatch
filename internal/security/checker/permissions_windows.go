@@ -40,6 +40,7 @@ type (
 		checkIdentity
 		paths    []string
 		scanRoot string
+		progress ScanProgress
 	}
 
 	// aclWalk is what every worker of one traversal shares. readers holds one
@@ -57,6 +58,7 @@ type (
 	aclFound struct {
 		grants     []ruleGrant
 		unreadable int
+		scanned    int
 	}
 
 	// ruleGrant is one grant and the rule it trips.
@@ -71,8 +73,9 @@ var aclRules = []registry.FindingKey{ruleEveryoneFull, ruleUsersFull, ruleBroadW
 
 // NewPermissionChecker returns the file permission checker for Windows
 // hosts. scanRoot narrows the traversal to one tree; empty means the whole
-// system volume.
-func NewPermissionChecker(osCtx registry.OSContext, scanRoot string) *WindowsPermissionChecker {
+// system volume. progress, when not nil, is told how many entries the scan
+// has read as it goes.
+func NewPermissionChecker(osCtx registry.OSContext, scanRoot string, progress ScanProgress) *WindowsPermissionChecker {
 	return &WindowsPermissionChecker{
 		checkIdentity: checkIdentity{
 			domain:   "File Permissions Security",
@@ -87,6 +90,7 @@ func NewPermissionChecker(osCtx registry.OSContext, scanRoot string) *WindowsPer
 			"C:\\Users",
 		},
 		scanRoot: scanRoot,
+		progress: progress,
 	}
 }
 
@@ -153,7 +157,13 @@ func (p *WindowsPermissionChecker) scanACLs(ctx context.Context, root string, r 
 	w.inspect(reader, root, &total)
 	w.readers <- reader
 
-	err := treewalk.Run(ctx, scanWorkers, treewalk.Dir[struct{}]{Path: root}, w.readDir, total.merge)
+	counter := scanCounter{report: p.progress}
+	counter.add(total.scanned)
+	err := treewalk.Run(ctx, scanWorkers, treewalk.Dir[struct{}]{Path: root}, w.readDir, func(found aclFound) {
+		total.merge(found)
+		counter.add(found.scanned)
+	})
+	counter.finish()
 
 	slices.SortStableFunc(total.grants, func(a, b ruleGrant) int {
 		if byPath := strings.Compare(a.subject.Subject, b.subject.Subject); byPath != 0 {
@@ -164,6 +174,8 @@ func (p *WindowsPermissionChecker) scanACLs(ctx context.Context, root string, r 
 	for _, grant := range total.grants {
 		r.observed(grant.key, grant.subject)
 	}
+
+	r.note(finding.SymbolInfo, "Scanned %d entries", total.scanned)
 
 	var incomplete string
 	switch {
@@ -218,6 +230,7 @@ func (w *aclWalk) readDir(ctx context.Context, dir treewalk.Dir[struct{}]) ([]tr
 // inspect reads one entry's access control list and records in found what
 // its grants trip. An entry whose list cannot be read is counted.
 func (w *aclWalk) inspect(reader *aclReader, path string, found *aclFound) {
+	found.scanned++
 	grants, open, err := reader.grants(path)
 	switch {
 	case err != nil:
@@ -281,6 +294,7 @@ func (f *aclFound) add(key registry.FindingKey, subject finding.Evidence) {
 func (f *aclFound) merge(found aclFound) {
 	f.grants = append(f.grants, found.grants...)
 	f.unreadable += found.unreadable
+	f.scanned += found.scanned
 }
 
 // isReparsePoint reports whether a directory entry is a reparse point, read

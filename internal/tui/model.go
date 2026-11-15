@@ -65,6 +65,7 @@ type (
 		status  taskStatus
 		started time.Time
 		took    time.Duration
+		note    string
 		outcome Outcome
 	}
 
@@ -95,6 +96,11 @@ type (
 
 	taskStartedMsg struct {
 		id string
+	}
+
+	taskProgressMsg struct {
+		id   string
+		note string
 	}
 
 	taskFinishedMsg struct {
@@ -156,18 +162,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
-	case taskFinishedMsg:
+	case taskProgressMsg:
 		if i, ok := m.index[msg.id]; ok {
-			row := &m.rows[i]
-			row.status = taskFinished
-			row.outcome = msg.outcome
-			if !row.started.IsZero() {
-				row.took = time.Since(row.started)
-			}
-			for _, found := range msg.outcome.Findings {
-				m.feed = append(m.feed, feedLine{task: row.Label, Finding: found})
-			}
+			m.rows[i].note = msg.note
 		}
+		return m, nil
+
+	case taskFinishedMsg:
+		m.finish(msg)
 		return m, nil
 
 	case workDoneMsg:
@@ -193,6 +195,23 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	}
 	return m, nil
+}
+
+// finish records a task's outcome and adds its findings to the feed.
+func (m *model) finish(msg taskFinishedMsg) {
+	i, ok := m.index[msg.id]
+	if !ok {
+		return
+	}
+	row := &m.rows[i]
+	row.status = taskFinished
+	row.outcome = msg.outcome
+	if !row.started.IsZero() {
+		row.took = time.Since(row.started)
+	}
+	for _, found := range msg.outcome.Findings {
+		m.feed = append(m.feed, feedLine{task: row.Label, Finding: found})
+	}
 }
 
 func (m model) View() tea.View {
@@ -260,13 +279,13 @@ func (m model) rowView(row taskRow) string {
 
 	switch row.status {
 	case taskRunning:
-		return marker(m.spinner.View()) + styleText.Render(label) + styleMuted.Render("running "+clock(time.Since(row.started)))
+		return marker(m.spinner.View()) + styleText.Render(label) + styleMuted.Render("running "+clock(time.Since(row.started))+noted(row.note))
 	case taskSkipped:
 		return styleMuted.Render(marker("-") + label + "not selected")
 	case taskFinished:
 		tint, summary := outcomeSummary(row.outcome)
 		style := lipgloss.NewStyle().Foreground(tint)
-		line := style.Render(marker(resultMark(row.outcome.Result))+label) + styleMuted.Render(summary+"  "+clock(row.took))
+		line := style.Render(marker(resultMark(row.outcome.Result))+label) + styleMuted.Render(summary+"  "+clock(row.took)+noted(row.note))
 		if row.outcome.Reason != "" && len(row.outcome.Findings) == 0 {
 			line += "\n" + styleMuted.Render(truncate(marker("")+row.outcome.Reason, m.width))
 		}
@@ -274,6 +293,14 @@ func (m model) rowView(row taskRow) string {
 	default:
 		return styleMuted.Render(marker("") + label + "waiting")
 	}
+}
+
+// noted returns a task's progress note as it trails the rest of its row.
+func noted(note string) string {
+	if note == "" {
+		return ""
+	}
+	return "  " + note
 }
 
 // marker pads a row's state marker to the width of the widest one, so the

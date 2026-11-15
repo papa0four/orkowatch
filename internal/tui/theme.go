@@ -26,6 +26,9 @@ var (
 	styleMuted  = lipgloss.NewStyle().Foreground(colorMuted)
 	styleText   = lipgloss.NewStyle().Foreground(colorText)
 	styleNotice = lipgloss.NewStyle().Foreground(colorWarning).Bold(true)
+
+	// styleSelected marks the row the keyboard is on.
+	styleSelected = lipgloss.NewStyle().Reverse(true)
 )
 
 // severityColor returns the colour a severity is shown in. An unrecognised
@@ -56,4 +59,13 @@ func resultColor(result finding.Result) color.Color {
 	default:
 		return colorMuted
 	}
+}
+
+// itemColor returns the colour a browser item is shown in: its severity when
+// it is a finding, its result otherwise.
+func itemColor(item Item) color.Color {
+	if item.isFinding() {
+		return severityColor(item.Severity)
+	}
+	return resultColor(item.Result)
 }

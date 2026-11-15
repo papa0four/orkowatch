@@ -76,8 +76,12 @@ type (
 
 	// AuditResult is one check's outcome. Result and Reason are derived from
 	// Conditions by Conclude; Details holds narration that belongs to no
-	// condition.
+	// condition. Key is the check's canonical short name, the one
+	// --skip-checks and the rule keys use, which the audit sets because a
+	// checker does not know where it sits in the run; Name is the checker's
+	// own long display name.
 	AuditResult struct {
+		Key         string
 		Name        string
 		Description string
 		Result      Result
