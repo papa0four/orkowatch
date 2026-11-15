@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
 
 	"github.com/papa0four/orkowatch/internal/security/audit"
@@ -19,6 +20,9 @@ import (
 // filesystem scan confirmation. Nothing went wrong, so callers end the
 // command without reporting a failure.
 var ErrScanDeclined = errors.New("scan declined by operator")
+
+// digitGroup is how many digits sit between separators in a large number.
+const digitGroup = 3
 
 // progressObserver forwards the audit's progress to a display.
 type progressObserver struct {
@@ -50,6 +54,19 @@ func Observe(reporter tui.Reporter) audit.Observer {
 
 func (o progressObserver) CheckStarted(name string) {
 	o.reporter.Start(name)
+}
+
+func (o progressObserver) CheckProgress(name string, scanned int) {
+	o.reporter.Progress(name, grouped(scanned)+" entries scanned")
+}
+
+// grouped renders n with a comma between each group of three digits.
+func grouped(n int) string {
+	digits := strconv.Itoa(n)
+	for i := len(digits) - digitGroup; i > 0; i -= digitGroup {
+		digits = digits[:i] + "," + digits[i:]
+	}
+	return digits
 }
 
 func (o progressObserver) CheckFinished(name string, result finding.AuditResult) {

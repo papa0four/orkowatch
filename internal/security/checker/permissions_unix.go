@@ -29,6 +29,7 @@ type (
 		checkIdentity
 		paths    []criticalPath
 		scanRoot string
+		progress ScanProgress
 	}
 
 	// criticalPath is a path whose mode must not exceed expected and which
@@ -61,6 +62,7 @@ type (
 		worldWrite []scanEntry
 		unowned    []scanEntry
 		unreadable int
+		scanned    int
 	}
 
 	// scanEntry is one entry the traversal recorded, kept as the facts that
@@ -232,8 +234,9 @@ func (c *identityCache) known(ctx context.Context, cache map[uint32]bool, kind i
 
 // NewPermissionChecker returns the file permission checker for Unix-like
 // hosts. scanRoot narrows the filesystem scan to one tree; empty means the
-// whole filesystem, plus the critical paths.
-func NewPermissionChecker(osCtx registry.OSContext, scanRoot string) *UnixPermissionChecker {
+// whole filesystem, plus the critical paths. progress, when not nil, is told
+// how many entries the scan has read as it goes.
+func NewPermissionChecker(osCtx registry.OSContext, scanRoot string, progress ScanProgress) *UnixPermissionChecker {
 	return &UnixPermissionChecker{
 		checkIdentity: checkIdentity{
 			domain:   "File Permissions Security",
@@ -242,6 +245,7 @@ func NewPermissionChecker(osCtx registry.OSContext, scanRoot string) *UnixPermis
 		},
 		paths:    append(commonCriticalPaths(), platformCriticalPaths()...),
 		scanRoot: scanRoot,
+		progress: progress,
 	}
 }
 
@@ -415,7 +419,13 @@ func (p *UnixPermissionChecker) scanFilesystem(ctx context.Context, root string)
 		State: w.conferred(ctx, root, reachNonRoot, rootInfo.Mode(), uid, gid),
 	}
 
-	err = treewalk.Run(ctx, scanWorkers, start, w.readDir, scan.merge)
+	counter := scanCounter{report: p.progress}
+	counter.add(scan.scanned)
+	err = treewalk.Run(ctx, scanWorkers, start, w.readDir, func(found fsScan) {
+		scan.merge(found)
+		counter.add(found.scanned)
+	})
+	counter.finish()
 	scan.sort()
 	return scan, err
 }
@@ -468,6 +478,7 @@ func (w *fsWalk) readDir(ctx context.Context, dir treewalk.Dir[reachability]) ([
 // Setuid and world-writable apply to regular files only; ownership applies to
 // every entry.
 func (w *fsWalk) classify(ctx context.Context, found *fsScan, path string, info fs.FileInfo, uid, gid uint32, reach reachability) {
+	found.scanned++
 	mode := info.Mode()
 	userKnown, groupKnown := w.ids.resolution(ctx, uid, gid)
 	entry := scanEntry{
@@ -515,6 +526,7 @@ func (s *fsScan) merge(found fsScan) {
 	s.worldWrite = append(s.worldWrite, found.worldWrite...)
 	s.unowned = append(s.unowned, found.unowned...)
 	s.unreadable += found.unreadable
+	s.scanned += found.scanned
 }
 
 // sort orders every category by path, which is what makes the report
@@ -693,6 +705,7 @@ func reportScan(r *report, scan fsScan, scanErr error) {
 		}
 	}
 
+	r.note(finding.SymbolInfo, "Scanned %d entries", scan.scanned)
 	if incomplete != "" {
 		r.note(finding.SymbolWarning, "%s", incomplete)
 	}

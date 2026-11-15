@@ -91,8 +91,11 @@ type (
 	// check runs. CheckFinished is called from the goroutine that ran the
 	// check, so several may arrive at once and an implementation must be safe
 	// for concurrent use. A check excluded from the run produces neither call.
+	// CheckProgress is called by a check that can count its own work, with
+	// how many entries it has read so far.
 	Observer interface {
 		CheckStarted(name string)
+		CheckProgress(name string, scanned int)
 		CheckFinished(name string, result finding.AuditResult)
 	}
 
@@ -133,14 +136,22 @@ func NewSecurityAuditor(opts Options) *SecurityAuditor {
 	auditor.sshChecker = checker.NewSSHChecker(osCtx)
 	auditor.firewallChecker = checker.NewFirewallChecker(osCtx)
 	auditor.userChecker = checker.NewUserChecker(osCtx)
-	auditor.permissionChecker = checker.NewPermissionChecker(osCtx, opts.FilePermsPath)
+	auditor.permissionChecker = checker.NewPermissionChecker(osCtx, opts.FilePermsPath, func(scanned int) {
+		auditor.observer.CheckProgress(permissionsCheck, scanned)
+	})
 
 	return auditor
 }
 
 func (noObserver) CheckStarted(string) {}
 
+func (noObserver) CheckProgress(string, int) {}
+
 func (noObserver) CheckFinished(string, finding.AuditResult) {}
+
+// permissionsCheck is the canonical name of the permissions check, which is
+// the one check that reports progress of its own.
+const permissionsCheck = "permissions"
 
 // maxConcurrentChecks returns the bound on simultaneously executing checks.
 // The bound scales with the host rather than the check set, so adding checks
@@ -233,7 +244,7 @@ func (sa *SecurityAuditor) checkRunners() []checkRunner {
 			run:         sa.firewallChecker.Check,
 		},
 		{
-			name:        "permissions",
+			name:        permissionsCheck,
 			display:     sa.permissionChecker.Name(),
 			description: sa.permissionChecker.Description(),
 			run:         sa.permissionChecker.Check,
