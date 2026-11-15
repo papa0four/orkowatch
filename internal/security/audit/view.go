@@ -31,9 +31,12 @@ type (
 	}
 
 	// CheckView is the serializable projection of a single check's result.
-	// Reason is present whenever Result is neither pass nor fail. Duration
-	// is empty for a check that was not selected.
+	// Key is the check's short name, as --skip-checks and the rule keys spell
+	// it; Name is its long display name. Reason is present whenever Result is
+	// neither pass nor fail. Duration is empty for a check that was not
+	// selected.
 	CheckView struct {
+		Key         string          `json:"key" yaml:"key"`
 		Name        string          `json:"name" yaml:"name"`
 		Result      finding.Result  `json:"result" yaml:"result"`
 		Reason      string          `json:"reason,omitempty" yaml:"reason,omitempty"`
@@ -94,6 +97,7 @@ func (r *Result) View(minSeverity string) View {
 
 	for _, check := range r.Results {
 		cv := CheckView{
+			Key:         check.Key,
 			Name:        check.Name,
 			Result:      check.Result,
 			Reason:      check.Reason,

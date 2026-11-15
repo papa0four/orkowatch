@@ -34,11 +34,32 @@ func BrowserReport(title string, view *audit.View, system *osfingerprint.SystemV
 	report.When = safeLines(view.Timestamp)
 	report.Summary = summaryLines(view)
 	for _, check := range view.Results {
+		if len(check.Conditions) == 0 {
+			report.Items = append(report.Items, checkItem(check))
+		}
 		for _, condition := range check.Conditions {
 			report.Items = append(report.Items, browserItem(condition))
 		}
 	}
 	return report
+}
+
+// checkItem is the row for a check that has no conditions to list, one that
+// was excluded or could not evaluate any rule, so it does not vanish from the
+// list. It carries the check's long name where the list has room for it and
+// its short key in the filter column. A report written before checks had a
+// key falls back to the long name there.
+func checkItem(check audit.CheckView) tui.Item {
+	short := check.Key
+	if short == "" {
+		short = check.Name
+	}
+	return tui.Item{
+		Check:  safeLines(short),
+		Key:    safeLines(check.Name),
+		Result: check.Result,
+		Reason: safeLines(check.Reason),
+	}
 }
 
 // browserItem converts one condition. Its check is named by the rule key's

@@ -208,6 +208,7 @@ func (sa *SecurityAuditor) RunAudit(ctx context.Context) (*Result, error) {
 			sem <- struct{}{}
 			defer func() { <-sem }()
 			res, incomplete := timeCheck(ctx, c.run)
+			res.Key = c.name
 			sa.observer.CheckFinished(c.name, res)
 			resultsChan <- indexedResult{index: idx, result: res, incomplete: incomplete}
 		}(i, r)
@@ -288,6 +289,7 @@ func enabledSet(runners []checkRunner, checks []string) (map[string]bool, error)
 // skip occupies its canonical index rather than vanishing from the set
 func skippedResult(r checkRunner) finding.AuditResult {
 	return finding.AuditResult{
+		Key:         r.name,
 		Name:        r.display,
 		Description: r.description,
 		Result:      finding.ResultNotSelected,
