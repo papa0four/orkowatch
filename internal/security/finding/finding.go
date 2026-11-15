@@ -124,10 +124,19 @@ type (
 	// the condition a finding reports. Tactics are as the ATT&CK site lists
 	// them for the technique.
 	Technique struct {
-		ID      string   `json:"id" yaml:"id"`
-		Name    string   `json:"name" yaml:"name"`
-		Tactics []string `json:"tactics" yaml:"tactics"`
-		URL     string   `json:"url" yaml:"url"`
+		ID          string       `json:"id" yaml:"id"`
+		Name        string       `json:"name" yaml:"name"`
+		Tactics     []string     `json:"tactics" yaml:"tactics"`
+		URL         string       `json:"url" yaml:"url"`
+		Mitigations []Mitigation `json:"mitigations,omitempty" yaml:"mitigations,omitempty"`
+	}
+
+	// Mitigation is a MITRE ATT&CK mitigation the technique's page lists as
+	// addressing it.
+	Mitigation struct {
+		ID   string `json:"id" yaml:"id"`
+		Name string `json:"name" yaml:"name"`
+		URL  string `json:"url" yaml:"url"`
 	}
 
 	// Evidence is one subject a condition was evaluated against and what

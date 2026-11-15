@@ -118,6 +118,7 @@ firewall.profile_inactive:
   cvss_score: 9.1
   cvss_vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N"
   cwe: "CWE-284"
+  attack_techniques: ["T1686"]
   description: >
     One or more Windows Firewall profiles (Domain, Private, or Public) are
     not active. A disabled firewall profile removes the host-based packet
@@ -145,6 +146,7 @@ firewall.all_profiles_disabled:
   cvss_score: 9.8
   cvss_vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"
   cwe: "CWE-284"
+  attack_techniques: ["T1686"]
   description: >
     Windows Defender Firewall is disabled across all profiles — Domain,
     Private, and Public. The host has no active host-based packet filtering

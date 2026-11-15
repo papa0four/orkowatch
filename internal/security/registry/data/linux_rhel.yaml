@@ -16,6 +16,7 @@ firewall.firewalld_not_running:
   cvss_score: 8.2
   cvss_vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:L/A:H"
   cwe: "CWE-284"
+  attack_techniques: ["T1686"]
   description: >
     firewalld is the default firewall management tool on RHEL-family systems.
     The service is installed but not in a running state, meaning no
@@ -44,6 +45,7 @@ firewall.firewalld_not_installed:
   cvss_score: 9.1
   cvss_vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N"
   cwe: "CWE-284"
+  attack_techniques: ["T1686"]
   description: >
     Neither firewalld nor any other recognized firewall manager (iptables,
     nftables) was detected on this RHEL-family system. The host has no
@@ -271,6 +273,7 @@ permissions.selinux_disabled:
   cvss_score: 7.8
   cvss_vector: "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H"
   cwe: "CWE-284"
+  attack_techniques: ["T1685"]
   description: >
     SELinux is either disabled or configured in permissive mode on this
     RHEL-family system. SELinux provides mandatory access controls that

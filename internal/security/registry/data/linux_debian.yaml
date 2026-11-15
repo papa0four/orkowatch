@@ -16,6 +16,7 @@ firewall.ufw_inactive:
   cvss_score: 8.2
   cvss_vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:L/A:H"
   cwe: "CWE-284"
+  attack_techniques: ["T1686"]
   description: >
     Uncomplicated Firewall (UFW) is the default firewall management tool
     on Debian and Ubuntu systems. UFW is installed but reported as inactive,
@@ -43,6 +44,7 @@ firewall.ufw_not_installed:
   cvss_score: 9.1
   cvss_vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N"
   cwe: "CWE-284"
+  attack_techniques: ["T1686"]
   description: >
     Neither UFW nor any other recognized firewall manager (iptables,
     nftables, firewalld) was detected on this Debian-family system.
