@@ -117,6 +117,9 @@ Results can be output in various formats and saved to a file.`,
   # Skip individual audit checks within the audit module
   owatch all --skip-checks firewall,permissions
 
+  # Print the report as text instead of opening the results browser
+  owatch all --plain
+
   # Save report to directory in JSON format
   owatch all -o json --report-file /path/to/reports`,
 	}
@@ -405,9 +408,9 @@ func incompleteDetail(result *ScanResult) string {
 	}
 
 	if len(parts) == 0 {
-		return "results above are incomplete"
+		return "results shown are incomplete"
 	}
-	return "results above are incomplete; rerun with a longer --timeout or " + strings.Join(parts, " ")
+	return "results shown are incomplete; rerun with a longer --timeout or " + strings.Join(parts, " ")
 }
 
 func (c *allCmd) runSecurityAuditModule(ctx context.Context, mask selection.CheckMask, hostInfo *osfingerprint.OSInfo, reporter tui.Reporter) (*audit.Result, error) {
@@ -426,14 +429,22 @@ func (r allReport) View() any {
 	return r.c.toAllResult(r.result)
 }
 
+// Browse returns what the results browser shows for the scan, from the same
+// projection View returns. The system block and the software inventory have
+// no rules to list; they are in text, which the browser pages through.
+func (r allReport) Browse(text string) tui.Report {
+	view := r.c.toAllResult(r.result)
+	return security.BrowserReport("owatch all", view.Security, view.System, text)
+}
+
 // WriteText renders the human-readable summary of the scan.
 func (r allReport) WriteText(w io.Writer) error {
 	return r.c.renderAllText(w, r.result)
 }
 
 // renderAllText writes a concise human-readable summary of the scan result
-// to w, returning the first write error. This is the non-TUI text path; it
-// will be replaced by the Bubbletea progress display when #35 lands.
+// to w, returning the first write error. It is what plain output prints and
+// what the results browser pages through as the full report.
 func (c *allCmd) renderAllText(w io.Writer, result *ScanResult) error {
 	ew := render.NewErrWriter(w)
 	ew.Printf("owatch all  --  %s\n\n", result.Timestamp.UTC().Format(time.RFC3339))

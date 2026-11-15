@@ -183,16 +183,21 @@ func writeDetails(ew *render.ErrWriter, details []string) {
 	}
 }
 
-// writeReference writes a single reference as "Type: Title", appending the
-// URL in parentheses when it differs from Title. registry.classifyReference
-// always sets Title to the human- or ID-readable form and sets URL only
-// when a distinct link exists, so the two are never printed twice.
+// writeReference writes a single reference as ReferenceText renders it.
 func writeReference(ew *render.ErrWriter, ref finding.Reference) {
+	ew.Printf("    %s\n", ReferenceText(ref))
+}
+
+// ReferenceText renders a reference as "Type: Title", appending the URL in
+// parentheses when it differs from Title. registry.classifyReference always
+// sets Title to the human- or ID-readable form and sets URL only when a
+// distinct link exists, so the two are never printed twice. It is shared so
+// every view of a finding cites its references the same way.
+func ReferenceText(ref finding.Reference) string {
 	if ref.URL != "" && ref.URL != ref.Title {
-		ew.Printf("    %s: %s (%s)\n", ref.Type, ref.Title, ref.URL)
-		return
+		return fmt.Sprintf("%s: %s (%s)", ref.Type, ref.Title, ref.URL)
 	}
-	ew.Printf("    %s: %s\n", ref.Type, ref.Title)
+	return fmt.Sprintf("%s: %s", ref.Type, ref.Title)
 }
 
 // writeSummary renders the summary block: checks and conditions broken down

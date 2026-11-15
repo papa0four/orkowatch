@@ -32,6 +32,7 @@ func newRootCmd() *cobra.Command {
 
 	root.AddCommand(
 		newAllCmd(),
+		newBrowseCmd(),
 		newOsinfoCmd(),
 		newSoftwareCmd(),
 		newVersionCmd(),

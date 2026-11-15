@@ -172,6 +172,9 @@ You can run all checks or specify individual checks to run.`,
   # Scan the whole filesystem without being asked first
   owatch audit --yes
 
+  # Print the report as text instead of opening the results browser
+  owatch audit --plain
+
   # Run checks and save report to file
   owatch audit -o json --report-file /path/to/reports`,
 	}
@@ -343,9 +346,9 @@ func (c *auditCmd) runAuditWithTimeout(cmd *cobra.Command, mask selection.CheckM
 		return nil
 	}
 	if hint := selection.SkipHint(selection.CategoryCheck, result.IncompleteChecks); hint != "" {
-		return fmt.Errorf("%s; results above are incomplete; rerun with a longer --timeout or %s", cause, hint)
+		return fmt.Errorf("%s; results shown are incomplete; rerun with a longer --timeout or %s", cause, hint)
 	}
-	return fmt.Errorf("%s; results above are incomplete", cause)
+	return fmt.Errorf("%s; results shown are incomplete", cause)
 }
 
 // progressOptions describes this run to the progress display. The live
@@ -377,6 +380,13 @@ func (c *auditCmd) outputResults(result *audit.Result, mask selection.CheckMask)
 // View returns the severity-filtered audit projection.
 func (r auditReport) View() any {
 	return r.result.View(r.c.audit.MinSeverity())
+}
+
+// Browse returns what the results browser shows for the audit, from the same
+// severity-filtered projection View returns.
+func (r auditReport) Browse(text string) tui.Report {
+	view := r.result.View(r.c.audit.MinSeverity())
+	return BrowserReport("owatch audit", &view, view.SystemInfo, text)
 }
 
 // WriteText renders the audit as human-readable text: the system block via
