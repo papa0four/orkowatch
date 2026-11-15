@@ -37,7 +37,7 @@ const (
 
 	// resultColumn is the width the severity or result label is padded to
 	// in a list row.
-	resultColumn = 13
+	resultColumn = 14
 
 	// summaryLabelWidth is the column the summary's figures line up at.
 	summaryLabelWidth = 14
@@ -169,6 +169,15 @@ func Browse(report Report) error {
 // show for it.
 func (i Item) isFinding() bool {
 	return i.Result == finding.ResultFail && i.Title != ""
+}
+
+// needsAttention reports whether the operator has something to act on or to
+// know: a finding, or a rule that could not be evaluated. A rule that errored
+// says nothing about the host either way, so a view limited to findings would
+// hide that a check, say one that needs elevated privileges, never got an
+// answer.
+func (i Item) needsAttention() bool {
+	return i.isFinding() || i.Result == finding.ResultError || i.Result == finding.ResultUnknown
 }
 
 func newBrowser(report Report) browser {
@@ -423,8 +432,8 @@ func (b *browser) refilter() {
 	b.visible = b.visible[:0]
 	for i, item := range b.report.Items {
 		switch {
-		case b.findingsOnly && !item.isFinding():
-		case b.severity > 0 && (!item.isFinding() || item.Severity != b.severities[b.severity]):
+		case !b.admits(item):
+		case b.severity > 0 && item.Severity != b.severities[b.severity]:
 		case b.check > 0 && item.Check != b.checks[b.check]:
 		case needle != "" && !b.index[i].matches(needle):
 		default:
@@ -613,8 +622,11 @@ func (b browser) help() string {
 // narrowing them. A severity filter shows only findings, since no other rule
 // has a severity, and the line says so.
 func (b browser) searchView() string {
-	scope := "findings"
-	if !b.findingsOnly && b.severity == 0 {
+	scope := "findings and errors"
+	switch {
+	case b.severity > 0:
+		scope = "findings"
+	case !b.findingsOnly:
 		scope = "rules"
 	}
 	status := fmt.Sprintf("%d of %d %s", len(b.visible), b.total(), scope)
@@ -641,20 +653,30 @@ func (b browser) searchView() string {
 	return styleText.Render(line)
 }
 
-// total counts the items the scope admits before the other filters and the
-// search: every rule, or only findings when the toggle or a severity filter
-// limits it to them.
-func (b browser) total() int {
-	if !b.findingsOnly && b.severity == 0 {
-		return len(b.report.Items)
+// admits reports whether the scope lets an item through before the other
+// filters and the search: findings only when a severity is chosen, since no
+// other rule has one; findings and rules that could not be evaluated in the
+// default view; every rule once the toggle is on.
+func (b browser) admits(item Item) bool {
+	switch {
+	case b.severity > 0:
+		return item.isFinding()
+	case b.findingsOnly:
+		return item.needsAttention()
+	default:
+		return true
 	}
-	var findings int
+}
+
+// total counts the items the scope admits.
+func (b browser) total() int {
+	var admitted int
 	for _, item := range b.report.Items {
-		if item.isFinding() {
-			findings++
+		if b.admits(item) {
+			admitted++
 		}
 	}
-	return findings
+	return admitted
 }
 
 // filterView renders the two filter groups and the run's summary.
@@ -728,7 +750,11 @@ func (browser) rowText(item Item) string {
 		symbol, _ := finding.SeverityFormat(item.Severity)
 		return fmt.Sprintf("%s %-*s%s  (%s)", symbol, resultColumn, strings.ToLower(item.Severity), item.Title, item.Check)
 	}
-	return fmt.Sprintf("%s %-*s%s  (%s)", resultMark(item.Result), resultColumn, string(item.Result), item.Key, item.Check)
+	line := fmt.Sprintf("%s %-*s%s  (%s)", resultMark(item.Result), resultColumn, string(item.Result), item.Key, item.Check)
+	if item.Reason != "" {
+		line += "  " + item.Reason
+	}
+	return line
 }
 
 // detailText renders everything known about one item for the detail pane.
