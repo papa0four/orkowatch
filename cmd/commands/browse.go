@@ -21,6 +21,7 @@ import (
 	"github.com/papa0four/orkowatch/internal/osfingerprint"
 	"github.com/papa0four/orkowatch/internal/render"
 	"github.com/papa0four/orkowatch/internal/security/audit"
+	"github.com/papa0four/orkowatch/internal/softwarelist"
 	"github.com/papa0four/orkowatch/internal/tui"
 )
 
@@ -38,9 +39,10 @@ type (
 	savedReport struct {
 		audit.View `yaml:",inline"`
 
-		Modules  []moduleRun               `json:"modules" yaml:"modules"`
-		System   *osfingerprint.SystemView `json:"system" yaml:"system"`
-		Security *audit.View               `json:"security" yaml:"security"`
+		Modules  []moduleRun                `json:"modules" yaml:"modules"`
+		System   *osfingerprint.SystemView  `json:"system" yaml:"system"`
+		Software *softwarelist.SoftwareView `json:"software" yaml:"software"`
+		Security *audit.View                `json:"security" yaml:"security"`
 	}
 )
 
@@ -165,9 +167,21 @@ func decodeReport(path string, data []byte) (tui.Report, error) {
 	title := "owatch browse  " + filepath.Base(path)
 	switch {
 	case len(saved.Modules) > 0 && readable(saved.Security):
-		return security.BrowserReport(title, saved.Security, saved.System, string(data)), nil
+		return security.BrowserReport(security.BrowserSource{
+			Title:    title,
+			Audit:    saved.Security,
+			System:   saved.System,
+			Software: saved.Software,
+			Modules:  moduleNotes(saved.Modules),
+			Text:     string(data),
+		}), nil
 	case len(saved.Modules) == 0 && len(saved.Results) > 0 && readable(&saved.View):
-		return security.BrowserReport(title, &saved.View, saved.SystemInfo, string(data)), nil
+		return security.BrowserReport(security.BrowserSource{
+			Title:  title,
+			Audit:  &saved.View,
+			System: saved.SystemInfo,
+			Text:   string(data),
+		}), nil
 	default:
 		return tui.Report{}, fmt.Errorf("%s is not an owatch audit or all report this version can read", path)
 	}

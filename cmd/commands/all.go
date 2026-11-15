@@ -430,11 +430,27 @@ func (r allReport) View() any {
 }
 
 // Browse returns what the results browser shows for the scan, from the same
-// projection View returns. The system block and the software inventory have
-// no rules to list; they are in text, which the browser pages through.
+// projection View returns, so a saved report opens to the same tabs.
 func (r allReport) Browse(text string) tui.Report {
 	view := r.c.toAllResult(r.result)
-	return security.BrowserReport("owatch all", view.Security, view.System, text)
+	return security.BrowserReport(security.BrowserSource{
+		Title:    "owatch all",
+		Audit:    view.Security,
+		System:   view.System,
+		Software: view.Software,
+		Modules:  moduleNotes(view.Modules),
+		Text:     text,
+	})
+}
+
+// moduleNotes converts how each module ended to what the browser explains an
+// empty tab with.
+func moduleNotes(modules []moduleRun) []security.ModuleNote {
+	notes := make([]security.ModuleNote, 0, len(modules))
+	for _, m := range modules {
+		notes = append(notes, security.ModuleNote{Name: m.Name, Result: m.Result, Reason: m.Reason})
+	}
+	return notes
 }
 
 // WriteText renders the human-readable summary of the scan.

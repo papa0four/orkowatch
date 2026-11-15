@@ -75,7 +75,13 @@ type (
 		When    string
 		Summary []SummaryLine
 		Items   []Item
-		Text    string
+
+		// FindingsNote stands in for the findings tab when there are no rules
+		// to list, as when the audit was skipped. Tabs are the other sources'
+		// views, in the order they are offered.
+		FindingsNote string
+		Tabs         []Tab
+		Text         string
 	}
 
 	// SummaryLine is one labelled figure in the browser's summary.
@@ -152,6 +158,14 @@ type (
 		detail   viewport.Model
 		text     viewport.Model
 		showText bool
+
+		// tabs lists the views on offer and active is the one showing. panes
+		// is parallel to tabs, nil for findings; queries holds each tab's
+		// search while another tab is showing.
+		tabs    []tabDef
+		active  int
+		panes   []*recordPane
+		queries []string
 	}
 )
 
@@ -192,10 +206,15 @@ func newBrowser(report Report) browser {
 		shown:        -1,
 		detail:       viewport.New(),
 		text:         viewport.New(),
-		// A run with no rules to list, such as one that skipped the audit,
-		// still has its report to read.
-		showText: len(report.Items) == 0,
 	}
+	b.tabs = buildTabs(report)
+	b.panes = buildPanes(report, b.tabs)
+	b.queries = make([]string, len(b.tabs))
+	// A run with nothing to list, such as one that skipped every module,
+	// still has its report to read.
+	b.showText = len(b.tabs) == 0
+	b.detail.KeyMap = detailKeys
+	b.text.KeyMap = detailKeys
 	b.detail.SetHorizontalStep(sideScroll)
 	b.text.SetHorizontalStep(sideScroll)
 	b.text.SetContent(report.Text)
@@ -215,7 +234,13 @@ func newBrowser(report Report) browser {
 	b.index = buildIndex(report.Items)
 
 	b.layout()
-	b.refilter()
+	b.refilterFindings()
+	for _, p := range b.panes {
+		if p != nil {
+			p.refilter("")
+		}
+	}
+	b.showSelected()
 	return b
 }
 
@@ -279,22 +304,18 @@ func (b browser) onKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return b.onTextKey(msg)
 	}
 
+	if next, ok := b.onTabKey(key); ok {
+		return next, nil
+	}
+
 	switch key {
 	case "t":
 		b.showText = true
 		return b, nil
 	case "/":
-		b.searching = true
-		b.focus = focusList
-		return b, nil
-	case "a":
-		b.findingsOnly = !b.findingsOnly
-		b.refilter()
-		return b, nil
-	case "e":
-		if b.evidenceCut() > 0 {
-			b.fullEvidence = true
-			b.showSelected()
+		if p := b.activePane(); p == nil || !p.listless() {
+			b.searching = true
+			b.focus = focusList
 		}
 		return b, nil
 	case "tab":
@@ -302,6 +323,49 @@ func (b browser) onKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return b, nil
 	case "shift+tab":
 		b.cycleFocus(focusCount - 1)
+		return b, nil
+	}
+
+	if b.activePane() != nil {
+		return b.onRecordKey(msg)
+	}
+	return b.onFindingKey(msg)
+}
+
+// onTabKey switches tabs on a tab's letter, a digit, or a bracket, reporting
+// whether the key was one. With a single tab there is nothing to switch to.
+func (b browser) onTabKey(k string) (browser, bool) {
+	if len(b.tabs) < 2 {
+		return b, false
+	}
+	switch k {
+	case "]":
+		b.selectTab((b.active + 1) % len(b.tabs))
+		return b, true
+	case "[":
+		b.selectTab((b.active + len(b.tabs) - 1) % len(b.tabs))
+		return b, true
+	}
+	if i := b.tabForKey(k); i >= 0 {
+		b.selectTab(i)
+		return b, true
+	}
+	return b, false
+}
+
+// onFindingKey drives the findings tab: its two toggles, then the focused pane.
+func (b browser) onFindingKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	key := msg.String()
+	switch key {
+	case "a":
+		b.findingsOnly = !b.findingsOnly
+		b.refilter()
+		return b, nil
+	case "x":
+		if b.evidenceCut() > 0 {
+			b.fullEvidence = true
+			b.showSelected()
+		}
 		return b, nil
 	}
 
@@ -324,10 +388,10 @@ func (b browser) onKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 // ends, so those are handled here with the same keys the list uses.
 func scroll(pane *viewport.Model, msg tea.KeyPressMsg) tea.Cmd {
 	switch msg.String() {
-	case "home", "g":
+	case "home":
 		pane.GotoTop()
 		return nil
-	case "end", "G":
+	case "end":
 		pane.GotoBottom()
 		return nil
 	}
@@ -365,7 +429,7 @@ func (b *browser) onSearchKey(msg tea.KeyPressMsg) {
 func (b browser) onTextKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "t", "esc":
-		b.showText = len(b.report.Items) == 0
+		b.showText = len(b.tabs) == 0
 		return b, nil
 	}
 	return b, scroll(&b.text, msg)
@@ -385,9 +449,9 @@ func (b *browser) cycleFocus(step focus) {
 func (b *browser) onFilterKey(key string) {
 	last := len(b.severities) + len(b.checks) - 1
 	switch key {
-	case "up", "k":
+	case "up":
 		b.filterCursor = max(b.filterCursor-1, 0)
-	case "down", "j":
+	case "down":
 		b.filterCursor = min(b.filterCursor+1, last)
 	case "enter", "space":
 		if b.filterCursor < len(b.severities) {
@@ -403,17 +467,17 @@ func (b *browser) onFilterKey(key string) {
 func (b *browser) onListKey(key string) {
 	page := max(b.listHeight()-1, 1)
 	switch key {
-	case "up", "k":
+	case "up":
 		b.cursor--
-	case "down", "j":
+	case "down":
 		b.cursor++
 	case "pgup":
 		b.cursor -= page
 	case "pgdown":
 		b.cursor += page
-	case "home", "g":
+	case "home":
 		b.cursor = 0
-	case "end", "G":
+	case "end":
 		b.cursor = len(b.visible) - 1
 	case "enter":
 		b.focus = focusDetail
@@ -425,9 +489,20 @@ func (b *browser) onListKey(key string) {
 	b.showSelected()
 }
 
-// refilter recomputes which items the filters and the search leave visible,
-// and resets the selection to the first of them.
+// refilter recomputes what the search leaves visible on the active tab, and
+// resets the selection to the first of it.
 func (b *browser) refilter() {
+	if p := b.activePane(); p != nil {
+		p.refilter(b.needle())
+		p.show(b.listHeight(), b.mainWidth())
+		return
+	}
+	b.refilterFindings()
+}
+
+// refilterFindings recomputes which items the filters and the search leave
+// visible, and resets the selection to the first of them.
+func (b *browser) refilterFindings() {
 	needle := strings.ToLower(strings.TrimSpace(b.query))
 	b.visible = b.visible[:0]
 	for i, item := range b.report.Items {
@@ -445,7 +520,7 @@ func (b *browser) refilter() {
 	// The evidence the pane holds depends on the search, so it is rebuilt
 	// even when the same item stays selected.
 	b.shown = -1
-	b.showSelected()
+	b.showFinding()
 }
 
 // needle is the search text as it is matched: trimmed and lower-case.
@@ -470,11 +545,20 @@ func (b browser) evidenceFor(index int) []string {
 	return kept
 }
 
-// showSelected keeps the selection inside the list's window and loads the
+// showSelected loads the selection of the active tab into its detail pane.
+func (b *browser) showSelected() {
+	if p := b.activePane(); p != nil {
+		p.show(b.listHeight(), b.mainWidth())
+		return
+	}
+	b.showFinding()
+}
+
+// showFinding keeps the selection inside the list's window and loads the
 // selected item into the detail pane. The pane starts at the top for a newly
 // selected item and keeps its place when the same item is redrawn, as it is
 // when the window is resized.
-func (b *browser) showSelected() {
+func (b *browser) showFinding() {
 	rows := b.listHeight()
 	switch {
 	case b.cursor < b.listTop:
@@ -522,16 +606,22 @@ func (b *browser) layout() {
 	b.detail.SetHeight(max(b.bodyHeight()-b.listHeight()-searchLines-ruleLines, 1))
 	b.text.SetWidth(max(b.width, 1))
 	b.text.SetHeight(b.bodyHeight())
+	for _, p := range b.panes {
+		if p != nil {
+			p.layout(*b)
+		}
+	}
 }
 
 func (b browser) bodyHeight() int {
-	return max(b.height-headerLines-footerLines, 1)
+	return max(b.height-headerLines-footerLines-b.tabBarHeight(), 1)
 }
 
-// filtersShown reports whether the window is wide enough for the filter pane
-// beside a main pane of at least minWidth columns.
+// filtersShown reports whether the findings tab is showing and the window is
+// wide enough for the filter pane beside a main pane of at least minWidth
+// columns. Other tabs have no filters and use the whole width.
 func (b browser) filtersShown() bool {
-	return b.width >= filterWidth+paneRule+minWidth
+	return b.isFindings() && b.width >= filterWidth+paneRule+minWidth
 }
 
 func (b browser) mainWidth() int {
@@ -568,8 +658,19 @@ func (b browser) render() string {
 	header := styleTitle.Render("owatch") + styleMuted.Render(truncate(about, max(b.width-len("owatch"), 1)))
 	footer := styleMuted.Render(truncate(b.help(), b.width))
 
-	if b.showText {
-		return header + "\n" + b.text.View() + "\n" + footer
+	top := header
+	if b.tabBarHeight() > 0 {
+		top += "\n" + b.tabBar()
+	}
+
+	switch p := b.activePane(); {
+	case b.showText:
+		return top + "\n" + b.text.View() + "\n" + footer
+	case p != nil:
+		return top + "\n" + b.recordBody(p) + "\n" + footer
+	case len(b.report.Items) == 0:
+		note := fitPane(styleMuted.Render(b.report.FindingsNote), b.width, b.bodyHeight())
+		return top + "\n" + note + "\n" + footer
 	}
 
 	main := lipgloss.JoinVertical(lipgloss.Left,
@@ -586,7 +687,7 @@ func (b browser) render() string {
 			body,
 		)
 	}
-	return header + "\n" + body + "\n" + footer
+	return top + "\n" + body + "\n" + footer
 }
 
 // fitPane pads or clips text to exactly width columns and height lines.
@@ -596,24 +697,35 @@ func fitPane(text string, width, height int) string {
 
 // help names the keys that do something in the focused pane.
 func (b browser) help() string {
-	const common = "   tab pane   / search   a all rules   t full report   q quit"
-	evidence := ""
-	if b.evidenceCut() > 0 {
-		evidence = "   e all evidence"
+	tabs := ""
+	if len(b.tabs) > 1 {
+		tabs = "   letter or [ ] tab"
 	}
+	common := "   tab pane   / search" + tabs + "   t full report   q quit"
+	findings := "   a all rules"
+	if b.evidenceCut() > 0 {
+		findings += "   x all evidence"
+	}
+	pane := b.activePane()
 	switch {
-	case b.showText && len(b.report.Items) == 0:
+	case b.showText && len(b.tabs) == 0:
 		return "full report   up/down pgup/pgdn scroll   left/right pan   q quit"
 	case b.showText:
-		return "full report   up/down pgup/pgdn scroll   left/right pan   t or esc back   q quit"
+		return "full report   up/down pgup/pgdn scroll   left/right pan   t or esc back" + tabs + "   q quit"
 	case b.searching:
 		return "type to search   enter keep   esc clear"
+	case pane != nil && pane.listless():
+		return "up/down pgup/pgdn scroll   left/right pan" + tabs + "   t full report   q quit"
+	case pane != nil && b.focus == focusDetail:
+		return "up/down pgup/pgdn scroll   left/right pan   esc list" + common
+	case pane != nil:
+		return "up/down pgup/pgdn move   enter detail" + common
 	case b.focus == focusFilters:
-		return "up/down move   enter apply" + common
+		return "up/down move   enter apply" + findings + common
 	case b.focus == focusDetail:
-		return "up/down pgup/pgdn scroll   left/right pan   esc list" + evidence + common
+		return "up/down pgup/pgdn scroll   left/right pan   esc list" + findings + common
 	default:
-		return "up/down pgup/pgdn move   enter detail" + evidence + common
+		return "up/down pgup/pgdn move   enter detail" + findings + common
 	}
 }
 
@@ -636,7 +748,12 @@ func (b browser) searchView() string {
 	if b.check > 0 {
 		status += "  check " + b.checks[b.check]
 	}
+	return b.queryLine(status)
+}
 
+// queryLine renders the line above a list: the search text when there is any,
+// then the status the tab gives of what the list holds.
+func (b browser) queryLine(status string) string {
 	var query string
 	switch {
 	case b.searching:
