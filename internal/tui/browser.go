@@ -5,6 +5,7 @@ package tui
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"charm.land/bubbles/v2/viewport"
@@ -102,6 +103,14 @@ type (
 		Evidence    []string
 	}
 
+	// itemIndex is an item's searchable text, lower-cased once when the
+	// browser opens so a keystroke costs a substring test rather than a
+	// conversion of every line of every item's evidence.
+	itemIndex struct {
+		text     string
+		evidence []string
+	}
+
 	// browser is the results browser's state.
 	browser struct {
 		report Report
@@ -133,6 +142,12 @@ type (
 		// evidence rather than the first evidencePreview lines.
 		shown        int
 		fullEvidence bool
+
+		// index holds each item's searchable text, parallel to
+		// report.Items. evidence is the shown item's evidence lines that
+		// the search leaves in: all of them when there is no search.
+		index    []itemIndex
+		evidence []string
 
 		detail   viewport.Model
 		text     viewport.Model
@@ -188,9 +203,36 @@ func newBrowser(report Report) browser {
 		}
 	}
 
+	b.index = buildIndex(report.Items)
+
 	b.layout()
 	b.refilter()
 	return b
+}
+
+// buildIndex lower-cases every field of every item a search looks in.
+func buildIndex(items []Item) []itemIndex {
+	index := make([]itemIndex, len(items))
+	for i, item := range items {
+		fields := []string{item.Title, item.Key, item.Check, item.Reason, item.Description,
+			item.Impact, item.Resolution}
+		fields = append(fields, item.Categories...)
+		fields = append(fields, item.References...)
+		index[i].text = strings.ToLower(strings.Join(fields, "\n"))
+		index[i].evidence = make([]string, len(item.Evidence))
+		for j, line := range item.Evidence {
+			index[i].evidence[j] = strings.ToLower(line)
+		}
+	}
+	return index
+}
+
+// matches reports whether needle, already lower-case, is in the item's
+// fields or in any line of its evidence.
+func (x itemIndex) matches(needle string) bool {
+	return strings.Contains(x.text, needle) || slices.ContainsFunc(x.evidence, func(line string) bool {
+		return strings.Contains(line, needle)
+	})
 }
 
 func (b browser) Init() tea.Cmd {
@@ -384,14 +426,39 @@ func (b *browser) refilter() {
 		case b.findingsOnly && !item.isFinding():
 		case b.severity > 0 && (!item.isFinding() || item.Severity != b.severities[b.severity]):
 		case b.check > 0 && item.Check != b.checks[b.check]:
-		case needle != "" && !strings.Contains(strings.ToLower(item.Title+" "+item.Key+" "+item.Check), needle):
+		case needle != "" && !b.index[i].matches(needle):
 		default:
 			b.visible = append(b.visible, i)
 		}
 	}
 	b.cursor = 0
 	b.listTop = 0
+	// The evidence the pane holds depends on the search, so it is rebuilt
+	// even when the same item stays selected.
+	b.shown = -1
 	b.showSelected()
+}
+
+// needle is the search text as it is matched: trimmed and lower-case.
+func (b browser) needle() string {
+	return strings.ToLower(strings.TrimSpace(b.query))
+}
+
+// evidenceFor returns the lines of an item's evidence the search leaves in,
+// which is all of them when nothing is being searched for.
+func (b browser) evidenceFor(index int) []string {
+	lines := b.report.Items[index].Evidence
+	needle := b.needle()
+	if needle == "" {
+		return lines
+	}
+	var kept []string
+	for i, lower := range b.index[index].evidence {
+		if strings.Contains(lower, needle) {
+			kept = append(kept, lines[i])
+		}
+	}
+	return kept
 }
 
 // showSelected keeps the selection inside the list's window and loads the
@@ -419,6 +486,9 @@ func (b *browser) showSelected() {
 	} else {
 		b.fullEvidence = false
 	}
+	if index != b.shown {
+		b.evidence = b.evidenceFor(index)
+	}
 	b.detail.SetContent(b.detailText(b.report.Items[index]))
 	b.detail.SetYOffset(offset)
 	b.shown = index
@@ -430,7 +500,7 @@ func (b browser) evidenceCut() int {
 	if b.fullEvidence || b.shown < 0 {
 		return 0
 	}
-	return max(len(b.report.Items[b.shown].Evidence)-evidencePreview, 0)
+	return max(len(b.evidence)-evidencePreview, 0)
 }
 
 // layout sizes the panes to the window. A focused filter pane that no longer
@@ -691,13 +761,17 @@ func (b browser) detailText(item Item) string {
 	section("references", strings.Join(item.References, "\n"))
 
 	if len(item.Evidence) > 0 {
-		out.WriteString("\n" + styleMuted.Render(fmt.Sprintf("evidence (%d)", len(item.Evidence))) + "\n")
-		lines := item.Evidence
+		heading := fmt.Sprintf("evidence (%d)", len(item.Evidence))
+		if len(b.evidence) != len(item.Evidence) {
+			heading = fmt.Sprintf("evidence (%d of %d match the search)", len(b.evidence), len(item.Evidence))
+		}
+		out.WriteString("\n" + styleMuted.Render(heading) + "\n")
+		lines := b.evidence
 		if !b.fullEvidence && len(lines) > evidencePreview {
 			lines = lines[:evidencePreview]
 		}
 		out.WriteString(strings.Join(lines, "\n") + "\n")
-		if cut := len(item.Evidence) - len(lines); cut > 0 {
+		if cut := len(b.evidence) - len(lines); cut > 0 {
 			out.WriteString(styleNotice.Render(fmt.Sprintf("%d more; press e to load all", cut)) + "\n")
 		}
 	}

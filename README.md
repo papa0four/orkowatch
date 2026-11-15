@@ -193,7 +193,7 @@ the complete plain report.
 | up/down, `j`/`k`, pgup/pgdn, `g`/`G` | Move through the focused pane |
 | left/right | Pan the detail pane or the full report sideways |
 | `enter` | Apply a filter, or open the selected item in the detail pane |
-| `/` | Search titles and rule keys; `enter` keeps the search, `esc` clears it |
+| `/` | Search titles, rule keys, descriptions, references and evidence; the detail pane then shows only the matching evidence lines; `enter` keeps the search, `esc` clears it |
 | `a` | Show every evaluated rule, not only findings |
 | `e` | Load all of a finding's evidence when only the first 500 lines are shown |
 | `t` | Show the complete plain report; `t` or `esc` returns |
