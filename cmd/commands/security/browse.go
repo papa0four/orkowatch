@@ -133,6 +133,7 @@ func attackTab(view *audit.View) (tui.Tab, bool) {
 			Fields: []tui.SummaryLine{
 				{Label: "tactics", Value: safeLines(tactics)},
 				{Label: "page", Value: safeLines(g.technique.URL)},
+				{Label: "mitigations", Value: safeLines(mitigationLines(g.technique.Mitigations))},
 				{Label: "findings (" + strconv.Itoa(len(g.findings)) + ")", Value: safeLines(strings.Join(g.findings, "\n"))},
 			},
 		})
@@ -220,6 +221,16 @@ func checkItem(check audit.CheckView) tui.Item {
 	}
 }
 
+// mitigationLines lists mitigations one to a line, as the technique's page
+// lists them.
+func mitigationLines(mitigations []finding.Mitigation) string {
+	lines := make([]string, 0, len(mitigations))
+	for _, m := range mitigations {
+		lines = append(lines, audit.MitigationText(m))
+	}
+	return strings.Join(lines, "\n")
+}
+
 // browserItem converts one condition. Its check is named by the rule key's
 // prefix, the short form the browser's filter column has room for.
 func browserItem(condition audit.ConditionView) tui.Item {
@@ -243,8 +254,15 @@ func browserItem(condition audit.ConditionView) tui.Item {
 		for _, ref := range def.References {
 			item.References = append(item.References, safeLines(audit.ReferenceText(ref)))
 		}
+		seen := make(map[string]bool)
 		for _, technique := range def.Attack {
 			item.Techniques = append(item.Techniques, safeLines(audit.TechniqueText(technique)))
+			for _, m := range technique.Mitigations {
+				if !seen[m.ID] {
+					seen[m.ID] = true
+					item.Mitigations = append(item.Mitigations, safeLines(audit.MitigationText(m)))
+				}
+			}
 		}
 	}
 

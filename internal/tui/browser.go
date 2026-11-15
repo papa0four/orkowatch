@@ -107,6 +107,7 @@ type (
 		Resolution  string
 		References  []string
 		Techniques  []string
+		Mitigations []string
 		Evidence    []string
 	}
 
@@ -254,6 +255,7 @@ func buildIndex(items []Item) []itemIndex {
 		fields = append(fields, item.Categories...)
 		fields = append(fields, item.References...)
 		fields = append(fields, item.Techniques...)
+		fields = append(fields, item.Mitigations...)
 		index[i].text = strings.ToLower(strings.Join(fields, "\n"))
 		index[i].evidence = make([]string, len(item.Evidence))
 		for j, line := range item.Evidence {
@@ -905,6 +907,7 @@ func (b browser) detailText(item Item) string {
 	section("resolution", item.Resolution)
 	section("references", strings.Join(item.References, "\n"))
 	section("att&ck", strings.Join(item.Techniques, "\n"))
+	section("mitigations", strings.Join(item.Mitigations, "\n"))
 
 	if len(item.Evidence) > 0 {
 		heading := fmt.Sprintf("evidence (%d)", len(item.Evidence))

@@ -222,9 +222,10 @@ owatch browse /path/to/reports/owatch-host-SFUP-20261114T120000Z.json
 ## MITRE ATT&CK
 
 Findings that make a known ATT&CK technique available carry it: the technique's
-identifier, name and tactics appear under the finding in the text report, in the
-finding's detail in the browser, as an `attack` list on the finding in JSON and
-YAML, and as the ATT&CK tab. The mapping is static data bundled in the binary, read
+identifier, name and tactics, and the mitigations the ATT&CK site lists for it,
+appear under the finding in the text report, in the finding's detail in the
+browser, as an `attack` list on the finding in JSON and YAML, and as the ATT&CK
+tab. The mapping is static data bundled in the binary, read
 from the ATT&CK site, so it needs no flag and no network. It says what an adversary
 can do because of the condition, not that anyone has done it. A finding with no
 sound mapping carries none.
