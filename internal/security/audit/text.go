@@ -134,6 +134,12 @@ func writeFinding(ew *render.ErrWriter, condition ConditionView) error {
 			writeReference(ew, ref)
 		}
 	}
+	if len(def.Attack) > 0 {
+		ew.Printf("  ATT&CK:\n")
+		for _, technique := range def.Attack {
+			ew.Printf("    %s\n", TechniqueText(technique))
+		}
+	}
 	return writeEvidence(ew, "  ", condition.Evidence)
 }
 
@@ -181,6 +187,13 @@ func writeDetails(ew *render.ErrWriter, details []string) {
 		}
 		ew.Printf("  %s\n", render.HostText(detail))
 	}
+}
+
+// TechniqueText renders an ATT&CK technique as its identifier, name and
+// tactics. It is shared so every view of a finding cites a technique the same
+// way.
+func TechniqueText(t finding.Technique) string {
+	return fmt.Sprintf("%s %s (%s)", t.ID, t.Name, strings.Join(t.Tactics, ", "))
 }
 
 // writeReference writes a single reference as ReferenceText renders it.

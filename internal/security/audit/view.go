@@ -67,6 +67,7 @@ type (
 		Impact      string              `json:"impact,omitempty" yaml:"impact,omitempty"`
 		Resolution  string              `json:"resolution,omitempty" yaml:"resolution,omitempty"`
 		References  []finding.Reference `json:"references,omitempty" yaml:"references,omitempty"`
+		Attack      []finding.Technique `json:"attack,omitempty" yaml:"attack,omitempty"`
 	}
 )
 
@@ -153,6 +154,7 @@ func conditionView(condition finding.Condition, minSeverity string) (ConditionVi
 		Impact:      condition.Finding.Impact,
 		Resolution:  condition.Finding.Resolution,
 		References:  condition.Finding.References,
+		Attack:      condition.Finding.Techniques,
 	}
 	return view, true
 }

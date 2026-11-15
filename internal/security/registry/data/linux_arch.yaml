@@ -113,6 +113,7 @@ users.sudo_nopasswd:
   cvss_score: 8.8
   cvss_vector: "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H"
   cwe: "CWE-269"
+  attack_techniques: ["T1548.003"]
   description: >
     A sudoers rule contains the NOPASSWD tag, allowing one or more users
     to execute commands with elevated privileges without providing a
@@ -202,6 +203,7 @@ permissions.shadow_world_readable:
   cvss_score: 9.1
   cvss_vector: "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:N"
   cwe: "CWE-732"
+  attack_techniques: ["T1003.008"]
   description: >
     /etc/shadow has permissions that allow non-root users to read its
     contents. On Arch Linux the expected permission is 640 with ownership
@@ -259,6 +261,7 @@ permissions.ssh_dir_permissions:
   cvss_score: 7.8
   cvss_vector: "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H"
   cwe: "CWE-732"
+  attack_techniques: ["T1098.004", "T1552.004"]
   description: >
     A user's ~/.ssh directory or ~/.ssh/authorized_keys file has
     permissions that exceed the expected mode. On Arch Linux, OpenSSH

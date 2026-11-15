@@ -1,0 +1,55 @@
+# MITRE ATT&CK techniques the registry's finding definitions reference.
+#
+# Each entry was read from its technique page on attack.mitre.org on
+# 2026-11-15, where the site's current release is ATT&CK v20.1 (13 October
+# 2026). The id, name and tactics are as the page lists them. An entry with no
+# definition referencing it, or a definition naming an id absent here, stops
+# the registry from loading.
+#
+# A technique is attached to a finding where the technique's page, or the
+# finding's own impact text, names the host condition the finding reports. It
+# says what an adversary can do because of that condition. It does not say the
+# adversary has done it.
+
+version: "v20.1"
+
+techniques:
+  T1003.008:
+    name: "/etc/passwd and /etc/shadow"
+    tactics: ["Credential Access"]
+  T1021.002:
+    name: "SMB/Windows Admin Shares"
+    tactics: ["Lateral Movement"]
+  T1021.004:
+    name: "SSH"
+    tactics: ["Lateral Movement"]
+  T1078.003:
+    name: "Local Accounts"
+    tactics: ["Stealth", "Persistence", "Privilege Escalation", "Initial Access"]
+  T1098.004:
+    name: "SSH Authorized Keys"
+    tactics: ["Persistence", "Privilege Escalation"]
+  T1110.001:
+    name: "Password Guessing"
+    tactics: ["Credential Access"]
+  T1548.001:
+    name: "Setuid and Setgid"
+    tactics: ["Privilege Escalation"]
+  T1548.002:
+    name: "Bypass User Account Control"
+    tactics: ["Privilege Escalation"]
+  T1548.003:
+    name: "Sudo and Sudo Caching"
+    tactics: ["Privilege Escalation"]
+  T1552.004:
+    name: "Private Keys"
+    tactics: ["Credential Access"]
+  T1574.001:
+    name: "DLL"
+    tactics: ["Stealth", "Execution"]
+  T1574.005:
+    name: "Executable Installer File Permissions Weakness"
+    tactics: ["Stealth", "Execution"]
+  T1574.010:
+    name: "Services File Permissions Weakness"
+    tactics: ["Stealth", "Execution"]
