@@ -1,6 +1,11 @@
 # MITRE ATT&CK techniques and mitigations the registry's finding definitions
 # reference.
 #
+# MITRE's license for this content requires that any copy reproduce MITRE's
+# copyright designation and the license. That notice is in
+# internal/notices/THIRD_PARTY_NOTICES.md, is embedded in the binary, and is
+# printed by owatch notices.
+#
 # Each entry was read from its page on attack.mitre.org on 2026-11-15, where
 # the site's current release is ATT&CK v20.1 (13 October 2026). The id, name
 # and tactics of a technique, and the mitigations its page lists, are as the

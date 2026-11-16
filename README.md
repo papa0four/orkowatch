@@ -32,8 +32,8 @@ and open an issue against this doc.
 - **`--enrich` currently has no effect.** No CVE/CWE enrichment adapter
   (NVD, CISA KEV, EPSS, GHSA) is wired yet. The flag is accepted and does
   nothing; findings are not annotated with CVE data.
-- **`--mitre` does not exist yet.** MITRE ATT&CK mapping is planned but not
-  implemented; passing it will fail as an unknown flag.
+- **There is no `--mitre` flag.** MITRE ATT&CK® mapping is registry data shown
+  by default; see MITRE ATT&CK below. Passing `--mitre` fails as an unknown flag.
 - **macOS and BSD are implemented but not yet fully verified.** The Unix
   checkers carry macOS, FreeBSD, and OpenBSD code paths, and the registry
   ships finding definitions for each, but no result has been confirmed against
@@ -63,6 +63,7 @@ and open an issue against this doc.
 | `owatch browse [report-file]` | Open a saved report in the results browser; reads any format that holds the whole report (JSON, YAML) |
 | `owatch completion` | Generate shell completion scripts (see Shell Completion below) |
 | `owatch help` | Show the full command menu (equivalent to `-h`/`--help`) |
+| `owatch notices` | Print the third-party notices for the MITRE data owatch carries |
 | `owatch version` | Display current version |
 
 > `-V`/`--version` on any invocation is equivalent to running `owatch version`.
@@ -186,13 +187,13 @@ browser instead of printing the report, because a whole-filesystem scan produces
 far more lines than a terminal keeps. The browser has a tab for each part of the
 run: Findings lists each finding with its severity and shows the selected one in
 full with its evidence; System shows the host's fingerprint; Software lists the
-installed packages and can be searched; ATT&CK groups the findings by the MITRE
-ATT&CK technique each makes available. A tab for a module that was skipped or
+installed packages and can be searched; MITRE ATT&CK® groups the findings by the
+technique each makes available. A tab for a module that was skipped or
 failed says so. The complete plain report is one key away.
 
 | Key | Action |
 |---|---|
-| `f`, `o`, `s`, `m` | Switch to the Findings, System, Software or ATT&CK tab; each tab's letter is shown in the tab bar |
+| `f`, `o`, `s`, `m` | Switch to the Findings, System, Software or MITRE ATT&CK tab; each tab's letter is shown in the tab bar |
 | `[`, `]`, `1` to `9` | Step to the previous or next tab, or go to a tab by its number |
 | `tab`, `shift+tab` | Move between the filter, list and detail panes |
 | up/down, pgup/pgdn, home/end | Move through the focused pane |
@@ -254,14 +255,24 @@ owatch browse -o json /path/to/reports/owatch-host-SFUP-20261114T120000Z.json
 
 ## MITRE ATT&CK
 
-Findings that make a known ATT&CK technique available carry it: the technique's
+Findings that make a known MITRE ATT&CK® technique available carry it: the technique's
 identifier, name and tactics, and the mitigations the ATT&CK site lists for it,
 appear under the finding in the text report, in the finding's detail in the
-browser, as an `attack` list on the finding in JSON and YAML, and as the ATT&CK
-tab. The mapping is static data bundled in the binary, read
+browser, as an `attack` list on the finding in JSON and YAML, and as the MITRE
+ATT&CK tab. The mapping is static data bundled in the binary, read
 from the ATT&CK site, so it needs no flag and no network. It says what an adversary
 can do because of the condition, not that anyone has done it. A finding with no
 sound mapping carries none.
+
+## Third-Party Notices
+
+owatch carries MITRE ATT&CK® data, and references the Common Weakness Enumeration
+(CWE™). MITRE's terms for each grant a royalty-free license for commercial use on
+the condition that any copy reproduces MITRE's copyright designation and the
+license. `owatch notices` prints that notice; it is embedded in the binary, so a
+bare copy of owatch carries it, and it is kept in
+[`internal/notices/THIRD_PARTY_NOTICES.md`](internal/notices/THIRD_PARTY_NOTICES.md).
+MITRE ATT&CK and ATT&CK are registered trademarks of The MITRE Corporation.
 
 ## Skips and Partial Runs
 
@@ -352,10 +363,10 @@ No `e.` segment appears in any filename yet, since no adapter is wired.
 
 | Letter | Flag | Status |
 |---|---|---|
-| `m` | `--mitre` (MITRE ATT&CK mapping) | reserved, not yet implemented |
+| `m` | `--mitre` (MITRE ATT&CK mapping) | reserved and unused: the mapping is always shown and needs no flag |
 
-This segment is unprefixed and always terminal when present. It will not
-appear in any filename until `--mitre` lands.
+This segment is unprefixed and always terminal when present. No filename
+carries it today.
 
 Note: c.s (SSH check) and m.s (software module) share the same letter — that's intentional and safe, since each category is its own namespace (the registry only enforces uniqueness within a category, not across all four). This distinction is worth stating explicitly so it doesn't read as a typo when someone's staring at `m.os-c.fpsu` for the first time.
 
