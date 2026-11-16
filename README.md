@@ -309,13 +309,18 @@ citations are withheld in this way until each is checked against the benchmark.
 
 ## Third-Party Notices
 
-owatch carries MITRE ATT&CK® data, and references the Common Weakness Enumeration
-(CWE™). MITRE's terms for each grant a royalty-free license for commercial use on
-the condition that any copy reproduces MITRE's copyright designation and the
-license. `owatch notices` prints that notice; it is embedded in the binary, so a
-bare copy of owatch carries it, and it is kept in
+owatch carries MITRE ATT&CK® data, references the Common Weakness Enumeration
+(CWE™), and cites identifiers from the Common Attack Pattern Enumeration and
+Classification (CAPEC™). MITRE's terms for each grant a royalty-free license for
+commercial use on the condition that any copy reproduces MITRE's copyright
+designation and the license. owatch also names the Center for Threat-Informed
+Defense's mapping of NIST SP 800-53 to ATT&CK (Apache License 2.0, copyright
+MITRE) as the basis for technique links, and bundles NIST SP 800-53 control titles
+(public domain). `owatch notices` prints every notice and license; it is embedded
+in the binary, so a bare copy of owatch carries it, and it is kept in
 [`internal/notices/THIRD_PARTY_NOTICES.md`](internal/notices/THIRD_PARTY_NOTICES.md).
-MITRE ATT&CK and ATT&CK are registered trademarks of The MITRE Corporation.
+MITRE ATT&CK and ATT&CK are registered trademarks, and CWE and CAPEC are trademarks,
+of The MITRE Corporation.
 
 ## Skips and Partial Runs
 
