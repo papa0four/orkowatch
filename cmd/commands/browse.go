@@ -32,6 +32,12 @@ import (
 const maxReportBytes = 512 << 20
 
 type (
+	// browseCmd holds one invocation's flag state. Cobra binds the flag
+	// directly into the field.
+	browseCmd struct {
+		inputFormat string
+	}
+
 	// savedReport is a report file decoded as either shape owatch writes:
 	// the audit report, whose view sits at the top level, and the all
 	// report, which carries the audit under security beside its modules and
@@ -46,30 +52,39 @@ type (
 	}
 )
 
-// structuredFormats are the formats a saved report can be browsed from.
-// Text has no structure to list rules from.
-var structuredFormats = []delivery.Format{delivery.FormatJSON, delivery.FormatYAML}
-
 // newBrowseCmd returns the command that opens a saved report in the results
 // browser.
 func newBrowseCmd() *cobra.Command {
-	return &cobra.Command{
+	c := &browseCmd{}
+	cmd := &cobra.Command{
 		Use:   "browse [report-file]",
 		Args:  cobra.MaximumNArgs(1),
 		Short: "Open a saved report in the results browser",
-		Long: `Open a report saved with --report-file in the interactive results browser.
-The report must be JSON or YAML from owatch audit or owatch all. With no file
-named, the newest owatch report in the current directory is opened.`,
+		Long: fmt.Sprintf(`Open a report saved with --report-file in the interactive results browser.
+The report must be in a format that holds the whole report (%s) and come from
+owatch audit or owatch all. The format is taken from the file's extension, or
+from --input-format when the extension does not say. With no file named, the
+newest owatch report in the current directory is opened.`, delivery.LosslessNames()),
 		Example: `  # Open the newest report in the current directory
   owatch browse
 
   # Open a specific report
-  owatch browse /path/to/reports/owatch-host-SFUP-20261114T120000Z.json`,
-		RunE: runBrowse,
+  owatch browse /path/to/reports/owatch-host-SFUP-20261114T120000Z.json
+
+  # Open a report whose extension does not name its format
+  owatch browse --input-format yaml /path/to/reports/last-scan.out`,
+		RunE: c.runE,
 	}
+	cmd.Flags().StringVar(&c.inputFormat, "input-format", "",
+		fmt.Sprintf("Format of the report file (%s); by default taken from its extension", delivery.LosslessNames()))
+	return cmd
 }
 
-func runBrowse(_ *cobra.Command, args []string) error {
+func (c *browseCmd) runE(_ *cobra.Command, args []string) error {
+	named, err := c.namedFormat()
+	if err != nil {
+		return err
+	}
 	if !render.StdoutIsTerminal() || !render.StdinIsTerminal() {
 		return errors.New("browse needs an interactive terminal")
 	}
@@ -78,15 +93,59 @@ func runBrowse(_ *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+	format, err := inputFormat(named, path)
+	if err != nil {
+		return err
+	}
 	data, err := readReport(path)
 	if err != nil {
 		return err
 	}
-	report, err := decodeReport(path, data)
+	report, err := decodeReport(path, format, data)
 	if err != nil {
 		return err
 	}
 	return tui.Browse(report)
+}
+
+// namedFormat resolves --input-format, or returns the empty format when it was
+// not given. A format that does not hold the whole report is refused with the
+// reason, since a flat or text export has no structure to list.
+func (c *browseCmd) namedFormat() (delivery.Format, error) {
+	if c.inputFormat == "" {
+		return "", nil
+	}
+	format, ok := delivery.ParseFormat(c.inputFormat)
+	if !ok {
+		return "", fmt.Errorf("invalid input format: %s (valid: %s)", c.inputFormat, delivery.LosslessNames())
+	}
+	return format, losslessOrRefuse(format)
+}
+
+// inputFormat settles the format a report file is read in: the one named, or
+// the one its extension names.
+func inputFormat(named delivery.Format, path string) (delivery.Format, error) {
+	if named != "" {
+		return named, nil
+	}
+	format, ok := delivery.FormatForExtension(strings.TrimPrefix(filepath.Ext(path), "."))
+	if !ok {
+		return "", fmt.Errorf("%s: cannot tell its format from the extension; name it with --input-format (%s)",
+			path, delivery.LosslessNames())
+	}
+	return format, losslessOrRefuse(format)
+}
+
+// losslessOrRefuse refuses a format that does not hold the whole report. The
+// text report is a rendering of one, and the flat exports cannot hold the
+// modules, system block, software or checks with no findings that the
+// browser's tabs are built from.
+func losslessOrRefuse(format delivery.Format) error {
+	if format.Lossless() {
+		return nil
+	}
+	return fmt.Errorf("%s is not a format browse can read: it does not hold the whole report. Save one with -o %s",
+		format, strings.ReplaceAll(delivery.LosslessNames(), ", ", " or -o "))
 }
 
 // reportPath returns the file named on the command line, or the newest
@@ -99,7 +158,7 @@ func reportPath(args []string) (string, error) {
 	var patterns []string
 	var newest string
 	var newestTime time.Time
-	for _, format := range structuredFormats {
+	for _, format := range delivery.LosslessFormats() {
 		pattern := "owatch-*." + format.Extension()
 		patterns = append(patterns, pattern)
 		matches, err := filepath.Glob(pattern)
@@ -143,45 +202,49 @@ func readReport(path string) ([]byte, error) {
 	return data, nil
 }
 
-// decodeReport decodes a report file in the format its extension names and
-// builds what the browser shows from it. The shape is judged by what the file
-// holds, not by its name: an all report has modules, an audit report has
-// results. A file with neither, or whose results carry no result, which
-// reports from before the current result model lack, is refused.
-func decodeReport(path string, data []byte) (tui.Report, error) {
-	format, ok := delivery.FormatForExtension(strings.TrimPrefix(filepath.Ext(path), "."))
+// decodeReport decodes a report file in the format given and builds what the
+// browser shows from it, the full-report text included, rendered from the
+// decoded projection by the same writers a live run uses, so a saved report
+// opens to exactly what the run that wrote it showed. The shape is judged by
+// what the file holds, not by its name: an all report has modules, an audit
+// report has results. A file with neither, or whose results carry no result,
+// which reports from before the current result model lack, is refused.
+func decodeReport(path string, format delivery.Format, data []byte) (tui.Report, error) {
 	var saved savedReport
 	var err error
-	switch {
-	case ok && format == delivery.FormatJSON:
+	switch format {
+	case delivery.FormatJSON:
 		err = json.Unmarshal(data, &saved)
-	case ok && format == delivery.FormatYAML:
+	case delivery.FormatYAML:
 		err = yaml.NewDecoder(bytes.NewReader(data)).Decode(&saved)
 	default:
-		return tui.Report{}, fmt.Errorf("%s: browse reads JSON or YAML reports; save one with -o json or -o yaml", path)
+		return tui.Report{}, losslessOrRefuse(format)
 	}
 	if err != nil {
 		return tui.Report{}, fmt.Errorf("%s is not an owatch report this version can read: %w", path, err)
 	}
 
 	title := "owatch browse  " + filepath.Base(path)
+	var text strings.Builder
 	switch {
 	case len(saved.Modules) > 0 && readable(saved.Security):
-		return security.BrowserReport(security.BrowserSource{
-			Title:    title,
-			Audit:    saved.Security,
-			System:   saved.System,
-			Software: saved.Software,
-			Modules:  moduleNotes(saved.Modules),
-			Text:     string(data),
-		}), nil
+		all := allResult{
+			Timestamp: saved.Timestamp,
+			Duration:  saved.Duration,
+			Modules:   saved.Modules,
+			System:    saved.System,
+			Software:  saved.Software,
+			Security:  saved.Security,
+		}
+		if err := writeAllText(&text, all); err != nil {
+			return tui.Report{}, fmt.Errorf("render %s: %w", path, err)
+		}
+		return security.BrowserReport(allSource(title, all, text.String())), nil
 	case len(saved.Modules) == 0 && len(saved.Results) > 0 && readable(&saved.View):
-		return security.BrowserReport(security.BrowserSource{
-			Title:  title,
-			Audit:  &saved.View,
-			System: saved.SystemInfo,
-			Text:   string(data),
-		}), nil
+		if err := security.WriteAuditText(&text, saved.View); err != nil {
+			return tui.Report{}, fmt.Errorf("render %s: %w", path, err)
+		}
+		return security.BrowserReport(security.AuditSource(title, saved.View, text.String())), nil
 	default:
 		return tui.Report{}, fmt.Errorf("%s is not an owatch audit or all report this version can read", path)
 	}

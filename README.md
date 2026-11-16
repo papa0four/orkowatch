@@ -60,7 +60,7 @@ and open an issue against this doc.
 | `owatch software` | List installed software packages |
 | `owatch audit` | Run security audit checks |
 | `owatch all` | Run all available scans |
-| `owatch browse [report-file]` | Open a saved JSON or YAML report in the results browser |
+| `owatch browse [report-file]` | Open a saved report in the results browser; reads any format that holds the whole report (JSON, YAML) |
 | `owatch completion` | Generate shell completion scripts (see Shell Completion below) |
 | `owatch help` | Show the full command menu (equivalent to `-h`/`--help`) |
 | `owatch version` | Display current version |
@@ -119,7 +119,7 @@ With no check flags given, all checks run by default.
 | `--users` | Run user accounts check | false |
 | `--fperms` | Check permissions of specified path | — |
 | `--skip-checks` | Comma-separated checks to skip (ssh, firewall, users, permissions) | — |
-| `-o, --output` | Output format: text, json, yaml | text |
+| `-o, --output` | Output format: text, json, yaml. A format named here is always used. Unspecified, a report file is JSON and plain output is text | text |
 | `--report-file` | Save report to directory; filename is generated automatically | — |
 | `--min-severity` | Minimum severity to report: NONE, LOW, MEDIUM, HIGH, CRITICAL | NONE |
 | `--timeout` | Maximum audit duration | 10m |
@@ -127,7 +127,7 @@ With no check flags given, all checks run by default.
 | `--allow-elevated-write` | Permit an elevated write outside the allowlisted directories or into a directory other users control | false |
 | `-v, --verbose` | Add the live findings feed to the progress display, or print progress lines when output is not a terminal; does not change report content | false |
 | `-y, --yes` | Do not ask before a permissions check that scans the entire filesystem | false |
-| `--plain` | Print the report as text instead of opening the results browser | false |
+| `--plain` | Print the report instead of opening the results browser; text unless `-o` names another format | false |
 
 ## `all` Flags (`owatch all`)
 
@@ -141,7 +141,7 @@ individual audit checks within the audit module, or both together.
 |---|---|---|
 | `--skip-modules` | Comma-separated modules to skip (osinfo, software, audit) | — |
 | `--skip-checks` | Comma-separated audit checks to skip (ssh, firewall, users, permissions); composes with `--skip-modules` | — |
-| `-o, --output` | Output format: text, json, yaml | text |
+| `-o, --output` | Output format: text, json, yaml. A format named here is always used. Unspecified, a report file is JSON and plain output is text | text |
 | `--report-file` | Save report to directory; filename is generated automatically | — |
 | `--min-severity` | Minimum severity to report: NONE, LOW, MEDIUM, HIGH, CRITICAL | NONE |
 | `--timeout` | Maximum time to run all scans | 30m |
@@ -149,7 +149,7 @@ individual audit checks within the audit module, or both together.
 | `--allow-elevated-write` | Permit an elevated write outside the allowlisted directories or into a directory other users control | false |
 | `-v, --verbose` | Add the live findings feed to the progress display; does not change report content | false |
 | `-y, --yes` | Do not ask before a permissions check that scans the entire filesystem | false |
-| `--plain` | Print the report as text instead of opening the results browser | false |
+| `--plain` | Print the report instead of opening the results browser; text unless `-o` names another format | false |
 
 There is no individual audit check flag (`--ssh`, `--fwall`, etc.) on `all` —
 to run only specific checks as part of a full scan, skip the others instead:
@@ -205,9 +205,27 @@ failed says so. The complete plain report is one key away.
 | `esc` | Return from the detail pane to the list |
 | `q`, ctrl+c | Quit |
 
-The report is printed as text instead when `--plain` is given, when `-o json` or
-`-o yaml` is chosen, when `--report-file` is used, or when input or output is not
-a terminal. Scripts and pipelines get the same text they always have.
+## Output Formats
+
+A format named with `-o` is always the format printed or written, on a terminal or
+off one, with `--plain` or without. When `-o` is not given:
+
+| Where the report goes | Default |
+|---|---|
+| A terminal | The results browser |
+| `--plain`, a pipe or a redirect | Text |
+| `--report-file` | JSON |
+
+So `owatch audit -o text` prints text on a terminal rather than opening the
+browser, `owatch audit --plain -o yaml` prints YAML, and scripts and pipelines get
+the same text they always have.
+
+JSON and YAML are lossless: they hold the whole report, including the system block,
+the software inventory, the module results and every check, whether or not it had
+findings. Text is a rendering of a report and holds less. `owatch browse` reads the
+lossless formats, takes the format from the file's extension, and shows exactly
+what the run that wrote the report showed, the full text included. It refuses any
+other format and says why.
 
 A report saved as JSON or YAML can be reopened in the browser later:
 
@@ -217,6 +235,9 @@ owatch browse
 
 # Open a specific report
 owatch browse /path/to/reports/owatch-host-SFUP-20261114T120000Z.json
+
+# Open a report whose extension does not name its format
+owatch browse --input-format yaml /path/to/reports/last-scan.out
 ```
 
 ## MITRE ATT&CK

@@ -51,6 +51,10 @@ type (
 		allowElevatedWrite bool
 		plain              bool
 
+		// explicit is whether --output was given. A format the operator named
+		// is always the format printed or written.
+		explicit bool
+
 		// format is the effective encoding, resolved once in Resolve from
 		// outputFormat and reportFile.
 		format Format
@@ -63,7 +67,8 @@ func Bind(cmd *cobra.Command) *Flags {
 	f := &Flags{}
 
 	cmd.Flags().StringVarP(&f.outputFormat, "output", "o", string(FormatText),
-		fmt.Sprintf("Output format (%s)", FormatNames()))
+		fmt.Sprintf("Output format (%s); a format named here is always printed or written as given. "+
+			"Unspecified, a report file is JSON and plain output is text", FormatNames()))
 	cmd.Flags().StringVar(&f.reportFile, "report-file", "",
 		"Save the report to the specified directory; filename is generated automatically")
 	cmd.Flags().BoolVar(&f.allowElevatedWrite, "allow-elevated-write", false,
@@ -87,8 +92,9 @@ func (f *Flags) Resolve(cmd *cobra.Command) error {
 		return fmt.Errorf("invalid output format: %s (valid: %s)", f.outputFormat, FormatNames())
 	}
 
+	f.explicit = cmd.Flags().Changed("output")
 	switch {
-	case cmd.Flags().Changed("output"):
+	case f.explicit:
 		f.format = format
 	case f.reportFile != "":
 		f.format = FormatJSON
@@ -119,11 +125,13 @@ func (f *Flags) ToFile() bool {
 
 // browses reports whether a text report opens in the results browser rather
 // than being printed. It does only when a person is at a terminal to use it,
-// on both input and output, and nothing asked for the text itself: no
-// --plain, no report file, no structured format. Anything that reads
-// owatch's output, a pipe, a redirect or a script, still gets the text.
+// on both input and output, and nothing asked for anything else: no format
+// named with --output, no --plain, no report file. A format the operator
+// named is always the one delivered, so -o text prints text on a terminal.
+// Anything that reads owatch's output, a pipe, a redirect or a script, still
+// gets the text.
 func (f *Flags) browses() bool {
-	return f.format == FormatText && f.reportFile == "" && !f.plain &&
+	return !f.explicit && f.reportFile == "" && !f.plain &&
 		render.StdoutIsTerminal() && render.StdinIsTerminal()
 }
 
