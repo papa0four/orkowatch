@@ -29,7 +29,7 @@ See our FAQ for more information on how to use and represent the ATT&CK name.
 
 ## Common Weakness Enumeration (CWE™)
 
-What owatch carries: CWE identifiers, and links to the CWE catalog at cwe.mitre.org, in its finding definitions and reports. Where owatch carries other CWE content, the license below applies to it.
+What owatch carries: CWE identifiers, links to the CWE catalog at cwe.mitre.org, and for each weakness a finding maps to its name, abstraction, mapping usage and description as the catalog states them (CWE 5.0), in the binary and in reports. The license below applies to it.
 
 Terms of use, from https://cwe.mitre.org/about/termsofuse.html
 

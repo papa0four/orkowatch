@@ -21,12 +21,11 @@ firewall.firewalld_not_running:
   severity: "HIGH"
   cvss_score: 8.6
   cvss_vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:L/A:H"
-  cwe: "CWE-284"
+  no_weakness: "CWE 5.0 has no entry for a host firewall that is absent or inactive: CWE-284 and CWE-693, the nearest classes, are discouraged by MITRE, and CWE-923 concerns verifying a communication endpoint."
   attack_techniques:
     - id: "T1686"
       basis:
         - "NIST CM-6 maps to this technique, listed there as T1562.004 (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
-        - "CWE-284 relates to CAPEC-578, which CAPEC 3.9 maps to this technique"
   description: >
     firewalld is the default firewall management tool on RHEL-family systems.
     The service is installed but not in a running state, meaning no
@@ -59,12 +58,11 @@ firewall.firewalld_not_installed:
   severity: "CRITICAL"
   cvss_score: 9.1
   cvss_vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N"
-  cwe: "CWE-284"
+  no_weakness: "CWE 5.0 has no entry for a host firewall that is absent or inactive: CWE-284 and CWE-693, the nearest classes, are discouraged by MITRE, and CWE-923 concerns verifying a communication endpoint."
   attack_techniques:
     - id: "T1686"
       basis:
         - "NIST CM-6 maps to this technique, listed there as T1562.004 (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
-        - "CWE-284 relates to CAPEC-578, which CAPEC 3.9 maps to this technique"
   description: >
     Neither firewalld nor any other recognized firewall manager (iptables,
     nftables) was detected on this RHEL-family system. The host has no
@@ -94,7 +92,7 @@ firewall.firewalld_default_zone_public:
   severity: "MEDIUM"
   cvss_score: 5.3
   cvss_vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N"
-  cwe: "CWE-284"
+  no_weakness: "CWE 5.0 has no entry for a firewall zone choice of this kind."
   description: >
     The firewalld default zone is set to public, which is the least
     restrictive predefined zone and permits ssh and dhcpv6-client
@@ -129,12 +127,11 @@ users.sudo_nopasswd:
   severity: "HIGH"
   cvss_score: 8.8
   cvss_vector: "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H"
-  cwe: "CWE-269"
+  cwe: "CWE-306"
   attack_techniques:
     - id: "T1548.003"
       basis:
         - "NIST AC-6 maps to this technique (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
-        - "CWE-269 relates to CAPEC-122, CAPEC-233, which CAPEC 3.9 maps to its parent technique T1548"
   description: >
     A sudoers rule contains the NOPASSWD tag, allowing one or more users
     to execute commands with elevated privileges without providing a
@@ -163,7 +160,7 @@ users.wheel_group_empty:
   severity: "LOW"
   cvss_score: 2.5
   cvss_vector: "CVSS:3.1/AV:L/AC:H/PR:L/UI:N/S:U/C:N/I:L/A:N"
-  cwe: "CWE-269"
+  no_weakness: "An empty administrative group is not a weakness; CWE-269 is discouraged by MITRE."
   description: >
     The wheel group, which controls sudo access on RHEL-family systems,
     has no members. On systems where the sudoers configuration grants
@@ -347,12 +344,11 @@ permissions.selinux_disabled:
   severity: "HIGH"
   cvss_score: 7.8
   cvss_vector: "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H"
-  cwe: "CWE-284"
+  no_weakness: "CWE 5.0 has no entry for a disabled mandatory access control mechanism; the nearest, CWE-693, is discouraged by MITRE."
   attack_techniques:
     - id: "T1685"
       basis:
         - "NIST AC-3 maps to this technique, listed there as T1562 (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
-        - "CWE-284 relates to CAPEC-578, which CAPEC 3.9 maps to this technique"
   description: >
     SELinux is either disabled or configured in permissive mode on this
     RHEL-family system. SELinux provides mandatory access controls that
@@ -383,3 +379,4 @@ permissions.selinux_disabled:
       url: "https://docs.redhat.com/en/documentation/red_hat_enterprise_linux/9/html/using_selinux/changing-selinux-states-and-modes_using-selinux#changing-to-enforcing-mode_changing-selinux-states-and-modes"
       version: "Red Hat Enterprise Linux 9"
       verified: "2026-11-15"
+

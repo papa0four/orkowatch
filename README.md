@@ -307,6 +307,16 @@ citation that has not been checked is kept in the data and withheld from every
 report, JSON and YAML output and the results browser. The CIS Benchmark
 citations are withheld in this way until each is checked against the benchmark.
 
+A finding also states its weakness and its CVSS score. The weakness is a CWE entry
+from the bundled MITRE catalog, shown with its name, MITRE's description and MITRE's
+own guidance on mapping to it (`weakness` in JSON and YAML). The registry refuses to
+load a definition that maps to an entry MITRE marks Discouraged or Prohibited. Where
+no entry describes a finding, which is the case for an absent firewall, the finding
+says so and gives the reason (`no_weakness`) rather than naming a weakness that does
+not fit. The CVSS score (`cvss`) is labelled with FIRST's nomenclature: CVSS-B is a
+base score, here the registry's baseline for the condition in general, and the label
+says it is not measured on the host the finding was raised on.
+
 ## Third-Party Notices
 
 owatch carries MITRE ATT&CK® data, references the Common Weakness Enumeration

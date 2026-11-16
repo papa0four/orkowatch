@@ -19,7 +19,7 @@ ssh.server_not_running:
   severity: "MEDIUM"
   cvss_score: 4.4
   cvss_vector: "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:L/I:L/A:N"
-  cwe: "CWE-16"
+  no_weakness: "CWE-16 is an obsolete grouping that MITRE prohibits for mapping, and no entry describes an installed service that is not running."
   description: >
     The OpenSSH Server (sshd) service is installed but currently stopped.
     An installed but inactive SSH daemon represents an unmanaged attack
@@ -47,7 +47,7 @@ ssh.config_not_found:
   severity: "MEDIUM"
   cvss_score: 5.3
   cvss_vector: "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:L/I:L/A:L"
-  cwe: "CWE-16"
+  no_weakness: "CWE-16 is an obsolete grouping that MITRE prohibits for mapping, and no entry describes a missing configuration file."
   description: >
     No sshd_config file was found at C:\ProgramData\ssh\sshd_config.
     Without an explicit configuration file, sshd falls back to compiled-in
@@ -158,12 +158,11 @@ firewall.profile_inactive:
   severity: "CRITICAL"
   cvss_score: 9.1
   cvss_vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N"
-  cwe: "CWE-284"
+  no_weakness: "CWE 5.0 has no entry for a host firewall that is absent or inactive: CWE-284 and CWE-693, the nearest classes, are discouraged by MITRE, and CWE-923 concerns verifying a communication endpoint."
   attack_techniques:
     - id: "T1686"
       basis:
         - "NIST CM-6 maps to this technique, listed there as T1562.004 (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
-        - "CWE-284 relates to CAPEC-578, which CAPEC 3.9 maps to this technique"
   description: >
     One or more Windows Firewall profiles (Domain, Private, or Public) are
     not active. A disabled firewall profile removes the host-based packet
@@ -194,12 +193,11 @@ firewall.all_profiles_disabled:
   severity: "CRITICAL"
   cvss_score: 9.8
   cvss_vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"
-  cwe: "CWE-284"
+  no_weakness: "CWE 5.0 has no entry for a host firewall that is absent or inactive: CWE-284 and CWE-693, the nearest classes, are discouraged by MITRE, and CWE-923 concerns verifying a communication endpoint."
   attack_techniques:
     - id: "T1686"
       basis:
         - "NIST CM-6 maps to this technique, listed there as T1562.004 (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
-        - "CWE-284 relates to CAPEC-578, which CAPEC 3.9 maps to this technique"
   description: >
     Windows Defender Firewall is disabled across all profiles — Domain,
     Private, and Public. The host has no active host-based packet filtering
@@ -234,13 +232,12 @@ users.no_password_required:
   severity: "HIGH"
   cvss_score: 7.4
   cvss_vector: "CVSS:3.1/AV:L/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:H"
-  cwe: "CWE-309"
+  cwe: "CWE-521"
   attack_techniques:
     - id: "T1078.003"
       basis:
         - "NIST IA-5 maps to its parent technique T1078 (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
         - "NIST IA-2 maps to this technique (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
-        - "CWE-309 relates to CAPEC-560, which CAPEC 3.9 maps to its parent technique T1078"
   description: >
     One or more enabled local accounts carry the account flag that exempts
     them from the password requirement. The flag permits a blank password;
@@ -321,7 +318,7 @@ users.administrator_account_active:
   severity: "HIGH"
   cvss_score: 7.1
   cvss_vector: "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:N"
-  cwe: "CWE-250"
+  cwe: "CWE-266"
   description: >
     One or more user accounts are members of the local Administrators group.
     Administrator-level accounts have unrestricted access to the local
@@ -491,7 +488,7 @@ users.unknown_principal_no_local_password:
   severity: "MEDIUM"
   cvss_score: 5.5
   cvss_vector: "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N"
-  cwe: "CWE-287"
+  no_weakness: "The principal's source could not be determined; no CWE entry describes that, and CWE-287 is discouraged by MITRE."
   description: >
     One or more accounts report an Unknown PrincipalSource from
     Get-LocalUser and carry no local password hash. The authentication
@@ -635,7 +632,7 @@ permissions.unresolved_sid_grant:
   severity: "LOW"
   cvss_score: 3.6
   cvss_vector: "CVSS:3.1/AV:L/AC:H/PR:L/UI:N/S:U/C:L/I:L/A:N"
-  cwe: "CWE-284"
+  cwe: "CWE-732"
   description: >
     An access control entry grants write, modify or full control to a
     security identifier that resolves to no account. The entry outlived
@@ -658,7 +655,7 @@ permissions.admin_share_present:
   severity: "LOW"
   cvss_score: 2.7
   cvss_vector: "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:L/I:N/A:N"
-  cwe: "CWE-284"
+  no_weakness: "Administrative shares are a Windows default and no CWE entry describes them as a weakness; CWE-284 is discouraged by MITRE."
   attack_techniques:
     - id: "T1021.002"
       basis:
@@ -685,3 +682,4 @@ permissions.admin_share_present:
       id: "18.3"
     - source: NIST
       id: "CM-7"
+

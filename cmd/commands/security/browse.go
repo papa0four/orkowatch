@@ -318,6 +318,7 @@ func browserItem(condition audit.ConditionView) tui.Item {
 		for _, category := range def.Categories {
 			item.Categories = append(item.Categories, safeLines(category))
 		}
+		setWeaknessAndCVSS(&item, def)
 		item.Description = safeLines(def.Description)
 		item.Impact = safeLines(def.Impact)
 		item.Resolution = safeLines(def.Resolution)
@@ -344,6 +345,24 @@ func browserItem(condition audit.ConditionView) tui.Item {
 		item.Evidence = append(item.Evidence, render.EvidenceText(entry))
 	}
 	return item
+}
+
+// setWeaknessAndCVSS fills the parts of a finding's detail that state what kind
+// of weakness it is and how the registry scores the condition: the CWE entry
+// with MITRE's description, or the reason none fits, and the CVSS score with
+// the label that says what it is a statement about.
+func setWeaknessAndCVSS(item *tui.Item, def *audit.FindingView) {
+	switch {
+	case def.Weakness != nil:
+		item.Weakness = safeLines(audit.WeaknessText(*def.Weakness))
+		item.WeaknessAbout = safeLines(def.Weakness.Description + "\n" + def.Weakness.URL)
+	case def.NoWeakness != "":
+		item.Weakness = "none"
+		item.WeaknessAbout = safeLines(def.NoWeakness)
+	}
+	if def.CVSS != nil {
+		item.CVSS = safeLines(audit.CVSSText(*def.CVSS))
+	}
 }
 
 // summaryLines lists the run's figures as the audit already counted them:

@@ -69,6 +69,13 @@ type (
 		Resolution  string              `json:"resolution,omitempty" yaml:"resolution,omitempty"`
 		References  []finding.Reference `json:"references,omitempty" yaml:"references,omitempty"`
 		Attack      []finding.Technique `json:"attack,omitempty" yaml:"attack,omitempty"`
+
+		// Weakness is the CWE entry the finding maps to. NoWeakness says why
+		// none does, when the registry records that none fits. CVSS is the
+		// registry's baseline for the condition, labelled as such.
+		Weakness   *finding.Weakness  `json:"weakness,omitempty" yaml:"weakness,omitempty"`
+		NoWeakness string             `json:"no_weakness,omitempty" yaml:"no_weakness,omitempty"`
+		CVSS       *finding.CVSSScore `json:"cvss,omitempty" yaml:"cvss,omitempty"`
 	}
 )
 
@@ -157,6 +164,9 @@ func conditionView(condition finding.Condition, minSeverity string) (ConditionVi
 		Resolution:  condition.Finding.Resolution,
 		References:  condition.Finding.References,
 		Attack:      condition.Finding.Techniques,
+		Weakness:    condition.Finding.Weakness,
+		NoWeakness:  condition.Finding.NoWeakness,
+		CVSS:        condition.Finding.CVSS,
 	}
 	return view, true
 }

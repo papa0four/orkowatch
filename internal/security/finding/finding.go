@@ -113,11 +113,40 @@ type (
 		Description string
 		Severity    string
 		CWE         CWE
+		Weakness    *Weakness
+		NoWeakness  string
+		CVSS        *CVSSScore
 		Categories  []string
 		Impact      string
 		Resolution  string
 		References  []Reference
 		Techniques  []Technique
+	}
+
+	// Weakness is the CWE entry a finding maps to, as MITRE's catalog states
+	// it. Usage is MITRE's own guidance on mapping to the entry.
+	Weakness struct {
+		ID          CWE    `json:"id" yaml:"id"`
+		Name        string `json:"name" yaml:"name"`
+		Description string `json:"description" yaml:"description"`
+		Usage       string `json:"mapping_usage" yaml:"mapping_usage"`
+		URL         string `json:"url" yaml:"url"`
+	}
+
+	// CVSSScore is one CVSS score with what it states about itself: the
+	// version, the vector it came from, whose it is, and which FIRST
+	// nomenclature label applies to it (CVSS-B for a base score). Basis says what
+	// the score is a statement about, so a baseline for a condition is not
+	// mistaken for a measurement of one host. The registry's score is one;
+	// the per-CVE scores the enrichment sources supply are others.
+	CVSSScore struct {
+		Version      string  `json:"version" yaml:"version"`
+		Vector       string  `json:"vector" yaml:"vector"`
+		BaseScore    float64 `json:"base_score" yaml:"base_score"`
+		Severity     string  `json:"severity" yaml:"severity"`
+		Source       string  `json:"source" yaml:"source"`
+		Nomenclature string  `json:"nomenclature" yaml:"nomenclature"`
+		Basis        string  `json:"basis" yaml:"basis"`
 	}
 
 	// Technique is a MITRE ATT&CK technique an adversary can use because of

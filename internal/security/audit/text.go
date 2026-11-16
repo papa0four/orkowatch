@@ -123,6 +123,14 @@ func writeFinding(ew *render.ErrWriter, condition ConditionView) error {
 		return err
 	}
 	ew.Printf("  Rule: %s\n", condition.Key)
+	if def.Weakness != nil {
+		ew.Printf("  Weakness: %s\n", WeaknessText(*def.Weakness))
+	} else if def.NoWeakness != "" {
+		ew.Printf("  Weakness: none. %s\n", def.NoWeakness)
+	}
+	if def.CVSS != nil {
+		ew.Printf("  CVSS: %s\n", CVSSText(*def.CVSS))
+	}
 	if len(def.Categories) > 0 {
 		ew.Printf("  Categories: %s\n", strings.Join(def.Categories, ", "))
 	}
@@ -200,6 +208,19 @@ func writeDetails(ew *render.ErrWriter, details []string) {
 		}
 		ew.Printf("  %s\n", render.HostText(detail))
 	}
+}
+
+// WeaknessText renders the CWE entry a finding maps to as its identifier and
+// name, with MITRE's guidance on mapping to it. It is shared so every view of a
+// finding names its weakness the same way.
+func WeaknessText(w finding.Weakness) string {
+	return fmt.Sprintf("%s %s (MITRE mapping usage: %s)", w.ID, w.Name, w.Usage)
+}
+
+// CVSSText renders a CVSS score with the label FIRST requires on a displayed
+// score, the version, the vector and what the score is a statement about.
+func CVSSText(s finding.CVSSScore) string {
+	return fmt.Sprintf("%.1f %s  %s v%s, %s  %s", s.BaseScore, s.Severity, s.Nomenclature, s.Version, s.Basis, s.Vector)
 }
 
 // TechniqueText renders an ATT&CK technique as its identifier, name and

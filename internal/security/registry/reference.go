@@ -132,7 +132,7 @@ func (d FindingDefinition) validateReferences() error {
 func (d FindingDefinition) ToReferences() []finding.Reference {
 	var out []finding.Reference
 	if d.CWE != "" {
-		out = append(out, finding.Reference{Title: string(d.CWE), URL: cweURL(string(d.CWE)), Type: RefTypeCWE})
+		out = append(out, finding.Reference{Title: string(d.CWE) + " " + weaknesses[d.CWE].Name, URL: cweURL(string(d.CWE)), Type: RefTypeCWE})
 	}
 	for _, spec := range d.References {
 		if ref, ok := spec.report(); ok {

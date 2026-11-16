@@ -21,12 +21,11 @@ firewall.ufw_inactive:
   severity: "HIGH"
   cvss_score: 8.6
   cvss_vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:L/A:H"
-  cwe: "CWE-284"
+  no_weakness: "CWE 5.0 has no entry for a host firewall that is absent or inactive: CWE-284 and CWE-693, the nearest classes, are discouraged by MITRE, and CWE-923 concerns verifying a communication endpoint."
   attack_techniques:
     - id: "T1686"
       basis:
         - "NIST CM-6 maps to this technique, listed there as T1562.004 (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
-        - "CWE-284 relates to CAPEC-578, which CAPEC 3.9 maps to this technique"
   description: >
     Uncomplicated Firewall (UFW) is the default firewall management tool
     on Debian and Ubuntu systems. UFW is installed but reported as inactive,
@@ -58,12 +57,11 @@ firewall.ufw_not_installed:
   severity: "CRITICAL"
   cvss_score: 9.1
   cvss_vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N"
-  cwe: "CWE-284"
+  no_weakness: "CWE 5.0 has no entry for a host firewall that is absent or inactive: CWE-284 and CWE-693, the nearest classes, are discouraged by MITRE, and CWE-923 concerns verifying a communication endpoint."
   attack_techniques:
     - id: "T1686"
       basis:
         - "NIST CM-6 maps to this technique, listed there as T1562.004 (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
-        - "CWE-284 relates to CAPEC-578, which CAPEC 3.9 maps to this technique"
   description: >
     Neither UFW nor any other recognized firewall manager (iptables,
     nftables, firewalld) was detected on this Debian-family system.
@@ -97,12 +95,11 @@ users.sudo_nopasswd:
   severity: "HIGH"
   cvss_score: 8.8
   cvss_vector: "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H"
-  cwe: "CWE-269"
+  cwe: "CWE-306"
   attack_techniques:
     - id: "T1548.003"
       basis:
         - "NIST AC-6 maps to this technique (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
-        - "CWE-269 relates to CAPEC-122, CAPEC-233, which CAPEC 3.9 maps to its parent technique T1548"
   description: >
     A sudoers rule contains the NOPASSWD tag, allowing one or more users
     to execute commands with elevated privileges without providing a
@@ -271,3 +268,4 @@ permissions.ssh_dir_permissions:
       id: "AC-3"
     - source: NIST
       id: "IA-5"
+
