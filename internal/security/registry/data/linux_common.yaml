@@ -360,7 +360,7 @@ users.ldap_configured:
     Ensure a local fallback authentication method exists for system
     recovery. Review /etc/ldap.conf for cleartext bind credentials.
   references:
-    - "NIST SP 800-53 Rev 5 IA-3 (Device Identification and Authentication)"
+    - "NIST SP 800-53 Rev 5 IA-2 (Identification and Authentication)"
     - "https://cwe.mitre.org/data/definitions/287.html"
 
 users.kerberos_configured:
@@ -384,7 +384,7 @@ users.kerberos_configured:
     DES and RC4 entries. Ensure time synchronization is configured.
     Verify KDC redundancy for availability.
   references:
-    - "NIST SP 800-53 Rev 5 IA-3 (Device Identification and Authentication)"
+    - "NIST SP 800-53 Rev 5 IA-2 (Identification and Authentication)"
     - "https://cwe.mitre.org/data/definitions/287.html"
 
 users.sssd_configured:
@@ -409,7 +409,7 @@ users.sssd_configured:
     offline authentication behavior to verify local fallback functions
     correctly.
   references:
-    - "NIST SP 800-53 Rev 5 IA-3 (Device Identification and Authentication)"
+    - "NIST SP 800-53 Rev 5 IA-2 (Identification and Authentication)"
     - "https://cwe.mitre.org/data/definitions/287.html"
 
 users.regular_user_admin_privileges:
