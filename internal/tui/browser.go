@@ -1041,6 +1041,36 @@ func (browser) rowText(item Item) string {
 	return line
 }
 
+// triggerText says what raised a finding: the rule that failed and what it
+// found, the evidence recorded for it, the severity the registry gives that
+// rule, and the ATT&CK techniques the rule is mapped to, so each of those can be
+// traced back to the host observation it came from.
+func triggerText(item Item) string {
+	lines := []string{"rule      " + item.Key + "  (" + item.Check + " check failed)"}
+	if item.Reason != "" {
+		lines = append(lines, "found     "+item.Reason)
+	}
+	switch n := len(item.Evidence); n {
+	case 0:
+		lines = append(lines, "evidence  none recorded; the rule's result alone raised it")
+	case 1:
+		lines = append(lines, "evidence  1 entry, listed below")
+	default:
+		lines = append(lines, fmt.Sprintf("evidence  %d entries, listed below", n))
+	}
+	lines = append(lines, "severity  "+item.Severity+", the registry's rating for this rule")
+	var ids []string
+	for _, technique := range item.Techniques {
+		if fields := strings.Fields(technique); len(fields) > 0 {
+			ids = append(ids, fields[0])
+		}
+	}
+	if len(ids) > 0 {
+		lines = append(lines, "attack    "+strings.Join(ids, ", ")+", because this rule failed")
+	}
+	return strings.Join(lines, "\n")
+}
+
 // detailText renders everything known about one item for the detail pane.
 func (b browser) detailText(item Item) string {
 	wrap := lipgloss.NewStyle().Width(max(b.mainWidth()-1, minWidth))
@@ -1064,12 +1094,15 @@ func (b browser) detailText(item Item) string {
 			out.WriteString("\n" + styleMuted.Render(name) + "\n" + wrap.Render(strings.TrimSpace(body)) + "\n")
 		}
 	}
+	if item.isFinding() {
+		section("triggered by", triggerText(item))
+	}
 	section("categories", strings.Join(item.Categories, ", "))
 	section("description", item.Description)
 	section("impact", item.Impact)
 	section("resolution", item.Resolution)
 	section("references", strings.Join(item.References, "\n"))
-	section("MITRE ATT&CK", strings.Join(item.Techniques, "\n"))
+	section("MITRE ATT&CK, made available by this finding", strings.Join(item.Techniques, "\n"))
 	section("mitigations", strings.Join(item.Mitigations, "\n"))
 
 	if len(item.Evidence) > 0 {

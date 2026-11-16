@@ -110,8 +110,7 @@ func attackTab(view *audit.View) (tui.Tab, bool) {
 			if def == nil || condition.Result != finding.ResultFail {
 				continue
 			}
-			rule, _, _ := strings.Cut(condition.Key, ".")
-			line := strings.ToLower(def.Severity) + "  " + def.Title + " (" + rule + ")"
+			line := triggerBlock(condition, def)
 			for _, technique := range def.Attack {
 				g := groups[technique.ID]
 				if g == nil {
@@ -143,7 +142,7 @@ func attackTab(view *audit.View) (tui.Tab, bool) {
 				{Label: "tactics", Value: safeLines(tactics)},
 				{Label: "page", Value: safeLines(g.technique.URL)},
 				{Label: "mitigations", Value: safeLines(mitigationLines(g.technique.Mitigations))},
-				{Label: "findings (" + strconv.Itoa(len(g.findings)) + ")", Value: safeLines(strings.Join(g.findings, "\n"))},
+				{Label: "triggered by (" + strconv.Itoa(len(g.findings)) + " findings)", Value: safeLines(strings.Join(g.findings, "\n\n"))},
 			},
 		})
 	}
@@ -182,6 +181,26 @@ func notRun(modules []ModuleNote, name, command string) string {
 	}
 	return "not collected: this command does not run the " + name + " module. owatch all collects every source; " +
 		command + " collects only this one"
+}
+
+// triggerBlock describes one finding that made a technique available: its
+// severity and title, the rule that failed, what that rule found, and the first
+// of the evidence recorded for it, so the technique can be traced to the host
+// observation behind it.
+func triggerBlock(condition audit.ConditionView, def *audit.FindingView) string {
+	const shown = 3
+	lines := []string{strings.ToUpper(def.Severity) + "  " + def.Title, "  rule: " + condition.Key}
+	if condition.Reason != "" {
+		lines = append(lines, "  found: "+condition.Reason)
+	}
+	for i, entry := range condition.Evidence {
+		if i == shown {
+			lines = append(lines, "  and "+strconv.Itoa(len(condition.Evidence)-shown)+" more evidence entries, listed under Findings")
+			break
+		}
+		lines = append(lines, "  evidence: "+render.EvidenceText(entry))
+	}
+	return strings.Join(lines, "\n")
 }
 
 // moduleNote says why a module has no data: its result and reason as the run

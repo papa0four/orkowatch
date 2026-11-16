@@ -207,9 +207,10 @@ when it is taller than the window, and a window too narrow for it shows the
 sources as a bar along the top. The filters and the summary belong to findings,
 so they read n/a on a source that has none. The browser has a source for each
 part of the run: Findings lists each finding with its severity and shows the selected one in
-full with its evidence; System shows the host's fingerprint; Software lists the
+full with what triggered it (the rule that failed, what it found, the severity the registry
+gives it, the techniques it is mapped to) and its evidence; System shows the host's fingerprint; Software lists the
 installed packages and can be searched; MITRE ATT&CK® groups the findings by the
-technique each makes available. A source a command did not run, or a module
+technique each makes available, with the finding, rule and evidence behind each. A source a command did not run, or a module
 that was skipped or failed, is still listed and says so. A run of one module
 alone, such as `owatch osinfo`, opens on what it produced; the audit, or a run of
 several modules, opens on Findings. The complete plain report is one key away.

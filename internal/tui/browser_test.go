@@ -125,3 +125,21 @@ func TestStartTab(t *testing.T) {
 		t.Errorf("an unknown Start opened on %q", b.tabs[b.active].id)
 	}
 }
+
+// A finding's detail says what raised it: the rule, what it found, its
+// evidence, its severity and the techniques it makes available.
+func TestFindingDetailSaysWhatTriggeredIt(t *testing.T) {
+	r := sidebarReport(0)
+	r.Items = []Item{{Check: "users", Key: "users.no_password_required", Result: "fail", Severity: "HIGH",
+		Title: "Account may have a blank password", Reason: "blank password permitted",
+		Evidence:   []string{"- alice"},
+		Techniques: []string{"T1078.003 Local Accounts (Persistence)"}}}
+	b := sized(newBrowser(r), 120, 40)
+	detail := plain(b.detail.View())
+	for _, want := range []string{"triggered by", "rule      users.no_password_required", "found     blank password permitted",
+		"evidence  1 entry", "severity  HIGH", "attack    T1078.003, because this rule failed"} {
+		if !strings.Contains(detail, want) {
+			t.Errorf("detail is missing %q:\n%s", want, detail)
+		}
+	}
+}

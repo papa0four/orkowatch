@@ -3,8 +3,10 @@
 package security
 
 import (
+	"strings"
 	"testing"
 
+	"github.com/papa0four/orkowatch/internal/security/audit"
 	"github.com/papa0four/orkowatch/internal/security/finding"
 	"github.com/papa0four/orkowatch/internal/tui"
 )
@@ -32,5 +34,39 @@ func TestLandingTab(t *testing.T) {
 		if got := landingTab(c.modules); got != c.want {
 			t.Errorf("%s: landed on %q, want %q", c.name, got, c.want)
 		}
+	}
+}
+
+// A technique's record names each finding that made it available: its
+// severity and title, the rule that failed, what it found and the evidence.
+func TestAttackTabTracesTechniqueToFinding(t *testing.T) {
+	var evidence []finding.Evidence
+	for _, who := range []string{"alice", "bob", "carol", "dave"} {
+		evidence = append(evidence, finding.Evidence{Kind: "account", Subject: who})
+	}
+	view := &audit.View{Results: []audit.CheckView{{Conditions: []audit.ConditionView{{
+		Key: "users.no_password_required", Result: finding.ResultFail, Reason: "blank password permitted",
+		Evidence: evidence,
+		Finding: &audit.FindingView{Title: "Account may have a blank password", Severity: "HIGH",
+			Attack: []finding.Technique{{ID: "T1078.003", Name: "Local Accounts", Tactics: []string{"Persistence"}}}},
+	}}}}}
+	tab, ok := attackTab(view)
+	if !ok || len(tab.Records) != 1 {
+		t.Fatalf("no technique record: ok=%v tab=%+v", ok, tab)
+	}
+	var shown string
+	for _, f := range tab.Records[0].Fields {
+		if strings.HasPrefix(f.Label, "triggered by") {
+			shown = f.Value
+		}
+	}
+	for _, want := range []string{"HIGH  Account may have a blank password", "rule: users.no_password_required",
+		"found: blank password permitted", "alice", "and 1 more evidence entries"} {
+		if !strings.Contains(shown, want) {
+			t.Errorf("the triggering finding is missing %q:\n%s", want, shown)
+		}
+	}
+	if strings.Contains(shown, "dave") {
+		t.Errorf("a fourth evidence entry is listed, not counted:\n%s", shown)
 	}
 }
