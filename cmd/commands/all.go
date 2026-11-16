@@ -432,15 +432,22 @@ func (r allReport) View() any {
 // Browse returns what the results browser shows for the scan, from the same
 // projection View returns, so a saved report opens to the same tabs.
 func (r allReport) Browse(text string) tui.Report {
-	view := r.c.toAllResult(r.result)
-	return security.BrowserReport(security.BrowserSource{
-		Title:    "owatch all",
-		Audit:    view.Security,
-		System:   view.System,
-		Software: view.Software,
-		Modules:  moduleNotes(view.Modules),
+	return security.BrowserReport(allSource("owatch all", r.c.toAllResult(r.result), text))
+}
+
+// allSource is what the browser shows for an all report: the projection a
+// saved report carries and its full-report text. A live run and a saved
+// report both build their source here, so the two cannot differ in what they
+// take from the projection.
+func allSource(title string, v allResult, text string) security.BrowserSource {
+	return security.BrowserSource{
+		Title:    title,
+		Audit:    v.Security,
+		System:   v.System,
+		Software: v.Software,
+		Modules:  moduleNotes(v.Modules),
 		Text:     text,
-	})
+	}
 }
 
 // moduleNotes converts how each module ended to what the browser explains an
@@ -453,45 +460,48 @@ func moduleNotes(modules []moduleRun) []security.ModuleNote {
 	return notes
 }
 
-// WriteText renders the human-readable summary of the scan.
+// WriteText renders the human-readable summary of the scan from the same
+// projection View returns.
 func (r allReport) WriteText(w io.Writer) error {
-	return r.c.renderAllText(w, r.result)
+	return writeAllText(w, r.c.toAllResult(r.result))
 }
 
-// renderAllText writes a concise human-readable summary of the scan result
-// to w, returning the first write error. It is what plain output prints and
-// what the results browser pages through as the full report.
-func (c *allCmd) renderAllText(w io.Writer, result *ScanResult) error {
+// writeAllText writes a concise human-readable summary of an all report to w,
+// returning the first write error. It renders from the projection a saved
+// report carries, so what plain output prints, what the results browser pages
+// through as the full report, and what owatch browse shows for a saved file
+// are one text.
+func writeAllText(w io.Writer, v allResult) error {
 	ew := render.NewErrWriter(w)
-	ew.Printf("owatch all  --  %s\n\n", result.Timestamp.UTC().Format(time.RFC3339))
+	ew.Printf("owatch all  --  %s\n\n", v.Timestamp)
 
 	// module accounting
-	if len(result.Modules) > 0 {
+	if len(v.Modules) > 0 {
 		ew.Printf("Modules:\n")
-		for _, m := range result.Modules {
+		for _, m := range v.Modules {
 			ew.Printf("  %-10s %s\n", m.Name, strings.ToUpper(string(m.Result)))
 		}
 		ew.Printf("\n")
 	}
 
 	// system
-	if result.OSInfo != nil {
+	if v.System != nil {
 		ew.Printf("System\n")
 		if err := ew.Err(); err != nil {
 			return err
 		}
-		if err := osfingerprint.WriteText(w, result.OSInfo); err != nil {
+		if err := osfingerprint.WriteViewText(w, *v.System); err != nil {
 			return err
 		}
 	}
 
 	// software
-	if len(result.Software) > 0 {
-		ew.Printf("Software: %d packages installed\n", len(result.Software))
+	if v.Software != nil {
+		ew.Printf("Software: %d packages installed\n", v.Software.Count)
 		if err := ew.Err(); err != nil {
 			return err
 		}
-		if err := softwarelist.WriteText(w, softwarelist.View(result.Software)); err != nil {
+		if err := softwarelist.WriteText(w, *v.Software); err != nil {
 			return err
 		}
 	}
@@ -499,12 +509,12 @@ func (c *allCmd) renderAllText(w io.Writer, result *ScanResult) error {
 	ew.Printf("\n")
 
 	// security findings
-	if result.SecurityAudit != nil {
+	if v.Security != nil {
 		ew.Printf("Security Audit\n")
 		if err := ew.Err(); err != nil {
 			return err
 		}
-		if err := audit.WriteText(w, result.SecurityAudit, c.audit.MinSeverity()); err != nil {
+		if err := audit.WriteViewText(w, *v.Security); err != nil {
 			return err
 		}
 	}

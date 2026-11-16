@@ -109,49 +109,55 @@ func GetOSFingerprint() (*OSInfo, error) {
 	return osInfo, nil
 }
 
-// WriteText writes o's fields to w as labeled lines in fixed order. The
-// Platform and Kernel lines are omitted when they duplicate OS and the
-// platform version respectively; see DistinctPlatform and
-// DistinctKernelVersion, which own that rule so every OSInfo renderer inherits
-// it identically. AdditionalInfo keys are sorted before writing so output is
-// deterministic -- Go map iteration order is randomized and would otherwise
-// produce nondeterministic diffs in reports and tests.
+// WriteText writes o's fields to w as WriteViewText renders its projection.
 func WriteText(w io.Writer, o *OSInfo) error {
 	if o == nil {
 		return fmt.Errorf("osfingerprint: cannot render nil OSInfo")
 	}
+	return WriteViewText(w, o.View())
+}
 
-	if err := writeLine(w, "OS", o.OS); err != nil {
+// WriteViewText writes v's fields to w as labeled lines in fixed order. The
+// Platform and Kernel lines are omitted when the view omits them, which
+// View does where they duplicate OS and the platform version; see
+// DistinctPlatform and DistinctKernelVersion, which own that rule so every
+// renderer inherits it identically. AdditionalInfo keys are sorted before
+// writing so output is deterministic -- Go map iteration order is randomized
+// and would otherwise produce nondeterministic diffs in reports and tests.
+// It renders from the projection a saved report carries, so a live run and a
+// saved report show the same text.
+func WriteViewText(w io.Writer, v SystemView) error {
+	if err := writeLine(w, "OS", v.OS); err != nil {
 		return err
 	}
-	if err := writeLine(w, "Hostname", o.Hostname); err != nil {
+	if err := writeLine(w, "Hostname", v.Hostname); err != nil {
 		return err
 	}
-	if platform := o.DistinctPlatform(); platform != "" {
-		if err := writeLine(w, "Platform", platform); err != nil {
+	if v.Platform != "" {
+		if err := writeLine(w, "Platform", v.Platform); err != nil {
 			return err
 		}
 	}
-	if err := writeLine(w, "Version", o.PlatformVersion); err != nil {
+	if err := writeLine(w, "Version", v.PlatformVersion); err != nil {
 		return err
 	}
-	if kernel := o.DistinctKernelVersion(); kernel != "" {
-		if err := writeLine(w, "Kernel", kernel); err != nil {
+	if v.KernelVersion != "" {
+		if err := writeLine(w, "Kernel", v.KernelVersion); err != nil {
 			return err
 		}
 	}
-	if err := writeLine(w, "Architecture", o.Architecture); err != nil {
+	if err := writeLine(w, "Architecture", v.Architecture); err != nil {
 		return err
 	}
 
-	keys := make([]string, 0, len(o.AdditionalInfo))
-	for key := range o.AdditionalInfo {
+	keys := make([]string, 0, len(v.AdditionalInfo))
+	for key := range v.AdditionalInfo {
 		keys = append(keys, key)
 	}
 	sort.Strings(keys)
 
 	for _, key := range keys {
-		if err := writeLine(w, key, o.AdditionalInfo[key]); err != nil {
+		if err := writeLine(w, key, v.AdditionalInfo[key]); err != nil {
 			return err
 		}
 	}
