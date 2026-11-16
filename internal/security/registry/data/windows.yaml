@@ -349,7 +349,6 @@ users.azure_ad_account_no_local_password:
     system's classification and data handling requirements.
   references:
     - "NIST SP 800-53 Rev 5 IA-2 (Identification and Authentication)"
-    - "NIST SP 800-53 Rev 5 IA-3 (Device Identification and Authentication)"
     - "CIS Windows 11 Benchmark v3.0.0 §1.1"
 
 # Consumer: #144. No checker emits this definition: the local account
