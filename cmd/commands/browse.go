@@ -35,7 +35,8 @@ type (
 	// browseCmd holds one invocation's flag state. Cobra binds the flag
 	// directly into the field.
 	browseCmd struct {
-		inputFormat string
+		inputFormat  string
+		outputFormat string
 	}
 
 	// savedReport is a report file decoded as either shape owatch writes:
@@ -64,7 +65,9 @@ func newBrowseCmd() *cobra.Command {
 The report must be in a format that holds the whole report (%s) and come from
 owatch audit or owatch all. The format is taken from the file's extension, or
 from --input-format when the extension does not say. With no file named, the
-newest owatch report in the current directory is opened.`, delivery.LosslessNames()),
+newest owatch report in the current directory is opened. The full report under
+t is shown as text unless --output names another format; every other part of the
+browser is plain text.`, delivery.LosslessNames()),
 		Example: `  # Open the newest report in the current directory
   owatch browse
 
@@ -72,11 +75,16 @@ newest owatch report in the current directory is opened.`, delivery.LosslessName
   owatch browse /path/to/reports/owatch-host-SFUP-20261114T120000Z.json
 
   # Open a report whose extension does not name its format
-  owatch browse --input-format yaml /path/to/reports/last-scan.out`,
+  owatch browse --input-format yaml /path/to/reports/last-scan.out
+
+  # Show the full report under t as JSON
+  owatch browse -o json /path/to/reports/owatch-host-SFUP-20261114T120000Z.json`,
 		RunE: c.runE,
 	}
 	cmd.Flags().StringVar(&c.inputFormat, "input-format", "",
 		fmt.Sprintf("Format of the report file (%s); by default taken from its extension", delivery.LosslessNames()))
+	cmd.Flags().StringVarP(&c.outputFormat, "output", "o", string(delivery.FormatText),
+		fmt.Sprintf("Format of the full report shown under t (%s)", delivery.FormatNames()))
 	return cmd
 }
 
@@ -84,6 +92,10 @@ func (c *browseCmd) runE(_ *cobra.Command, args []string) error {
 	named, err := c.namedFormat()
 	if err != nil {
 		return err
+	}
+	view, ok := delivery.ParseFormat(c.outputFormat)
+	if !ok {
+		return fmt.Errorf("invalid output format: %s (valid: %s)", c.outputFormat, delivery.FormatNames())
 	}
 	if !render.StdoutIsTerminal() || !render.StdinIsTerminal() {
 		return errors.New("browse needs an interactive terminal")
@@ -101,7 +113,7 @@ func (c *browseCmd) runE(_ *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	report, err := decodeReport(path, format, data)
+	report, err := decodeReport(path, format, view, data)
 	if err != nil {
 		return err
 	}
@@ -203,13 +215,14 @@ func readReport(path string) ([]byte, error) {
 }
 
 // decodeReport decodes a report file in the format given and builds what the
-// browser shows from it, the full-report text included, rendered from the
-// decoded projection by the same writers a live run uses, so a saved report
-// opens to exactly what the run that wrote it showed. The shape is judged by
-// what the file holds, not by its name: an all report has modules, an audit
-// report has results. A file with neither, or whose results carry no result,
-// which reports from before the current result model lack, is refused.
-func decodeReport(path string, format delivery.Format, data []byte) (tui.Report, error) {
+// browser shows from it, the full report under t included, rendered from the
+// decoded projection in the format view names by the same writers and encoders
+// a live run uses, so a saved report opens to exactly what the run that wrote
+// it showed. The shape is judged by what the file holds, not by its name: an
+// all report has modules, an audit report has results. A file with neither, or
+// whose results carry no result, which reports from before the current result
+// model lack, is refused.
+func decodeReport(path string, format, view delivery.Format, data []byte) (tui.Report, error) {
 	var saved savedReport
 	var err error
 	switch format {
@@ -225,7 +238,6 @@ func decodeReport(path string, format delivery.Format, data []byte) (tui.Report,
 	}
 
 	title := "owatch browse  " + filepath.Base(path)
-	var text strings.Builder
 	switch {
 	case len(saved.Modules) > 0 && readable(saved.Security):
 		all := allResult{
@@ -236,18 +248,35 @@ func decodeReport(path string, format delivery.Format, data []byte) (tui.Report,
 			Software:  saved.Software,
 			Security:  saved.Security,
 		}
-		if err := writeAllText(&text, all); err != nil {
+		text, err := fullReport(all, view, func(w io.Writer) error { return writeAllText(w, all) })
+		if err != nil {
 			return tui.Report{}, fmt.Errorf("render %s: %w", path, err)
 		}
-		return security.BrowserReport(allSource(title, all, text.String())), nil
+		return security.BrowserReport(allSource(title, all, text)), nil
 	case len(saved.Modules) == 0 && len(saved.Results) > 0 && readable(&saved.View):
-		if err := security.WriteAuditText(&text, saved.View); err != nil {
+		text, err := fullReport(saved.View, view, func(w io.Writer) error { return security.WriteAuditText(w, saved.View) })
+		if err != nil {
 			return tui.Report{}, fmt.Errorf("render %s: %w", path, err)
 		}
-		return security.BrowserReport(security.AuditSource(title, saved.View, text.String())), nil
+		return security.BrowserReport(security.AuditSource(title, saved.View, text)), nil
 	default:
 		return tui.Report{}, fmt.Errorf("%s is not an owatch audit or all report this version can read", path)
 	}
+}
+
+// fullReport renders a report as the full-report view shows it: as text
+// through write, or as the structured encoding of its projection, the same
+// encoding a command delivers.
+func fullReport(projection any, view delivery.Format, write func(io.Writer) error) (string, error) {
+	if view == delivery.FormatText {
+		var text strings.Builder
+		if err := write(&text); err != nil {
+			return "", err
+		}
+		return text.String(), nil
+	}
+	data, err := delivery.Encode(projection, view)
+	return string(data), err
 }
 
 // readable reports whether every check and condition in view states its
