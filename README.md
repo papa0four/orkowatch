@@ -292,9 +292,10 @@ sound mapping carries none.
 
 Each finding cites its sources: the weakness it maps to (CWE), the NIST SP 800-53
 controls it bears on, and, where one applies, a vendor or distribution document.
-A citation is shown only after it has been checked against its source, and the
-data records the edition it was checked against and the date: NIST controls
-against the SP 800-53 Rev 5.2.0 catalog, and pages against their current text. A
+A citation is shown only after it has been checked against its source. NIST
+controls are checked when owatch starts against the bundled SP 800-53 Rev 5.2.0
+catalog, which supplies the title shown, so a citation cannot name a control that
+does not exist. Pages record the edition they were checked against and the date. A
 citation that has not been checked is kept in the data and withheld from every
 report, JSON and YAML output and the results browser. The CIS Benchmark
 citations are withheld in this way until each is checked against the benchmark.

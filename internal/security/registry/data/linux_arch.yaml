@@ -5,10 +5,12 @@
 # one its cvss_vector computes. The registry refuses to load a definition where
 # the severity, the score and the vector disagree:
 #   CRITICAL 9.0-10.0 | HIGH 7.0-8.9 | MEDIUM 4.0-6.9 | LOW 0.1-3.9
-# Each reference states its source, the edition of it that was checked and the
-# date it was verified (see registry.ReferenceSpec). One with no verified date has
-# not been checked and is withheld from every report. The weakness a definition
-# maps to is its cwe field, and its reference is built from that.
+# A NIST reference names only the control: its title and release come from the
+# bundled catalog (nist.yaml), which load checks it against. Any other reference
+# states its source, the edition checked and the date it was verified (see
+# registry.ReferenceSpec); one with no verified date has not been checked and is
+# withheld from every report. The weakness a definition maps to is its cwe field,
+# and its reference is built from that.
 # Note: Arch Linux has no official CIS benchmark. Entries reference
 # the Arch Security wiki and CIS Distribution Independent where applicable.
 
@@ -54,9 +56,6 @@ firewall.no_firewall_installed:
       id: "3.5"
     - source: NIST
       id: "SC-7"
-      title: "Boundary Protection"
-      version: "SP 800-53 Rev 5.2.0"
-      verified: "2026-11-15"
 
 # Consumer: #142. No checker emits this definition yet. nftables is not
 # queried separately today, on the reasoning that iptables on a modern host
@@ -92,9 +91,6 @@ firewall.nftables_no_rules:
       verified: "2026-11-15"
     - source: NIST
       id: "SC-7"
-      title: "Boundary Protection"
-      version: "SP 800-53 Rev 5.2.0"
-      verified: "2026-11-15"
 
 firewall.iptables_default_accept:
   title: "iptables default policy is ACCEPT on INPUT chain"
@@ -131,9 +127,6 @@ firewall.iptables_default_accept:
       id: "3.5.3"
     - source: NIST
       id: "SC-7"
-      title: "Boundary Protection"
-      version: "SP 800-53 Rev 5.2.0"
-      verified: "2026-11-15"
 
 # -------------------------
 # User checker findings
@@ -175,9 +168,6 @@ users.sudo_nopasswd:
       id: "5.3.7"
     - source: NIST
       id: "AC-6"
-      title: "Least Privilege"
-      version: "SP 800-53 Rev 5.2.0"
-      verified: "2026-11-15"
     - source: URL
       title: "ArchWiki: Sudo, Example entries"
       url: "https://wiki.archlinux.org/title/Sudo#Example_entries"
@@ -214,9 +204,6 @@ users.wheel_group_unrestricted:
       verified: "2026-11-15"
     - source: NIST
       id: "AC-6"
-      title: "Least Privilege"
-      version: "SP 800-53 Rev 5.2.0"
-      verified: "2026-11-15"
     - source: URL
       title: "ArchWiki: Sudo, Example entries"
       url: "https://wiki.archlinux.org/title/Sudo#Example_entries"
@@ -255,9 +242,6 @@ users.aur_helper_installed:
       verified: "2026-11-15"
     - source: NIST
       id: "CM-7"
-      title: "Least Functionality"
-      version: "SP 800-53 Rev 5.2.0"
-      verified: "2026-11-15"
 
 # -------------------------
 # Permissions checker findings
@@ -298,9 +282,6 @@ permissions.shadow_world_readable:
       id: "6.1.3"
     - source: NIST
       id: "AC-3"
-      title: "Access Enforcement"
-      version: "SP 800-53 Rev 5.2.0"
-      verified: "2026-11-15"
 
 # Consumer: #142. No checker emits this definition yet.
 permissions.pacman_cache_world_writable:
@@ -334,9 +315,6 @@ permissions.pacman_cache_world_writable:
       verified: "2026-11-15"
     - source: NIST
       id: "AC-3"
-      title: "Access Enforcement"
-      version: "SP 800-53 Rev 5.2.0"
-      verified: "2026-11-15"
 
 # Consumer: #142. No checker emits this definition yet.
 permissions.ssh_dir_permissions:
@@ -376,6 +354,3 @@ permissions.ssh_dir_permissions:
       id: "5.2.19"
     - source: NIST
       id: "AC-3"
-      title: "Access Enforcement"
-      version: "SP 800-53 Rev 5.2.0"
-      verified: "2026-11-15"

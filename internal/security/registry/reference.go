@@ -39,10 +39,12 @@ var nistControlPattern = regexp.MustCompile(`^([A-Z]{2})-\d+(\(\d+\))?$`)
 // in the data, and no report, view or browser shows it, so a citation reaches a
 // reader only after someone has compared it with its source.
 //
-// NIST entries carry ID and Title as the control catalog states them. CIS
-// entries carry Benchmark, Version and the recommendation ID. URL entries carry
-// the page's Title and URL. CWE is not cited here: a definition's cwe field
-// names the weakness, and its reference is built from that field.
+// NIST entries carry only the control's ID: the title and the release come from
+// the bundled catalog (data/nist.yaml), which load checks the ID against, so
+// they cannot differ from NIST's. CIS entries carry Benchmark, Version and the
+// recommendation ID. URL entries carry the page's Title and URL. CWE is not
+// cited here: a definition's cwe field names the weakness, and its reference is
+// built from that field.
 type ReferenceSpec struct {
 	Source    string `yaml:"source"`
 	ID        string `yaml:"id"`
@@ -56,12 +58,13 @@ type ReferenceSpec struct {
 // report builds the reference a finding carries, or reports false for an entry
 // that has not been verified.
 func (r ReferenceSpec) report() (finding.Reference, bool) {
+	if r.Source == RefTypeNIST {
+		return finding.Reference{Title: "NIST " + nist.Release + " " + r.ID + " (" + nist.Controls[r.ID] + ")", Type: RefTypeNIST}, true
+	}
 	if r.Verified == "" {
 		return finding.Reference{}, false
 	}
 	switch r.Source {
-	case RefTypeNIST:
-		return finding.Reference{Title: "NIST " + r.Version + " " + r.ID + " (" + r.Title + ")", Type: RefTypeNIST}, true
 	case RefTypeCIS:
 		return finding.Reference{Title: r.Benchmark + " " + r.Version + " " + r.ID, Type: RefTypeCIS}, true
 	default:
@@ -82,10 +85,12 @@ func (r ReferenceSpec) validate() error {
 	var checks []error
 	switch r.Source {
 	case RefTypeNIST:
-		if !nistControlPattern.MatchString(r.ID) {
-			return fmt.Errorf("NIST reference %q is not a control identifier such as AC-6 or IA-5(1)", r.ID)
+		if _, ok := nist.Controls[r.ID]; !ok {
+			return fmt.Errorf("NIST reference %q is not a control in the bundled %s catalog", r.ID, nist.Release)
 		}
-		checks = append(checks, require("title", r.Title), require("version", r.Version))
+		if r.Title != "" || r.Version != "" || r.Verified != "" {
+			return fmt.Errorf("NIST reference %s states a title, version or date; they come from the bundled catalog", r.ID)
+		}
 	case RefTypeCIS:
 		checks = append(checks, require("benchmark", r.Benchmark), require("version", r.Version), require("id", r.ID))
 	case RefTypeURL:
@@ -141,12 +146,12 @@ func (d FindingDefinition) ToReferences() []finding.Reference {
 }
 
 // ToCategories returns the NIST SP 800-53 control families the definition's
-// verified NIST references belong to, deduplicated and in alphabetical order.
+// NIST references belong to, deduplicated and in alphabetical order.
 func (d FindingDefinition) ToCategories() []string {
 	var out []string
 	seen := make(map[string]struct{})
 	for _, spec := range d.References {
-		if spec.Source != RefTypeNIST || spec.Verified == "" {
+		if spec.Source != RefTypeNIST {
 			continue
 		}
 		family := nistControlPattern.FindStringSubmatch(spec.ID)[1]

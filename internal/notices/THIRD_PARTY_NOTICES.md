@@ -51,3 +51,12 @@ Notice at the foot of the same page:
 ```text
 Use of the Common Weakness Enumeration (CWE™) and the associated references from this website are subject to the Terms of Use. CWE is sponsored by the U.S. Department of Homeland Security (DHS) Cybersecurity and Infrastructure Security Agency (CISA) and managed by the Homeland Security Systems Engineering and Development Institute (HSSEDI) which is operated by The MITRE Corporation (MITRE). Copyright © 2006–2026, The MITRE Corporation. CWE, CWSS, CWRAF, and the CWE logo are trademarks of The MITRE Corporation
 ```
+
+## NIST SP 800-53 Rev 5
+
+owatch bundles the control identifiers and titles of NIST Special Publication
+800-53 Revision 5, release 5.2.0, read from the OSCAL catalog NIST publishes at
+https://github.com/usnistgov/oscal-content. The catalog is a work of the United
+States government, in the public domain in the United States, and NIST dedicates
+it worldwide under the CC0 1.0 Universal public domain dedication. No condition
+attaches to its use; it is credited here because owatch ships it.

@@ -37,7 +37,7 @@ func TestUnverifiedReferencesAreWithheld(t *testing.T) {
 	var withheld, shown int
 	for label, d := range allDefinitions() {
 		for _, spec := range d.References {
-			if spec.Verified != "" {
+			if spec.Source == RefTypeNIST || spec.Verified != "" {
 				shown++
 				continue
 			}
@@ -57,12 +57,26 @@ func TestUnverifiedReferencesAreWithheld(t *testing.T) {
 	}
 }
 
-// Every NIST citation names the catalog release it was checked against.
-func TestNISTReferencesNameTheirRelease(t *testing.T) {
+// Every NIST citation resolves against the bundled catalog and is shown with
+// NIST's title and the catalog's release; none states either itself.
+func TestNISTReferencesResolveAgainstCatalog(t *testing.T) {
+	if len(nist.Controls) < 1000 {
+		t.Fatalf("the bundled catalog holds %d controls", len(nist.Controls))
+	}
 	for label, d := range allDefinitions() {
 		for _, spec := range d.References {
-			if spec.Source == RefTypeNIST && !strings.HasPrefix(spec.Version, "SP 800-53 Rev 5") {
-				t.Errorf("%s: NIST %s was checked against %q", label, spec.ID, spec.Version)
+			if spec.Source != RefTypeNIST {
+				continue
+			}
+			title, ok := nist.Controls[spec.ID]
+			if !ok {
+				t.Errorf("%s cites %s, which is not in the catalog", label, spec.ID)
+				continue
+			}
+			ref, shown := spec.report()
+			want := "NIST " + nist.Release + " " + spec.ID + " (" + title + ")"
+			if !shown || ref.Title != want {
+				t.Errorf("%s: %s is shown as %q, want %q", label, spec.ID, ref.Title, want)
 			}
 		}
 	}
@@ -130,19 +144,19 @@ func TestCorrectedCitationsAreGone(t *testing.T) {
 }
 
 func TestReferenceSpecRules(t *testing.T) {
-	good := ReferenceSpec{Source: RefTypeNIST, ID: "AC-6", Title: "Least Privilege", Version: "SP 800-53 Rev 5.2.0", Verified: "2026-11-15"}
+	good := ReferenceSpec{Source: RefTypeURL, Title: "A page", URL: "https://example.com/page", Version: "revision 1", Verified: "2026-11-15"}
 	if err := good.validate(); err != nil {
 		t.Fatalf("a well-formed NIST reference was refused: %v", err)
 	}
 	bad := map[string]ReferenceSpec{
 		"unknown source":        {Source: "BLOG", ID: "x"},
-		"NIST not a control":    {Source: RefTypeNIST, ID: "least privilege", Title: "t", Version: "v"},
-		"NIST without title":    {Source: RefTypeNIST, ID: "AC-6", Version: "v"},
-		"NIST without version":  {Source: RefTypeNIST, ID: "AC-6", Title: "t"},
+		"NIST not a control":    {Source: RefTypeNIST, ID: "least privilege"},
+		"NIST withdrawn":        {Source: RefTypeNIST, ID: "AC-13"},
+		"NIST states a title":   {Source: RefTypeNIST, ID: "AC-6", Title: "Least Privilege"},
 		"URL not https":         {Source: RefTypeURL, Title: "t", URL: "http://example.com", Version: "v"},
 		"URL without title":     {Source: RefTypeURL, URL: "https://example.com", Version: "v"},
 		"CIS without benchmark": {Source: RefTypeCIS, Version: "v1", ID: "1.1"},
-		"bad date":              {Source: RefTypeNIST, ID: "AC-6", Title: "t", Version: "v", Verified: "yesterday"},
+		"bad date":              {Source: RefTypeURL, Title: "t", URL: "https://example.com", Version: "v", Verified: "yesterday"},
 	}
 	for name, spec := range bad {
 		if err := spec.validate(); err == nil {
@@ -156,14 +170,18 @@ func TestReferenceSpecRules(t *testing.T) {
 		t.Error("an unverified reference is reported")
 	}
 	ref, ok := good.report()
-	if !ok || ref.Title != "NIST SP 800-53 Rev 5.2.0 AC-6 (Least Privilege)" || ref.Type != RefTypeNIST {
-		t.Errorf("NIST reference reported as %+v", ref)
+	if !ok || ref.Title != "A page" || ref.URL != "https://example.com/page" || ref.Type != RefTypeURL {
+		t.Errorf("URL reference reported as %+v", ref)
+	}
+	nistRef, ok := ReferenceSpec{Source: RefTypeNIST, ID: "AC-6"}.report()
+	if !ok || nistRef.Title != "NIST SP 800-53 Rev 5.2.0 AC-6 (Least Privilege)" {
+		t.Errorf("NIST reference reported as %+v", nistRef)
 	}
 
-	d := FindingDefinition{CWE: finding.CWE("CWE-284"), References: []ReferenceSpec{good, unverified}}
+	d := FindingDefinition{CWE: finding.CWE("CWE-284"), References: []ReferenceSpec{{Source: RefTypeNIST, ID: "AC-6"}, good, unverified}}
 	refs := d.ToReferences()
-	if len(refs) != 2 || refs[0].Type != RefTypeCWE || refs[0].URL != "https://cwe.mitre.org/data/definitions/284.html" {
-		t.Errorf("references of a definition with a cwe and one verified entry: %+v", refs)
+	if len(refs) != 3 || refs[0].Type != RefTypeCWE || refs[0].URL != "https://cwe.mitre.org/data/definitions/284.html" || refs[1].Type != RefTypeNIST {
+		t.Errorf("references of a definition with a cwe, a NIST control, a verified page and an unchecked one: %+v", refs)
 	}
 	if got := d.ToCategories(); len(got) != 1 || got[0] != "AC" {
 		t.Errorf("categories %v, want [AC]", got)
