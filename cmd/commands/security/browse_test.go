@@ -11,8 +11,8 @@ import (
 	"github.com/papa0four/orkowatch/internal/tui"
 )
 
-// A run of one module opens on what it produced; the audit, several modules or
-// all of them open on the findings.
+// A run opens on the findings when the audit ran, and otherwise on the first
+// module that did.
 func TestLandingTab(t *testing.T) {
 	ran := func(name string) ModuleNote { return ModuleNote{Name: name, Result: finding.ResultInformational} }
 	skipped := func(name string) ModuleNote { return ModuleNote{Name: name, Result: finding.ResultNotSelected} }
@@ -28,7 +28,10 @@ func TestLandingTab(t *testing.T) {
 		{"all with osinfo and audit skipped", []ModuleNote{skipped("osinfo"), ran("software"), skipped("audit")}, tui.TabSoftware},
 		{"all with osinfo and software skipped", []ModuleNote{skipped("osinfo"), skipped("software"), ran("audit")}, tui.TabFindings},
 		{"all", []ModuleNote{ran("osinfo"), ran("software"), ran("audit")}, tui.TabFindings},
-		{"all with audit skipped", []ModuleNote{ran("osinfo"), ran("software"), skipped("audit")}, tui.TabFindings},
+		{"all with audit skipped", []ModuleNote{ran("osinfo"), ran("software"), skipped("audit")}, tui.TabSystem},
+		{"all with osinfo skipped, audit absent", []ModuleNote{skipped("osinfo"), ran("software"), skipped("audit")}, tui.TabSoftware},
+		{"osinfo and audit", []ModuleNote{ran("osinfo"), skipped("software"), ran("audit")}, tui.TabFindings},
+		{"module that ran and failed", []ModuleNote{{Name: "software", Result: finding.ResultError}, skipped("osinfo"), skipped("audit")}, tui.TabSoftware},
 	}
 	for _, c := range cases {
 		if got := landingTab(c.modules); got != c.want {

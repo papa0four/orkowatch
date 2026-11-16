@@ -211,9 +211,9 @@ full with what triggered it (the rule that failed, what it found, the severity t
 gives it, the techniques it is mapped to) and its evidence; System shows the host's fingerprint; Software lists the
 installed packages and can be searched; MITRE ATT&CK® groups the findings by the
 technique each makes available, with the finding, rule and evidence behind each. A source a command did not run, or a module
-that was skipped or failed, is still listed and says so. A run of one module
-alone, such as `owatch osinfo`, opens on what it produced; the audit, or a run of
-several modules, opens on Findings. The complete plain report is one key away.
+that was skipped or failed, is still listed and says so. A run opens on
+Findings when the audit ran, and otherwise on the first module that did, so
+`owatch osinfo`, or `owatch all --skip-modules audit`, opens on System. The complete plain report is one key away.
 
 | Key | Action |
 |---|---|

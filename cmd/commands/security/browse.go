@@ -149,27 +149,32 @@ func attackTab(view *audit.View) (tui.Tab, bool) {
 	return tui.Tab{ID: tui.TabAttack, Name: "MITRE ATT&CK", Noun: "techniques", Records: records}, true
 }
 
-// landingTab is the tab the browser opens on. A run of one module alone opens
-// on what it produced, so the operator is not left to find it; a run of the
-// audit, of several modules, or of all of them opens on the findings. A module
-// counts as run unless it was excluded, which is how an all run with skips and
-// a command that runs one module are told apart from a full run.
+// landingTab is the tab the browser opens on. The findings, when the audit
+// ran, since they are what a run is for. Otherwise the first module that did
+// run, so a run of one module alone, or of several with the audit left out,
+// opens on something it produced rather than on a tab that says nothing was
+// collected. A module counts as run unless it was excluded; one that ran and
+// failed still counts, and its tab says what went wrong.
 func landingTab(modules []ModuleNote) string {
-	var ran []string
+	first := tui.TabFindings
 	for _, m := range modules {
-		if m.Result != finding.ResultNotSelected {
-			ran = append(ran, m.Name)
+		if m.Result == finding.ResultNotSelected {
+			continue
 		}
-	}
-	if len(ran) == 1 {
-		switch ran[0] {
+		switch m.Name {
+		case "audit":
+			return tui.TabFindings
 		case "osinfo":
-			return tui.TabSystem
+			if first == tui.TabFindings {
+				first = tui.TabSystem
+			}
 		case "software":
-			return tui.TabSoftware
+			if first == tui.TabFindings {
+				first = tui.TabSoftware
+			}
 		}
 	}
-	return tui.TabFindings
+	return first
 }
 
 // notRun says why a source has no data: the run's own account of the module
