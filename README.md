@@ -311,7 +311,7 @@ A finding also states its weakness and its CVSS score. The weakness is a CWE ent
 from the bundled MITRE catalog, shown with its name, MITRE's description and MITRE's
 own guidance on mapping to it (`weakness` in JSON and YAML). The registry refuses to
 load a definition that maps to an entry MITRE marks Discouraged or Prohibited. Where
-no entry describes a finding, which is the case for an absent firewall, the finding
+no entry describes a finding, which is the case for a disabled SELinux, the finding
 says so and gives the reason (`no_weakness`) rather than naming a weakness that does
 not fit. The CVSS score (`cvss`) is labelled with FIRST's nomenclature: CVSS-B is a
 base score, here the registry's baseline for the condition in general, and the label

@@ -158,7 +158,7 @@ firewall.profile_inactive:
   severity: "CRITICAL"
   cvss_score: 9.1
   cvss_vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N"
-  no_weakness: "CWE 5.0 has no entry for a host firewall that is absent or inactive: CWE-284 and CWE-693, the nearest classes, are discouraged by MITRE, and CWE-923 concerns verifying a communication endpoint."
+  cwe: "CWE-923"
   attack_techniques:
     - id: "T1686"
       basis:
@@ -193,7 +193,7 @@ firewall.all_profiles_disabled:
   severity: "CRITICAL"
   cvss_score: 9.8
   cvss_vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"
-  no_weakness: "CWE 5.0 has no entry for a host firewall that is absent or inactive: CWE-284 and CWE-693, the nearest classes, are discouraged by MITRE, and CWE-923 concerns verifying a communication endpoint."
+  cwe: "CWE-923"
   attack_techniques:
     - id: "T1686"
       basis:
@@ -682,4 +682,5 @@ permissions.admin_share_present:
       id: "18.3"
     - source: NIST
       id: "CM-7"
+
 

@@ -66,6 +66,11 @@ weaknesses:
     abstraction: "Base"
     usage: "Allowed"
     description: "The product imports, requires, or includes executable functionality (such as a library) from a source that is outside of the intended control sphere."
+  "CWE-923":
+    name: "Improper Restriction of Communication Channel to Intended Endpoints"
+    abstraction: "Class"
+    usage: "Allowed-with-Review"
+    description: "The product establishes a communication channel to (or from) an endpoint for privileged or protected operations, but it does not properly ensure that it is communicating with the correct endpoint."
   "CWE-1188":
     name: "Initialization of a Resource with an Insecure Default"
     abstraction: "Base"

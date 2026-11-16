@@ -21,7 +21,7 @@ firewall.firewalld_not_running:
   severity: "HIGH"
   cvss_score: 8.6
   cvss_vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:L/A:H"
-  no_weakness: "CWE 5.0 has no entry for a host firewall that is absent or inactive: CWE-284 and CWE-693, the nearest classes, are discouraged by MITRE, and CWE-923 concerns verifying a communication endpoint."
+  cwe: "CWE-923"
   attack_techniques:
     - id: "T1686"
       basis:
@@ -58,7 +58,7 @@ firewall.firewalld_not_installed:
   severity: "CRITICAL"
   cvss_score: 9.1
   cvss_vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N"
-  no_weakness: "CWE 5.0 has no entry for a host firewall that is absent or inactive: CWE-284 and CWE-693, the nearest classes, are discouraged by MITRE, and CWE-923 concerns verifying a communication endpoint."
+  cwe: "CWE-923"
   attack_techniques:
     - id: "T1686"
       basis:
@@ -348,7 +348,7 @@ permissions.selinux_disabled:
   attack_techniques:
     - id: "T1685"
       basis:
-        - "NIST AC-3 maps to this technique, listed there as T1562 (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
+        - "NIST AC-3 maps to this technique, listed there as T1562.006 (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
   description: >
     SELinux is either disabled or configured in permissive mode on this
     RHEL-family system. SELinux provides mandatory access controls that
@@ -379,4 +379,5 @@ permissions.selinux_disabled:
       url: "https://docs.redhat.com/en/documentation/red_hat_enterprise_linux/9/html/using_selinux/changing-selinux-states-and-modes_using-selinux#changing-to-enforcing-mode_changing-selinux-states-and-modes"
       version: "Red Hat Enterprise Linux 9"
       verified: "2026-11-15"
+
 
