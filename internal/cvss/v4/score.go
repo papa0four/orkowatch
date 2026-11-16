@@ -96,6 +96,18 @@ var (
 // Score returns the vector's score from 0.0 to 10.0, to one decimal place. Not
 // Defined Threat and Security Requirement metrics take the worst case, as the
 // specification says, and a Modified Base metric replaces its Base metric.
+//
+// The score is the one FIRST's calculator gives, which is not always the one NVD
+// publishes. Where the unrounded score is a tie such as 5.65, the calculator's
+// floating-point arithmetic can land a hair under it (5.6499999999999995) and
+// round down to 5.6, and NVD rounds the same vector up to 5.7. This follows the
+// calculator, because that is where a reader can reproduce the score from its
+// vector. NVD's own published scores are shown as NVD publishes them, not
+// recomputed. The two vectors in the test data that differ this way are
+// CVE-2025-20005 and CVE-2026-28457. FIRST's User Guide also prints figures its
+// own calculator does not give for its MySQL example (CVE-2013-0375): 5.1 and 4.9
+// where the calculator gives 5.3 and 5.1. Neither difference is a fault in the
+// port, which reproduces the calculator exactly; see v4_test.go for the evidence.
 func (v Vector) Score() float64 {
 	return math.Floor(v.raw()*10+0.5) / 10
 }
