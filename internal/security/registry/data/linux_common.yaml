@@ -141,6 +141,7 @@ ssh.password_auth_not_set:
   cvss_score: 5.9
   cvss_vector: "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:N/A:N"
   cwe: "CWE-16"
+  attack_techniques: ["T1021.004"]
   description: >
     The PasswordAuthentication directive was not found in sshd_config.
     OpenSSH defaults to permitting password authentication when this
@@ -410,6 +411,7 @@ users.kerberos_configured:
   cvss_score: 2.3
   cvss_vector: "CVSS:3.1/AV:L/AC:L/PR:H/UI:N/S:U/C:L/I:N/A:N"
   cwe: "CWE-287"
+  attack_techniques: ["T1558.005"]
   description: >
     /etc/krb5.conf is present, indicating Kerberos authentication is
     configured. Kerberos introduces a KDC dependency for authentication
@@ -434,6 +436,7 @@ users.sssd_configured:
   cvss_score: 2.3
   cvss_vector: "CVSS:3.1/AV:L/AC:L/PR:H/UI:N/S:U/C:L/I:N/A:N"
   cwe: "CWE-287"
+  attack_techniques: ["T1003.005"]
   description: >
     /etc/sssd/sssd.conf is present, indicating the System Security
     Services Daemon is configured for centralized identity management.
@@ -459,6 +462,7 @@ users.regular_user_admin_privileges:
   cvss_score: 7.1
   cvss_vector: "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:N"
   cwe: "CWE-250"
+  attack_techniques: ["T1548.003"]
   description: >
     A non-system user account is a member of a privileged group (sudo or
     wheel). Administrative group membership grants the ability to execute

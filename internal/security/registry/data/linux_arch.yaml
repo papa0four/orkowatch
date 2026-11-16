@@ -181,6 +181,7 @@ users.wheel_group_unrestricted:
   cvss_score: 7.1
   cvss_vector: "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:N"
   cwe: "CWE-269"
+  attack_techniques: ["T1548.003"]
   description: >
     The wheel group is configured with unrestricted sudo access to all
     commands. On Arch Linux this is the default sudoers configuration

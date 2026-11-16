@@ -27,6 +27,8 @@ version: "v20.1"
 
 mitigations:
   M1013: "Application Developer Guidance"
+  M1015: "Active Directory Configuration"
+  M1017: "User Training"
   M1018: "User Account Management"
   M1022: "Restrict File and Directory Permissions"
   M1024: "Restrict Registry Permissions"
@@ -40,6 +42,7 @@ mitigations:
   M1038: "Execution Prevention"
   M1041: "Encrypt Sensitive Information"
   M1042: "Disable or Remove Feature or Program"
+  M1043: "Credential Access Protection"
   M1044: "Restrict Library Loading"
   M1047: "Audit"
   M1051: "Update Software"
@@ -47,6 +50,10 @@ mitigations:
   M1054: "Software Configuration"
 
 techniques:
+  T1003.005:
+    name: "Cached Domain Credentials"
+    tactics: ["Credential Access"]
+    mitigations: ["M1015", "M1017", "M1026", "M1027", "M1028"]
   T1003.008:
     name: "/etc/passwd and /etc/shadow"
     tactics: ["Credential Access"]
@@ -87,6 +94,10 @@ techniques:
     name: "Private Keys"
     tactics: ["Credential Access"]
     mitigations: ["M1047", "M1041", "M1027", "M1022"]
+  T1558.005:
+    name: "Ccache Files"
+    tactics: ["Credential Access"]
+    mitigations: ["M1043", "M1047"]
   T1574.001:
     name: "DLL"
     tactics: ["Stealth", "Execution"]

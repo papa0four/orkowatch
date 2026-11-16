@@ -187,3 +187,38 @@ func TestReferenceSpecRules(t *testing.T) {
 		t.Errorf("categories %v, want [AC]", got)
 	}
 }
+
+// A technique attached by the NIST to ATT&CK mapping pass reaches the finding a
+// checker builds for the host it ran on.
+func TestMappedTechniquesReachFindings(t *testing.T) {
+	linux := func(family Distro) OSContext {
+		return OSContext{Platform: PlatformLinux, Families: []Distro{family}}
+	}
+	cases := []struct {
+		host      OSContext
+		key       FindingKey
+		technique string
+	}{
+		{linux(DistroArch), "users.wheel_group_unrestricted", "T1548.003"},
+		{linux(DistroDebian), "users.regular_user_admin_privileges", "T1548.003"},
+		{linux(DistroDebian), "permissions.sudoers_world_readable", "T1548.003"},
+		{linux(DistroRHEL), "permissions.sudoers_world_readable", "T1548.003"},
+		{linux(DistroDebian), "users.sssd_configured", "T1003.005"},
+		{linux(DistroDebian), "users.kerberos_configured", "T1558.005"},
+		{linux(DistroDebian), "ssh.password_auth_not_set", "T1021.004"},
+	}
+	for _, c := range cases {
+		d, ok := Lookup(c.host, c.key)
+		if !ok {
+			t.Errorf("%s: no definition", c.key)
+			continue
+		}
+		var ids []string
+		for _, tech := range d.Finding().Techniques {
+			ids = append(ids, tech.ID)
+		}
+		if !slices.Contains(ids, c.technique) {
+			t.Errorf("%s carries %v, want %s", c.key, ids, c.technique)
+		}
+	}
+}

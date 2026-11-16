@@ -285,8 +285,12 @@ appear under the finding in the text report, in the finding's detail in the
 browser, as an `attack` list on the finding in JSON and YAML, and as the MITRE
 ATT&CK tab. The mapping is static data bundled in the binary, read
 from the ATT&CK site, so it needs no flag and no network. It says what an adversary
-can do because of the condition, not that anyone has done it. A finding with no
-sound mapping carries none.
+can do because of the condition, not that anyone has done it. A technique is
+attached to a finding only when three things hold: the Center for Threat-Informed
+Defense's published mapping of NIST SP 800-53 to ATT&CK links a control the finding
+cites to the technique, the technique applies to the platform the finding is for,
+and the technique's ATT&CK description states the condition the finding reports.
+A finding with no sound mapping carries none.
 
 ## References
 

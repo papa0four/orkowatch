@@ -180,6 +180,7 @@ permissions.sudoers_world_readable:
   cvss_score: 7.1
   cvss_vector: "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:N"
   cwe: "CWE-732"
+  attack_techniques: ["T1548.003"]
   description: >
     /etc/sudoers has permissions that exceed the expected 0440 mode.
     The sudoers file defines privilege escalation rules for the system.
