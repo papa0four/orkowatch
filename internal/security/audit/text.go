@@ -6,24 +6,30 @@ import (
 	"fmt"
 	"io"
 	"strings"
-	"time"
 
 	"github.com/papa0four/orkowatch/internal/render"
 	"github.com/papa0four/orkowatch/internal/security/enrichment"
 	"github.com/papa0four/orkowatch/internal/security/finding"
 )
 
-// WriteText renders a completed audit as text: each check with its
-// findings, the enrichment block, suppression notice, and summary. It does
-// not render the system block; callers write that separately via
-// osfingerprint.WriteText. The first write error, if any, is returned.
-func WriteText(w io.Writer, result *Result, minSeverity string) error {
-	if result == nil {
-		return fmt.Errorf("audit: cannot render nil Result")
-	}
-
-	v := result.View(minSeverity)
+// WriteViewText renders a completed audit as text: each check with its
+// findings, the enrichment block, suppression notice, and summary. It renders
+// from the projection a saved report carries, so a live run and a saved report
+// show the same text. It does not render the system block; callers write that
+// separately via osfingerprint.WriteViewText. The first write error, if any, is
+// returned.
+func WriteViewText(w io.Writer, v View) error {
 	ew := render.NewErrWriter(w)
+
+	// A report written before the view named its threshold carries it only
+	// when something was suppressed; with neither, nothing was filtered.
+	minSeverity := v.MinSeverity
+	if minSeverity == "" {
+		minSeverity = v.MinSeverityApplied
+	}
+	if minSeverity == "" {
+		minSeverity = finding.SeverityNone
+	}
 
 	for _, check := range v.Results {
 		if err := writeCheck(ew, check, minSeverity); err != nil {
@@ -32,10 +38,11 @@ func WriteText(w io.Writer, result *Result, minSeverity string) error {
 	}
 
 	if err := enrichment.Block(w, enrichment.Data{
-		Requested: result.EnrichmentRequested,
-		Err:       result.EnrichmentError,
-		CWEs:      result.CWEs,
-		Result:    result.Enrichment,
+		Requested: v.EnrichmentRequested,
+		Err:       v.EnrichmentError,
+		CWEs:      v.ReferenceCWEs,
+		Entries:   v.Entries,
+		Failures:  v.Failures,
 	}); err != nil {
 		return err
 	}
@@ -45,7 +52,7 @@ func WriteText(w io.Writer, result *Result, minSeverity string) error {
 		return err
 	}
 
-	writeSummary(ew, v, result.Duration)
+	writeSummary(ew, v)
 	return ew.Err()
 }
 
@@ -234,7 +241,7 @@ func ReferenceText(ref finding.Reference) string {
 // writeSummary renders the summary block: checks and conditions broken down
 // by result, findings by severity. Results that did not occur are left out;
 // every severity is printed, so a zero is stated rather than implied.
-func writeSummary(ew *render.ErrWriter, v View, duration time.Duration) {
+func writeSummary(ew *render.ErrWriter, v View) {
 	ew.Printf("Summary:\n")
 	ew.Printf("Total Checks:      %d\n", v.Summary.TotalChecks)
 	writeResultCounts(ew, v.Summary.Checks)
@@ -253,7 +260,7 @@ func writeSummary(ew *render.ErrWriter, v View, duration time.Duration) {
 		label := severities[i][:1] + strings.ToLower(severities[i][1:]) + ":"
 		ew.Printf("  %-15s  %d\n", label, v.Summary.Findings[severities[i]])
 	}
-	ew.Printf("Duration:          %v\n", duration)
+	ew.Printf("Duration:          %s\n", v.Duration)
 }
 
 // writeResultCounts renders one count per result that occurred, in

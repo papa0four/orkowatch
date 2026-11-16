@@ -63,13 +63,15 @@ func Bind(cmd *cobra.Command) *Flags {
 	f := &Flags{}
 
 	cmd.Flags().StringVarP(&f.outputFormat, "output", "o", string(FormatText),
-		fmt.Sprintf("Output format (%s)", FormatNames()))
+		fmt.Sprintf("Format of the full report (%s), wherever it goes: printed with --plain, written with "+
+			"--report-file, or shown by t in the results browser. Unspecified, a report file is JSON and "+
+			"anything else is text", FormatNames()))
 	cmd.Flags().StringVar(&f.reportFile, "report-file", "",
 		"Save the report to the specified directory; filename is generated automatically")
 	cmd.Flags().BoolVar(&f.allowElevatedWrite, "allow-elevated-write", false,
 		"Permit an elevated write outside the allowlisted directories or into a directory other users control")
 	cmd.Flags().BoolVar(&f.plain, "plain", false,
-		"Print the report as text instead of opening the results browser")
+		"Print the report to the terminal instead of opening the results browser")
 
 	return f
 }
@@ -117,49 +119,73 @@ func (f *Flags) ToFile() bool {
 	return f.reportFile != ""
 }
 
-// browses reports whether a text report opens in the results browser rather
-// than being printed. It does only when a person is at a terminal to use it,
-// on both input and output, and nothing asked for the text itself: no
-// --plain, no report file, no structured format. Anything that reads
-// owatch's output, a pipe, a redirect or a script, still gets the text.
+// browses reports whether the report opens in the results browser rather
+// than being printed or written. It does when a person is at a terminal to use
+// it, on both input and output, and has not asked for the report itself with
+// --plain or --report-file. The format named with --output does not decide
+// this: it is the format of the full report, which the browser shows under t,
+// while every other part of the browser is plain text. Anything that reads
+// owatch's output, a pipe, a redirect or a script, is not a terminal and gets
+// the report in the format asked for.
 func (f *Flags) browses() bool {
-	return f.format == FormatText && f.reportFile == "" && !f.plain &&
+	return f.reportFile == "" && !f.plain &&
 		render.StdoutIsTerminal() && render.StdinIsTerminal()
 }
 
-// Deliver encodes r at the resolved format and emits it, or shows a text
-// report in the results browser when browses says to and r can be browsed.
-// The default arm is the reason this dispatch exists once rather than per
-// command: a format added to report.formats and not handled here fails
-// loudly instead of silently falling back to text.
-func (f *Flags) Deliver(r Report, mask selection.CheckMask) error {
+// Encode encodes v in a structured format, JSON indented or YAML. It is the
+// one place those encodings are made, so a report a command delivers and a
+// saved report shown by owatch browse are encoded alike.
+func Encode(v any, format Format) ([]byte, error) {
 	var buf bytes.Buffer
-	switch f.format {
+	switch format {
 	case FormatJSON:
 		enc := json.NewEncoder(&buf)
 		enc.SetIndent("", "  ")
-		if err := enc.Encode(r.View()); err != nil {
-			return fmt.Errorf("failed to encode JSON: %w", err)
+		if err := enc.Encode(v); err != nil {
+			return nil, fmt.Errorf("failed to encode JSON: %w", err)
 		}
 	case FormatYAML:
-		if err := yaml.NewEncoder(&buf).Encode(r.View()); err != nil {
-			return fmt.Errorf("failed to encode YAML: %w", err)
+		if err := yaml.NewEncoder(&buf).Encode(v); err != nil {
+			return nil, fmt.Errorf("failed to encode YAML: %w", err)
 		}
+	default:
+		return nil, fmt.Errorf("%s is not a structured format", format)
+	}
+	return buf.Bytes(), nil
+}
+
+// Deliver encodes r at the resolved format and emits it: to the results
+// browser, where it is the full report under t, when browses says to and r
+// can be browsed, and otherwise to stdout or to a generated file. The default
+// arm is the reason this dispatch exists once rather than per command: a
+// format added to report.formats and not handled here fails loudly instead of
+// silently falling back to text.
+func (f *Flags) Deliver(r Report, mask selection.CheckMask) error {
+	var payload []byte
+	switch f.format {
+	case FormatJSON, FormatYAML:
+		encoded, err := Encode(r.View(), f.format)
+		if err != nil {
+			return err
+		}
+		payload = encoded
 	case FormatText:
+		var buf bytes.Buffer
 		if err := r.WriteText(&buf); err != nil {
 			return fmt.Errorf("failed to render text output: %w", err)
 		}
-		if b, ok := r.(Browsable); ok && f.browses() {
-			if err := tui.Browse(b.Browse(buf.String())); err != nil {
-				return fmt.Errorf("results browser: %w", err)
-			}
-			return nil
-		}
+		payload = buf.Bytes()
 	default:
 		return fmt.Errorf("unsupported output format: %s", f.format)
 	}
 
-	return f.emit(buf.Bytes(), mask)
+	if b, ok := r.(Browsable); ok && f.browses() {
+		if err := tui.Browse(b.Browse(string(payload))); err != nil {
+			return fmt.Errorf("results browser: %w", err)
+		}
+		return nil
+	}
+	return f.emit(payload, mask)
 }
 
 // emit writes payload to the resolved destination: a file under --report-file

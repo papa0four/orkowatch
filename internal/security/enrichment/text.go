@@ -9,21 +9,23 @@ import (
 	"github.com/papa0four/orkowatch/internal/security/finding"
 )
 
-// Data carries everything the enrichment text block needs to
-// render, decoupled from the audit engine's result type so this package
-// never has to import the orchestration layer to render its own data
+// Data is everything the enrichment text block renders from: the projections
+// a saved report carries, so a live run and a saved report show the same
+// block, and this package never has to import the orchestration layer to
+// render its own data. Err is the reason enrichment was unavailable, empty
+// when it was not.
 type Data struct {
 	Requested bool
-	Err       error
+	Err       string
 	CWEs      []string
-	Result    *Result
+	Entries   []EntryView
+	Failures  []FailureView
 }
 
 // Block writes the enrichment text rendering: nothing when enrichment was
 // not requested, otherwise one of unavailable, no CWE references, or the
-// per-CWE entries and failures projected by Entries and Failures, so text
-// and structured output describe the same set in the same order. The first
-// write error, if any, is returned.
+// per-CWE entries and failures, so text and structured output describe the
+// same set in the same order. The first write error, if any, is returned.
 func Block(w io.Writer, d Data) error {
 	if !d.Requested {
 		return nil
@@ -33,13 +35,13 @@ func Block(w io.Writer, d Data) error {
 	ew.Printf("Enrichment:\n")
 
 	switch {
-	case d.Err != nil:
-		ew.Printf("  Unavailable: %v\n\n", d.Err)
+	case d.Err != "":
+		ew.Printf("  Unavailable: %s\n\n", d.Err)
 	case len(d.CWEs) == 0:
 		ew.Printf("  No CWE references found in current findings.\n\n")
 	default:
-		writeEntries(ew, Entries(d.CWEs, d.Result))
-		writeFailures(ew, Failures(d.Result))
+		writeEntries(ew, d.Entries)
+		writeFailures(ew, d.Failures)
 		ew.Printf("\n")
 	}
 

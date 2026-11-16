@@ -385,13 +385,20 @@ func (r auditReport) View() any {
 // Browse returns what the results browser shows for the audit, from the same
 // severity-filtered projection View returns.
 func (r auditReport) Browse(text string) tui.Report {
-	view := r.result.View(r.c.audit.MinSeverity())
-	return BrowserReport(BrowserSource{Title: "owatch audit", Audit: &view, System: view.SystemInfo, Text: text})
+	return BrowserReport(AuditSource("owatch audit", r.result.View(r.c.audit.MinSeverity()), text))
 }
 
-// WriteText renders the audit as human-readable text: the system block via
-// osfingerprint.WriteText, then the security section via audit.WriteText.
+// WriteText renders the audit as human-readable text from the same
+// severity-filtered projection View returns.
 func (r auditReport) WriteText(w io.Writer) error {
+	return WriteAuditText(w, r.result.View(r.c.audit.MinSeverity()))
+}
+
+// WriteAuditText renders an audit report as human-readable text: the system
+// block via osfingerprint.WriteViewText, then the security section via
+// audit.WriteViewText. It renders from the projection a saved report carries,
+// so a live run, and a report reopened by owatch browse, show the same text.
+func WriteAuditText(w io.Writer, v audit.View) error {
 	ew := render.NewErrWriter(w)
 	ew.Printf("\nSecurity Audit Report\n")
 	ew.Printf("====================\n\n")
@@ -399,8 +406,8 @@ func (r auditReport) WriteText(w io.Writer) error {
 		return err
 	}
 
-	if r.result.HostInfo != nil {
-		if err := osfingerprint.WriteText(w, r.result.HostInfo); err != nil {
+	if v.SystemInfo != nil {
+		if err := osfingerprint.WriteViewText(w, *v.SystemInfo); err != nil {
 			return err
 		}
 		ew.Printf("\n")
@@ -409,5 +416,5 @@ func (r auditReport) WriteText(w io.Writer) error {
 		}
 	}
 
-	return audit.WriteText(w, r.result, r.c.audit.MinSeverity())
+	return audit.WriteViewText(w, v)
 }

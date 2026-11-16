@@ -21,16 +21,19 @@ const (
 )
 
 // formats is the canonical ordered format set paired with its filename
-// extension. ParseFormat, FormatNames, and Extension all derive from it, so
-// the set is enumerated once. The first entry supplies the fallback extension
-// for an unrecognized Format.
+// extension and whether it is lossless, that is whether it holds the whole
+// report: the modules, system block, software, and every check including those
+// with no findings. ParseFormat, FormatNames, Extension, Lossless and the
+// lossless listings all derive from it, so the set is enumerated once. The
+// first entry supplies the fallback extension for an unrecognized Format.
 var formats = []struct {
-	name Format
-	ext  string
+	name     Format
+	ext      string
+	lossless bool
 }{
-	{FormatText, "txt"},
-	{FormatJSON, "json"},
-	{FormatYAML, "yaml"},
+	{FormatText, "txt", false},
+	{FormatJSON, "json", true},
+	{FormatYAML, "yaml", true},
 }
 
 // ParseFormat resolves s to a canonical Format, reporting whether it names a
@@ -62,6 +65,39 @@ func (f Format) Extension() string {
 		}
 	}
 	return formats[0].ext
+}
+
+// Lossless reports whether f holds the whole report, so a saved report in it
+// can be reopened exactly. Text is a rendering of a report, and a flat export
+// such as CSV holds one row per finding; neither can hold what has no finding.
+func (f Format) Lossless() bool {
+	for _, spec := range formats {
+		if spec.name == f {
+			return spec.lossless
+		}
+	}
+	return false
+}
+
+// LosslessFormats returns the lossless formats in declaration order.
+func LosslessFormats() []Format {
+	var out []Format
+	for _, spec := range formats {
+		if spec.lossless {
+			out = append(out, spec.name)
+		}
+	}
+	return out
+}
+
+// LosslessNames returns the lossless format names in declaration order for
+// operator-facing messages.
+func LosslessNames() string {
+	names := make([]string, 0, len(formats))
+	for _, f := range LosslessFormats() {
+		names = append(names, string(f))
+	}
+	return strings.Join(names, ", ")
 }
 
 // FormatForExtension returns the format a filename extension, without its

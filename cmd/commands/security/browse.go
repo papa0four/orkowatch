@@ -31,6 +31,14 @@ type BrowserSource struct {
 	Text     string
 }
 
+// AuditSource is what the browser shows for an audit report: the projection
+// a saved report carries and its full-report text. A live run and a saved
+// report both build their source here, so the two cannot differ in what they
+// take from the projection.
+func AuditSource(title string, view audit.View, text string) BrowserSource {
+	return BrowserSource{Title: title, Audit: &view, System: view.SystemInfo, Text: text}
+}
+
 // ModuleNote is how one module of an all run ended.
 type ModuleNote struct {
 	Name   string

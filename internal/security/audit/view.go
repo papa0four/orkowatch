@@ -18,6 +18,7 @@ type (
 	View struct {
 		Timestamp           string                    `json:"timestamp" yaml:"timestamp"`
 		Duration            string                    `json:"duration" yaml:"duration"`
+		MinSeverity         string                    `json:"min_severity,omitempty" yaml:"min_severity,omitempty"`
 		SystemInfo          *osfingerprint.SystemView `json:"system_info,omitempty" yaml:"system_info,omitempty"`
 		Results             []CheckView               `json:"results" yaml:"results"`
 		Summary             Summary                   `json:"summary" yaml:"summary"`
@@ -80,6 +81,7 @@ func (r *Result) View(minSeverity string) View {
 	v := View{
 		Timestamp:           r.StartTime.UTC().Format(time.RFC3339),
 		Duration:            r.Duration.String(),
+		MinSeverity:         strings.ToUpper(minSeverity),
 		Summary:             r.Summary,
 		EnrichmentRequested: r.EnrichmentRequested,
 		ReferenceCWEs:       r.CWEs,
