@@ -16,6 +16,17 @@ import (
 )
 
 type (
+	// AttackLink ties a definition to an ATT&CK technique and says what in
+	// MITRE's published data supports the tie: a NIST control the finding cites
+	// that the Center for Threat-Informed Defense maps to the technique, or the
+	// finding's weakness through a CAPEC pattern that CAPEC maps to it. A link
+	// with no basis does not load, so no association is shown without the
+	// reason for it.
+	AttackLink struct {
+		ID    string   `yaml:"id"`
+		Basis []string `yaml:"basis"`
+	}
+
 	// attackFile is the bundled ATT&CK dataset as authored. Version is the
 	// ATT&CK release the entries were read against; Mitigations maps each
 	// mitigation identifier to its name.
@@ -119,16 +130,24 @@ func techniqueURL(id string) string {
 
 // checkTechniques returns the first identifier the bundled dataset does not
 // hold, or a repeated one, as the reason a definition cannot be used.
-func checkTechniques(ids []string) error {
-	seen := make(map[string]bool, len(ids))
-	for _, id := range ids {
-		if _, ok := techniques[id]; !ok {
-			return fmt.Errorf("attack technique %q is not in the bundled dataset", id)
+func checkTechniques(links []AttackLink) error {
+	seen := make(map[string]bool, len(links))
+	for _, link := range links {
+		if _, ok := techniques[link.ID]; !ok {
+			return fmt.Errorf("attack technique %q is not in the bundled dataset", link.ID)
 		}
-		if seen[id] {
-			return fmt.Errorf("attack technique %q is listed twice", id)
+		if seen[link.ID] {
+			return fmt.Errorf("attack technique %q is listed twice", link.ID)
 		}
-		seen[id] = true
+		seen[link.ID] = true
+		if len(link.Basis) == 0 {
+			return fmt.Errorf("attack technique %s states no basis: a link to a technique must say what supports it", link.ID)
+		}
+		for _, b := range link.Basis {
+			if strings.TrimSpace(b) == "" {
+				return fmt.Errorf("attack technique %s has an empty basis", link.ID)
+			}
+		}
 	}
 	return nil
 }
@@ -139,8 +158,8 @@ func checkTechniqueUse(sets ...map[FindingKey]FindingDefinition) {
 	used := make(map[string]bool, len(techniques))
 	for _, defs := range sets {
 		for _, def := range defs {
-			for _, id := range def.AttackTechniques {
-				used[id] = true
+			for _, link := range def.AttackTechniques {
+				used[link.ID] = true
 			}
 		}
 	}

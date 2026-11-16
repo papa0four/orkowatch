@@ -290,7 +290,10 @@ attached to a finding only when three things hold: the Center for Threat-Informe
 Defense's published mapping of NIST SP 800-53 to ATT&CK links a control the finding
 cites to the technique, the technique applies to the platform the finding is for,
 and the technique's ATT&CK description states the condition the finding reports.
-A finding with no sound mapping carries none.
+Each technique on a finding states its basis, so the association can be checked:
+the NIST control the finding cites that the mapping links to the technique, or the
+finding's weakness through a CAPEC attack pattern that CAPEC maps to it. A finding
+with no sound mapping carries none.
 
 ## References
 

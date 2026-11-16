@@ -73,3 +73,26 @@ func TestAttackTabTracesTechniqueToFinding(t *testing.T) {
 		t.Errorf("a fourth evidence entry is listed, not counted:\n%s", shown)
 	}
 }
+
+// A technique's record says why each finding is associated with it.
+func TestAttackTabStatesTheBasis(t *testing.T) {
+	view := &audit.View{Results: []audit.CheckView{{Conditions: []audit.ConditionView{{
+		Key: "firewall.ufw_inactive", Result: finding.ResultFail,
+		Finding: &audit.FindingView{Title: "Firewall is inactive", Severity: "HIGH",
+			Attack: []finding.Technique{{ID: "T1686", Name: "Disable or Modify System Firewall",
+				Basis: []string{"CWE-284 relates to CAPEC-1, which CAPEC 3.9 maps to this technique"}}}},
+	}}}}}
+	tab, ok := attackTab(view)
+	if !ok {
+		t.Fatal("no technique record")
+	}
+	var shown string
+	for _, f := range tab.Records[0].Fields {
+		if strings.HasPrefix(f.Label, "triggered by") {
+			shown = f.Value
+		}
+	}
+	if !strings.Contains(shown, "associated because: CWE-284 relates to CAPEC-1") {
+		t.Errorf("the basis is not shown:\n%s", shown)
+	}
+}

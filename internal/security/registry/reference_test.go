@@ -3,6 +3,7 @@
 package registry
 
 import (
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -220,5 +221,52 @@ func TestMappedTechniquesReachFindings(t *testing.T) {
 		if !slices.Contains(ids, c.technique) {
 			t.Errorf("%s carries %v, want %s", c.key, ids, c.technique)
 		}
+	}
+}
+
+// Every technique link says what supports it, and what it names is on the
+// definition: a NIST control it cites, or the weakness its cwe field names, so
+// the basis cannot drift from the data it describes.
+func TestAttackLinksStateTheirBasis(t *testing.T) {
+	nistBasis := regexp.MustCompile(`^NIST ([A-Z]{2}-\d+(?:\(\d+\))?) maps to `)
+	cweBasis := regexp.MustCompile(`^(CWE-\d+) relates to CAPEC-`)
+	for label, d := range allDefinitions() {
+		cited := map[string]bool{}
+		for _, spec := range d.References {
+			if spec.Source == RefTypeNIST {
+				cited[spec.ID] = true
+			}
+		}
+		for _, link := range d.AttackTechniques {
+			if len(link.Basis) == 0 {
+				t.Errorf("%s: %s has no basis", label, link.ID)
+			}
+			for _, b := range link.Basis {
+				switch {
+				case nistBasis.MatchString(b):
+					if id := nistBasis.FindStringSubmatch(b)[1]; !cited[id] {
+						t.Errorf("%s: %s rests on NIST %s, which the definition does not cite", label, link.ID, id)
+					}
+				case cweBasis.MatchString(b):
+					if id := cweBasis.FindStringSubmatch(b)[1]; id != string(d.CWE) {
+						t.Errorf("%s: %s rests on %s, but the definition's weakness is %s", label, link.ID, id, d.CWE)
+					}
+				default:
+					t.Errorf("%s: %s has a basis that names neither a cited NIST control nor the weakness: %q", label, link.ID, b)
+				}
+			}
+		}
+	}
+}
+
+// A finding's technique carries its basis to every view.
+func TestTechniqueBasisReachesFinding(t *testing.T) {
+	d, ok := Lookup(OSContext{Platform: PlatformWindows}, "firewall.profile_inactive")
+	if !ok {
+		t.Fatal("no definition")
+	}
+	techs := d.Finding().Techniques
+	if len(techs) != 1 || techs[0].ID != "T1686" || len(techs[0].Basis) == 0 {
+		t.Fatalf("techniques of an inactive firewall profile: %+v", techs)
 	}
 }

@@ -145,6 +145,9 @@ func writeFinding(ew *render.ErrWriter, condition ConditionView) error {
 		ew.Printf("  MITRE ATT&CK:\n")
 		for _, technique := range def.Attack {
 			ew.Printf("    %s\n", TechniqueText(technique))
+			for _, basis := range technique.Basis {
+				ew.Printf("      Basis: %s\n", basis)
+			}
 			if len(technique.Mitigations) > 0 {
 				ew.Printf("      Mitigations: %s\n", MitigationsText(technique.Mitigations))
 			}

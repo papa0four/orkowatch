@@ -17,6 +17,7 @@ import (
 	"math"
 	"os"
 	"runtime"
+	"slices"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -74,9 +75,9 @@ type (
 		References  []ReferenceSpec `yaml:"references"`
 
 		// AttackTechniques lists the ATT&CK techniques an adversary can use
-		// because of the condition. Every identifier must be in the bundled
-		// dataset in data/attack.yaml.
-		AttackTechniques []string `yaml:"attack_techniques"`
+		// because of the condition, each with what supports the link. Every
+		// identifier must be in the bundled dataset in data/attack.yaml.
+		AttackTechniques []AttackLink `yaml:"attack_techniques"`
 	}
 )
 
@@ -267,8 +268,8 @@ func (d FindingDefinition) Finding() *finding.Finding {
 	}
 }
 
-// ToTechniques returns the bundled ATT&CK technique for each identifier d
-// lists, in the order listed. Every identifier has already passed
+// ToTechniques returns the bundled ATT&CK technique for each link d lists, in
+// the order listed, each carrying the basis its link states. Every identifier has already passed
 // checkTechniques at registry load time, so a miss here would mean the data
 // changed after loading, not that it was wrong.
 func (d FindingDefinition) ToTechniques() []finding.Technique {
@@ -276,8 +277,10 @@ func (d FindingDefinition) ToTechniques() []finding.Technique {
 		return nil
 	}
 	out := make([]finding.Technique, 0, len(d.AttackTechniques))
-	for _, id := range d.AttackTechniques {
-		out = append(out, techniques[id])
+	for _, link := range d.AttackTechniques {
+		technique := techniques[link.ID]
+		technique.Basis = slices.Clone(link.Basis)
+		out = append(out, technique)
 	}
 	return out
 }

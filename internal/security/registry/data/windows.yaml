@@ -80,7 +80,11 @@ ssh.root_login_permitted:
   cvss_score: 9.8
   cvss_vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"
   cwe: "CWE-250"
-  attack_techniques: ["T1021.004"]
+  attack_techniques:
+    - id: "T1021.004"
+      basis:
+        - "NIST AC-6 maps to this technique (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
+        - "NIST IA-2 maps to this technique (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
   description: >
     The SSH configuration does not explicitly set PermitRootLogin to no.
     Direct privileged login over SSH gives an attacker full system control
@@ -115,7 +119,15 @@ ssh.password_auth_enabled:
   cvss_score: 7.5
   cvss_vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N"
   cwe: "CWE-521"
-  attack_techniques: ["T1021.004", "T1110.001"]
+  attack_techniques:
+    - id: "T1021.004"
+      basis:
+        - "NIST IA-5(1) maps to this technique (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
+        - "CWE-521 relates to CAPEC-555, which CAPEC 3.9 maps to its parent technique T1021"
+    - id: "T1110.001"
+      basis:
+        - "NIST IA-5(1) maps to this technique (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
+        - "CWE-521 relates to CAPEC-49, which CAPEC 3.9 maps to this technique"
   description: >
     PasswordAuthentication is set to yes in the SSH configuration.
     Password-based SSH is susceptible to brute-force and credential
@@ -147,7 +159,11 @@ firewall.profile_inactive:
   cvss_score: 9.1
   cvss_vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N"
   cwe: "CWE-284"
-  attack_techniques: ["T1686"]
+  attack_techniques:
+    - id: "T1686"
+      basis:
+        - "NIST CM-6 maps to this technique, listed there as T1562.004 (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
+        - "CWE-284 relates to CAPEC-578, which CAPEC 3.9 maps to this technique"
   description: >
     One or more Windows Firewall profiles (Domain, Private, or Public) are
     not active. A disabled firewall profile removes the host-based packet
@@ -170,6 +186,8 @@ firewall.profile_inactive:
       id: "9.1.1, §9.2.1, §9.3.1"
     - source: NIST
       id: "SC-7"
+    - source: NIST
+      id: "CM-6"
 
 firewall.all_profiles_disabled:
   title: "Windows Firewall is completely disabled on all profiles"
@@ -177,7 +195,11 @@ firewall.all_profiles_disabled:
   cvss_score: 9.8
   cvss_vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"
   cwe: "CWE-284"
-  attack_techniques: ["T1686"]
+  attack_techniques:
+    - id: "T1686"
+      basis:
+        - "NIST CM-6 maps to this technique, listed there as T1562.004 (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
+        - "CWE-284 relates to CAPEC-578, which CAPEC 3.9 maps to this technique"
   description: >
     Windows Defender Firewall is disabled across all profiles — Domain,
     Private, and Public. The host has no active host-based packet filtering
@@ -200,6 +222,8 @@ firewall.all_profiles_disabled:
       id: "9.1.1, §9.2.1, §9.3.1"
     - source: NIST
       id: "SC-7"
+    - source: NIST
+      id: "CM-6"
 
 # -------------------------
 # User checker findings
@@ -211,7 +235,12 @@ users.no_password_required:
   cvss_score: 7.4
   cvss_vector: "CVSS:3.1/AV:L/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:H"
   cwe: "CWE-309"
-  attack_techniques: ["T1078.003"]
+  attack_techniques:
+    - id: "T1078.003"
+      basis:
+        - "NIST IA-5 maps to its parent technique T1078 (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
+        - "NIST IA-2 maps to this technique (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
+        - "CWE-309 relates to CAPEC-560, which CAPEC 3.9 maps to its parent technique T1078"
   description: >
     One or more enabled local accounts carry the account flag that exempts
     them from the password requirement. The flag permits a blank password;
@@ -233,6 +262,8 @@ users.no_password_required:
       id: "1.1"
     - source: NIST
       id: "IA-5"
+    - source: NIST
+      id: "IA-2"
 
 # CIS citation pending for the two policy definitions below: #144.
 users.password_min_length_zero:
@@ -241,7 +272,11 @@ users.password_min_length_zero:
   cvss_score: 4.8
   cvss_vector: "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:L/I:L/A:N"
   cwe: "CWE-521"
-  attack_techniques: ["T1110.001"]
+  attack_techniques:
+    - id: "T1110.001"
+      basis:
+        - "NIST IA-5 maps to this technique (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
+        - "CWE-521 relates to CAPEC-49, which CAPEC 3.9 maps to this technique"
   description: >
     The local password policy has a minimum password length of zero, so
     Windows accepts a password of any length, including an empty one, when
@@ -263,7 +298,11 @@ users.lockout_threshold_disabled:
   cvss_score: 4.8
   cvss_vector: "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:L/I:L/A:N"
   cwe: "CWE-307"
-  attack_techniques: ["T1110.001"]
+  attack_techniques:
+    - id: "T1110.001"
+      basis:
+        - "NIST AC-7 maps to this technique (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
+        - "CWE-307 relates to CAPEC-49, which CAPEC 3.9 maps to this technique"
   description: >
     The local lockout policy has a threshold of zero, so no number of
     consecutive failed logon attempts locks an account.
@@ -312,7 +351,10 @@ users.uac_disabled:
   cvss_score: 8.8
   cvss_vector: "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H"
   cwe: "CWE-250"
-  attack_techniques: ["T1548.002"]
+  attack_techniques:
+    - id: "T1548.002"
+      basis:
+        - "NIST AC-6 maps to this technique (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
   description: >
     User Account Control is disabled via the EnableLUA registry key being
     set to 0. UAC is the primary privilege escalation barrier on Windows.
@@ -486,7 +528,11 @@ permissions.everyone_full_control:
   cvss_score: 9.8
   cvss_vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"
   cwe: "CWE-732"
-  attack_techniques: ["T1574.001", "T1574.010"]
+  attack_techniques:
+    - id: "T1574.010"
+      basis:
+        - "NIST AC-3 maps to this technique (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
+        - "CWE-732 relates to CAPEC-1, CAPEC-17, CAPEC-180, which CAPEC 3.9 maps to this technique"
   description: >
     The Everyone group has been granted Full Control (F) on a critical
     system directory. This grants unrestricted read, write, execute, and
@@ -516,7 +562,11 @@ permissions.users_full_control:
   cvss_score: 7.8
   cvss_vector: "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H"
   cwe: "CWE-732"
-  attack_techniques: ["T1574.001", "T1574.010"]
+  attack_techniques:
+    - id: "T1574.010"
+      basis:
+        - "NIST AC-3 maps to this technique (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
+        - "CWE-732 relates to CAPEC-1, CAPEC-17, CAPEC-180, which CAPEC 3.9 maps to this technique"
   description: >
     The BUILTIN\Users group has been granted Full Control (F) on a critical
     system directory. Any authenticated local user can read, write, execute,
@@ -546,7 +596,17 @@ permissions.broad_group_write_access:
   cvss_score: 4.4
   cvss_vector: "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:N/I:L/A:L"
   cwe: "CWE-732"
-  attack_techniques: ["T1574.005", "T1574.010"]
+  attack_techniques:
+    - id: "T1574.005"
+      basis:
+        - "NIST AC-3 maps to this technique (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
+        - "NIST AC-6 maps to this technique (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
+        - "CWE-732 relates to CAPEC-17, CAPEC-642, which CAPEC 3.9 maps to this technique"
+    - id: "T1574.010"
+      basis:
+        - "NIST AC-3 maps to this technique (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
+        - "NIST AC-6 maps to this technique (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
+        - "CWE-732 relates to CAPEC-1, CAPEC-17, CAPEC-180, which CAPEC 3.9 maps to this technique"
   description: >
     An access control entry grants write, modify or full control to
     Everyone, Authenticated Users or the Users group. Any account in the
@@ -599,7 +659,10 @@ permissions.admin_share_present:
   cvss_score: 2.7
   cvss_vector: "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:L/I:N/A:N"
   cwe: "CWE-284"
-  attack_techniques: ["T1021.002"]
+  attack_techniques:
+    - id: "T1021.002"
+      basis:
+        - "NIST CM-7 maps to this technique (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
   description: >
     Default Windows administrative shares (C$, ADMIN$, IPC$) are present.
     These shares are enabled by default and require Administrator credentials

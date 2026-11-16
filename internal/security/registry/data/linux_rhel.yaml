@@ -22,7 +22,11 @@ firewall.firewalld_not_running:
   cvss_score: 8.6
   cvss_vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:L/A:H"
   cwe: "CWE-284"
-  attack_techniques: ["T1686"]
+  attack_techniques:
+    - id: "T1686"
+      basis:
+        - "NIST CM-6 maps to this technique, listed there as T1562.004 (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
+        - "CWE-284 relates to CAPEC-578, which CAPEC 3.9 maps to this technique"
   description: >
     firewalld is the default firewall management tool on RHEL-family systems.
     The service is installed but not in a running state, meaning no
@@ -46,6 +50,8 @@ firewall.firewalld_not_running:
       id: "3.5.1"
     - source: NIST
       id: "SC-7"
+    - source: NIST
+      id: "CM-6"
 
 # Consumer: #142. No checker emits this definition yet.
 firewall.firewalld_not_installed:
@@ -54,7 +60,11 @@ firewall.firewalld_not_installed:
   cvss_score: 9.1
   cvss_vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N"
   cwe: "CWE-284"
-  attack_techniques: ["T1686"]
+  attack_techniques:
+    - id: "T1686"
+      basis:
+        - "NIST CM-6 maps to this technique, listed there as T1562.004 (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
+        - "CWE-284 relates to CAPEC-578, which CAPEC 3.9 maps to this technique"
   description: >
     Neither firewalld nor any other recognized firewall manager (iptables,
     nftables) was detected on this RHEL-family system. The host has no
@@ -75,6 +85,8 @@ firewall.firewalld_not_installed:
       id: "3.5.1"
     - source: NIST
       id: "SC-7"
+    - source: NIST
+      id: "CM-6"
 
 # Consumer: #142. No checker emits this definition yet.
 firewall.firewalld_default_zone_public:
@@ -118,7 +130,11 @@ users.sudo_nopasswd:
   cvss_score: 8.8
   cvss_vector: "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H"
   cwe: "CWE-269"
-  attack_techniques: ["T1548.003"]
+  attack_techniques:
+    - id: "T1548.003"
+      basis:
+        - "NIST AC-6 maps to this technique (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
+        - "CWE-269 relates to CAPEC-122, CAPEC-233, which CAPEC 3.9 maps to its parent technique T1548"
   description: >
     A sudoers rule contains the NOPASSWD tag, allowing one or more users
     to execute commands with elevated privileges without providing a
@@ -183,7 +199,10 @@ users.passwd_no_shadow:
   cvss_score: 7.5
   cvss_vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N"
   cwe: "CWE-522"
-  attack_techniques: ["T1003.008"]
+  attack_techniques:
+    - id: "T1003.008"
+      basis:
+        - "NIST IA-5 maps to this technique (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
   description: >
     One or more user accounts have password hashes stored directly in
     /etc/passwd rather than /etc/shadow. The passwd file is world-readable
@@ -216,7 +235,10 @@ permissions.shadow_world_readable:
   cvss_score: 8.4
   cvss_vector: "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:N"
   cwe: "CWE-732"
-  attack_techniques: ["T1003.008"]
+  attack_techniques:
+    - id: "T1003.008"
+      basis:
+        - "NIST AC-3 maps to this technique (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
   description: >
     /etc/shadow has permissions that allow non-root users to read its
     contents. On RHEL-family systems the expected permission is 000
@@ -248,7 +270,11 @@ permissions.sudoers_world_readable:
   cvss_score: 7.1
   cvss_vector: "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:N"
   cwe: "CWE-732"
-  attack_techniques: ["T1548.003"]
+  attack_techniques:
+    - id: "T1548.003"
+      basis:
+        - "NIST AC-3 maps to this technique (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
+        - "CWE-732 relates to CAPEC-122, which CAPEC 3.9 maps to its parent technique T1548"
   description: >
     /etc/sudoers has permissions that exceed the expected 0440 mode.
     The sudoers file defines privilege escalation rules for the system.
@@ -279,7 +305,15 @@ permissions.ssh_dir_permissions:
   cvss_score: 7.8
   cvss_vector: "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H"
   cwe: "CWE-732"
-  attack_techniques: ["T1098.004", "T1552.004"]
+  attack_techniques:
+    - id: "T1098.004"
+      basis:
+        - "NIST AC-3 maps to this technique (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
+        - "NIST IA-5 maps to this technique (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
+    - id: "T1552.004"
+      basis:
+        - "NIST AC-3 maps to its parent technique T1552 (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
+        - "NIST IA-5 maps to this technique (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
   description: >
     A user's ~/.ssh directory or ~/.ssh/authorized_keys file has
     permissions that exceed the expected mode. OpenSSH on RHEL-family
@@ -304,6 +338,8 @@ permissions.ssh_dir_permissions:
       id: "5.2.19"
     - source: NIST
       id: "AC-3"
+    - source: NIST
+      id: "IA-5"
 
 # Consumer: #142. No checker emits this definition yet.
 permissions.selinux_disabled:
@@ -312,7 +348,11 @@ permissions.selinux_disabled:
   cvss_score: 7.8
   cvss_vector: "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H"
   cwe: "CWE-284"
-  attack_techniques: ["T1685"]
+  attack_techniques:
+    - id: "T1685"
+      basis:
+        - "NIST AC-3 maps to this technique, listed there as T1562 (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
+        - "CWE-284 relates to CAPEC-578, which CAPEC 3.9 maps to this technique"
   description: >
     SELinux is either disabled or configured in permissive mode on this
     RHEL-family system. SELinux provides mandatory access controls that

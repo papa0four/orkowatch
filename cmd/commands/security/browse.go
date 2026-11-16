@@ -110,8 +110,8 @@ func attackTab(view *audit.View) (tui.Tab, bool) {
 			if def == nil || condition.Result != finding.ResultFail {
 				continue
 			}
-			line := triggerBlock(condition, def)
 			for _, technique := range def.Attack {
+				line := triggerBlock(condition, def, technique)
 				g := groups[technique.ID]
 				if g == nil {
 					g = &group{technique: technique}
@@ -192,11 +192,14 @@ func notRun(modules []ModuleNote, name, command string) string {
 // severity and title, the rule that failed, what that rule found, and the first
 // of the evidence recorded for it, so the technique can be traced to the host
 // observation behind it.
-func triggerBlock(condition audit.ConditionView, def *audit.FindingView) string {
+func triggerBlock(condition audit.ConditionView, def *audit.FindingView, technique finding.Technique) string {
 	const shown = 3
 	lines := []string{strings.ToUpper(def.Severity) + "  " + def.Title, "  rule: " + condition.Key}
 	if condition.Reason != "" {
 		lines = append(lines, "  found: "+condition.Reason)
+	}
+	for _, basis := range technique.Basis {
+		lines = append(lines, "  associated because: "+basis)
 	}
 	for i, entry := range condition.Evidence {
 		if i == shown {
@@ -323,7 +326,11 @@ func browserItem(condition audit.ConditionView) tui.Item {
 		}
 		seen := make(map[string]bool)
 		for _, technique := range def.Attack {
-			item.Techniques = append(item.Techniques, safeLines(audit.TechniqueText(technique)))
+			entry := audit.TechniqueText(technique)
+			for _, basis := range technique.Basis {
+				entry += "\n  basis: " + basis
+			}
+			item.Techniques = append(item.Techniques, safeLines(entry))
 			for _, m := range technique.Mitigations {
 				if !seen[m.ID] {
 					seen[m.ID] = true
