@@ -46,15 +46,16 @@ type ModuleNote struct {
 	Reason string
 }
 
-// BrowserReport builds what the results browser shows. A source that did not
-// run still gets its tab when the run said why, so the operator sees that
+// BrowserReport builds what the results browser shows. Findings, System and
+// Software are always offered, so every command opens the same layout: a source
+// that was not collected has its tab with the reason, so the operator sees that
 // nothing was collected rather than wondering whether the tab is missing.
 // Every string the browser draws is made safe for the terminal here, through
 // safeLines or, for evidence, render.EvidenceText, because the browser writes
 // them straight to the terminal and any of them can carry text from the host
 // or from a report file.
 func BrowserReport(src BrowserSource) tui.Report {
-	report := tui.Report{Title: safeLines(src.Title), Text: safeLines(src.Text)}
+	report := tui.Report{Title: safeLines(src.Title), Text: safeLines(src.Text), Start: landingTab(src.Modules)}
 	if src.System != nil {
 		report.Host = safeLines(src.System.Hostname)
 	}
@@ -70,20 +71,20 @@ func BrowserReport(src BrowserSource) tui.Report {
 				report.Items = append(report.Items, browserItem(condition))
 			}
 		}
-	} else if note, ok := moduleNote(src.Modules, "audit"); ok {
-		report.FindingsNote = note
+	} else {
+		report.FindingsNote = notRun(src.Modules, "audit", "owatch audit")
 	}
 
 	if src.System != nil {
 		report.Tabs = append(report.Tabs, systemTab(*src.System))
-	} else if note, ok := moduleNote(src.Modules, "osinfo"); ok {
-		report.Tabs = append(report.Tabs, tui.Tab{ID: tui.TabSystem, Name: "System", Note: note})
+	} else {
+		report.Tabs = append(report.Tabs, tui.Tab{ID: tui.TabSystem, Name: "System", Note: notRun(src.Modules, "osinfo", "owatch osinfo")})
 	}
 
 	if src.Software != nil {
 		report.Tabs = append(report.Tabs, softwareTab(*src.Software))
-	} else if note, ok := moduleNote(src.Modules, "software"); ok {
-		report.Tabs = append(report.Tabs, tui.Tab{ID: tui.TabSoftware, Name: "Software", Note: note})
+	} else {
+		report.Tabs = append(report.Tabs, tui.Tab{ID: tui.TabSoftware, Name: "Software", Note: notRun(src.Modules, "software", "owatch software")})
 	}
 
 	if src.Audit != nil {
@@ -109,8 +110,7 @@ func attackTab(view *audit.View) (tui.Tab, bool) {
 			if def == nil || condition.Result != finding.ResultFail {
 				continue
 			}
-			rule, _, _ := strings.Cut(condition.Key, ".")
-			line := strings.ToLower(def.Severity) + "  " + def.Title + " (" + rule + ")"
+			line := triggerBlock(condition, def)
 			for _, technique := range def.Attack {
 				g := groups[technique.ID]
 				if g == nil {
@@ -142,11 +142,70 @@ func attackTab(view *audit.View) (tui.Tab, bool) {
 				{Label: "tactics", Value: safeLines(tactics)},
 				{Label: "page", Value: safeLines(g.technique.URL)},
 				{Label: "mitigations", Value: safeLines(mitigationLines(g.technique.Mitigations))},
-				{Label: "findings (" + strconv.Itoa(len(g.findings)) + ")", Value: safeLines(strings.Join(g.findings, "\n"))},
+				{Label: "triggered by (" + strconv.Itoa(len(g.findings)) + " findings)", Value: safeLines(strings.Join(g.findings, "\n\n"))},
 			},
 		})
 	}
-	return tui.Tab{ID: tui.TabAttack, Name: "ATT&CK", Records: records}, true
+	return tui.Tab{ID: tui.TabAttack, Name: "MITRE ATT&CK", Noun: "techniques", Records: records}, true
+}
+
+// landingTab is the tab the browser opens on. The findings, when the audit
+// ran, since they are what a run is for. Otherwise the first module that did
+// run, so a run of one module alone, or of several with the audit left out,
+// opens on something it produced rather than on a tab that says nothing was
+// collected. A module counts as run unless it was excluded; one that ran and
+// failed still counts, and its tab says what went wrong.
+func landingTab(modules []ModuleNote) string {
+	first := tui.TabFindings
+	for _, m := range modules {
+		if m.Result == finding.ResultNotSelected {
+			continue
+		}
+		switch m.Name {
+		case "audit":
+			return tui.TabFindings
+		case "osinfo":
+			if first == tui.TabFindings {
+				first = tui.TabSystem
+			}
+		case "software":
+			if first == tui.TabFindings {
+				first = tui.TabSoftware
+			}
+		}
+	}
+	return first
+}
+
+// notRun says why a source has no data: the run's own account of the module
+// when it recorded one, as an all run does, and otherwise that the command
+// never included it, with the command that collects it.
+func notRun(modules []ModuleNote, name, command string) string {
+	if note, ok := moduleNote(modules, name); ok {
+		return note
+	}
+	return "not collected: this command does not run the " + name + " module. owatch all collects every source; " +
+		command + " collects only this one"
+}
+
+// triggerBlock describes one finding that made a technique available: its
+// severity and title, the rule that failed, what that rule found, and the first
+// of the evidence recorded for it, so the technique can be traced to the host
+// observation behind it.
+func triggerBlock(condition audit.ConditionView, def *audit.FindingView) string {
+	const shown = 3
+	lines := []string{strings.ToUpper(def.Severity) + "  " + def.Title, "  rule: " + condition.Key}
+	if condition.Reason != "" {
+		lines = append(lines, "  found: "+condition.Reason)
+	}
+	for i, entry := range condition.Evidence {
+		if i == shown {
+			lines = append(lines, "  and "+strconv.Itoa(len(condition.Evidence)-shown)+" more evidence entries, listed under Findings")
+			break
+		}
+		lines = append(lines, "  evidence: "+render.EvidenceText(entry))
+	}
+	return strings.Join(lines, "\n")
 }
 
 // moduleNote says why a module has no data: its result and reason as the run

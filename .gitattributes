@@ -1,3 +1,7 @@
 # Go source is LF in the repository and in every working tree, so gofmt
 # reports the same thing on Windows as it does on Linux.
 *.go text eol=lf
+
+# The embedded notices reproduce MITRE's license text, so it is the same bytes
+# on every platform the binary is built on.
+internal/notices/*.md text eol=lf

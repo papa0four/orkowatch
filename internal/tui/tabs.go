@@ -32,8 +32,13 @@ type (
 	// with no records shows Note instead, which is how a module that was
 	// skipped or failed says so.
 	Tab struct {
-		ID      string
-		Name    string
+		ID   string
+		Name string
+
+		// Noun is what the tab's records are called in its status line, in
+		// lower case. Empty, the lower-cased Name is used, which would write
+		// a trademarked name in lower case.
+		Noun    string
 		Note    string
 		Records []Record
 	}
@@ -275,16 +280,18 @@ func (b browser) activePane() *recordPane {
 	return b.panes[b.active]
 }
 
-// tabBarHeight is the lines the tab bar takes: one when there is more than
-// one tab to choose between, none otherwise.
+// tabBarHeight is the lines the tab bar takes: one when the window is too
+// narrow for the left pane, which otherwise lists the sources, and there is
+// more than one to choose between.
 func (b browser) tabBarHeight() int {
-	if len(b.tabs) > 1 {
+	if len(b.tabs) > 1 && !b.sidebarShown() {
 		return tabBarLines
 	}
 	return 0
 }
 
 // tabBar renders the tabs with the key that selects each, the active one lit.
+// It stands in for the left pane's source list in a window too narrow for it.
 func (b browser) tabBar() string {
 	parts := make([]string, 0, len(b.tabs))
 	for i, t := range b.tabs {
@@ -318,9 +325,9 @@ func (b browser) tabForKey(k string) int {
 	return -1
 }
 
-// selectTab makes tab i the active one. Each tab keeps its own search, and
-// the panes are sized again because the filter pane is shown only beside the
-// findings.
+// selectTab makes tab i the active one. Each tab keeps its own search. The
+// keyboard stays in the left pane when the source was chosen there, so the
+// next source is one key away, and goes to the list otherwise.
 func (b *browser) selectTab(i int) {
 	if i == b.active || i < 0 || i >= len(b.tabs) {
 		return
@@ -329,7 +336,10 @@ func (b *browser) selectTab(i int) {
 	b.active = i
 	b.query = b.queries[i]
 	b.searching = false
-	b.focus = focusList
+	if b.focus != focusFilters {
+		b.focus = focusList
+	}
+	b.filterCursor = i
 	b.layout()
 	b.showSelected()
 }
@@ -340,7 +350,11 @@ func (b browser) recordBody(p *recordPane) string {
 	if p.listless() {
 		return fitPane(p.detail.View(), b.mainWidth(), b.bodyHeight())
 	}
-	status := fmt.Sprintf("%d of %d %s", len(p.visible), len(p.tab.Records), strings.ToLower(p.tab.Name))
+	noun := p.tab.Noun
+	if noun == "" {
+		noun = strings.ToLower(p.tab.Name)
+	}
+	status := fmt.Sprintf("%d of %d %s", len(p.visible), len(p.tab.Records), noun)
 	main := lipgloss.JoinVertical(lipgloss.Left,
 		b.queryLine(status),
 		p.listView(b.listHeight(), b.mainWidth(), true),
@@ -355,6 +369,10 @@ func (b browser) recordBody(p *recordPane) string {
 func (b browser) onRecordKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	p := b.activePane()
 	k := msg.String()
+	if b.focus == focusFilters {
+		b.onFilterKey(k)
+		return b, nil
+	}
 	if p.listless() {
 		return b, scroll(&p.detail, msg)
 	}

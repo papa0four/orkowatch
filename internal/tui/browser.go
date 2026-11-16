@@ -81,7 +81,11 @@ type (
 		// views, in the order they are offered.
 		FindingsNote string
 		Tabs         []Tab
-		Text         string
+
+		// Start is the identifier of the tab the browser opens on. Empty, or
+		// naming a tab the report does not offer, it opens on the findings.
+		Start string
+		Text  string
 	}
 
 	// SummaryLine is one labelled figure in the browser's summary.
@@ -132,6 +136,7 @@ type (
 		severity     int
 		check        int
 		filterCursor int
+		sideTop      int
 		findingsOnly bool
 
 		// query is the search text. It is a plain string edited here rather
@@ -243,6 +248,11 @@ func newBrowser(report Report) browser {
 		}
 	}
 	b.showSelected()
+	for i, t := range b.tabs {
+		if t.id == report.Start {
+			b.selectTab(i)
+		}
+	}
 	return b
 }
 
@@ -443,27 +453,45 @@ func (b browser) onTextKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 // while the window is too narrow to show it.
 func (b *browser) cycleFocus(step focus) {
 	b.focus = (b.focus + step) % focusCount
-	if b.focus == focusFilters && !b.filtersShown() {
+	if b.focus == focusFilters && !b.sidebarShown() {
 		b.focus = (b.focus + step) % focusCount
 	}
 }
 
-// onFilterKey moves through the two filter groups as one column and applies
-// the option under the cursor on enter or space.
+// onFilterKey moves through the left pane as one column: the sources, then,
+// on the findings tab, the two filter groups. Enter or space applies the
+// option under the cursor: it opens a source or sets a filter.
 func (b *browser) onFilterKey(key string) {
-	last := len(b.severities) + len(b.checks) - 1
+	sources := len(b.tabs)
+	last := sources - 1
+	if b.isFindings() {
+		last += len(b.severities) + len(b.checks)
+	}
+	defer b.keepCursorVisible()
 	switch key {
 	case "up":
 		b.filterCursor = max(b.filterCursor-1, 0)
 	case "down":
 		b.filterCursor = min(b.filterCursor+1, last)
+	case "pgup":
+		b.filterCursor = max(b.filterCursor-max(b.bodyHeight()-1, 1), 0)
+	case "pgdown":
+		b.filterCursor = min(b.filterCursor+max(b.bodyHeight()-1, 1), last)
+	case "home":
+		b.filterCursor = 0
+	case "end":
+		b.filterCursor = last
 	case "enter", "space":
-		if b.filterCursor < len(b.severities) {
-			b.severity = b.filterCursor
-		} else {
-			b.check = b.filterCursor - len(b.severities)
+		switch option := b.filterCursor - sources; {
+		case option < 0:
+			b.selectTab(b.filterCursor)
+		case option < len(b.severities):
+			b.severity = option
+			b.refilter()
+		default:
+			b.check = option - len(b.severities)
+			b.refilter()
 		}
-		b.refilter()
 	}
 }
 
@@ -603,9 +631,10 @@ func (b browser) evidenceCut() int {
 // layout sizes the panes to the window. A focused filter pane that no longer
 // fits hands the keyboard to the list.
 func (b *browser) layout() {
-	if b.focus == focusFilters && !b.filtersShown() {
+	if b.focus == focusFilters && !b.sidebarShown() {
 		b.focus = focusList
 	}
+	b.keepCursorVisible()
 	b.detail.SetWidth(b.mainWidth())
 	b.detail.SetHeight(max(b.bodyHeight()-b.listHeight()-searchLines-ruleLines, 1))
 	b.text.SetWidth(max(b.width, 1))
@@ -621,15 +650,16 @@ func (b browser) bodyHeight() int {
 	return max(b.height-headerLines-footerLines-b.tabBarHeight(), 1)
 }
 
-// filtersShown reports whether the findings tab is showing and the window is
-// wide enough for the filter pane beside a main pane of at least minWidth
-// columns. Other tabs have no filters and use the whole width.
-func (b browser) filtersShown() bool {
-	return b.isFindings() && b.width >= filterWidth+paneRule+minWidth
+// sidebarShown reports whether the window is wide enough for the left pane
+// beside a main pane of at least minWidth columns. The pane stays on every
+// tab, so that findings from the other sources can take their place in it
+// without the layout changing under the operator.
+func (b browser) sidebarShown() bool {
+	return b.width >= filterWidth+paneRule+minWidth
 }
 
 func (b browser) mainWidth() int {
-	if !b.filtersShown() {
+	if !b.sidebarShown() {
 		return max(b.width, 1)
 	}
 	return b.width - filterWidth - paneRule
@@ -660,31 +690,33 @@ func (b browser) render() string {
 		}
 	}
 	header := styleTitle.Render("owatch") + styleMuted.Render(truncate(about, max(b.width-len("owatch"), 1)))
-	footer := styleMuted.Render(truncate(b.help(), b.width))
+	footer := b.helpView()
 
 	top := header
 	if b.tabBarHeight() > 0 {
 		top += "\n" + b.tabBar()
 	}
 
-	switch p := b.activePane(); {
-	case b.showText:
+	if b.showText {
 		return top + "\n" + b.text.View() + "\n" + footer
-	case p != nil:
-		return top + "\n" + b.recordBody(p) + "\n" + footer
-	case len(b.report.Items) == 0:
-		note := fitPane(styleMuted.Render(b.report.FindingsNote), b.width, b.bodyHeight())
-		return top + "\n" + note + "\n" + footer
 	}
 
-	main := lipgloss.JoinVertical(lipgloss.Left,
-		b.searchView(),
-		b.listView(),
-		styleMuted.Render(strings.Repeat("─", b.mainWidth())),
-		b.detail.View(),
-	)
-	body := fitPane(main, b.mainWidth(), b.bodyHeight())
-	if b.filtersShown() {
+	var body string
+	switch p := b.activePane(); {
+	case p != nil:
+		body = b.recordBody(p)
+	case len(b.report.Items) == 0:
+		body = fitPane(styleMuted.Render(b.report.FindingsNote), b.mainWidth(), b.bodyHeight())
+	default:
+		main := lipgloss.JoinVertical(lipgloss.Left,
+			b.searchView(),
+			b.listView(),
+			styleMuted.Render(strings.Repeat("─", b.mainWidth())),
+			b.detail.View(),
+		)
+		body = fitPane(main, b.mainWidth(), b.bodyHeight())
+	}
+	if b.sidebarShown() {
 		body = lipgloss.JoinHorizontal(lipgloss.Top,
 			fitPane(b.filterView(), filterWidth, b.bodyHeight()),
 			styleMuted.Render(strings.TrimRight(strings.Repeat("│\n", b.bodyHeight()), "\n")),
@@ -699,37 +731,109 @@ func fitPane(text string, width, height int) string {
 	return lipgloss.NewStyle().Width(width).Height(height).MaxWidth(width).MaxHeight(height).Render(text)
 }
 
-// help names the keys that do something in the focused pane.
-func (b browser) help() string {
-	tabs := ""
+// hint is one key binding in the footer: the keys that do it, each shown in
+// parentheses, and what it does. The word "or" between keys is not a key and
+// is left bare.
+type hint struct {
+	keys   []string
+	action string
+}
+
+func keyHint(action string, keys ...string) hint { return hint{keys: keys, action: action} }
+
+// label is a hint with no keys: a word naming the mode the footer is for.
+func label(text string) hint { return hint{action: text} }
+
+// width is the columns the hint takes when drawn.
+func (h hint) width() int { return lipgloss.Width(h.render()) }
+
+// render draws the keys in parentheses, in the text colour so they stand out
+// from the muted action beside them.
+func (h hint) render() string {
+	parts := make([]string, 0, len(h.keys))
+	for _, k := range h.keys {
+		if k == "or" {
+			parts = append(parts, styleMuted.Render(k))
+			continue
+		}
+		parts = append(parts, styleText.Bold(true).Render("("+k+")"))
+	}
+	if len(parts) == 0 {
+		return styleMuted.Render(h.action)
+	}
+	return strings.Join(parts, " ") + styleMuted.Render(" "+h.action)
+}
+
+// helpView draws the footer: the keys that do something in the focused pane,
+// each in parentheses so it reads apart from the words describing it. When the
+// window is too narrow for all of them the ones before the last are dropped
+// from the end backwards, search and pane first, so the way out always stays.
+func (b browser) helpView() string {
+	hints := b.help()
+	const gap = 3
+	total := func() int {
+		n := gap * (len(hints) - 1)
+		for _, h := range hints {
+			n += h.width()
+		}
+		return n
+	}
+	for len(hints) > 2 && total() > b.width {
+		hints = append(hints[:len(hints)-2], hints[len(hints)-1])
+	}
+	rendered := make([]string, len(hints))
+	for i, h := range hints {
+		rendered[i] = h.render()
+	}
+	return lipgloss.NewStyle().MaxWidth(max(b.width, 1)).Render(strings.Join(rendered, strings.Repeat(" ", gap)))
+}
+
+// help lists the key bindings that do something in the focused pane.
+func (b browser) help() []hint {
+	move := keyHint("move", "up/down", "pgup/pgdn")
+	scroll := keyHint("scroll", "up/down", "pgup/pgdn")
+	pan := keyHint("pan", "left/right")
+	quit := keyHint("quit", "q")
+	report := keyHint("full report", "t")
+	pane := keyHint("pane", "tab")
+	search := keyHint("search", "/")
+
+	var tabs []hint
 	if len(b.tabs) > 1 {
-		tabs = "   letter or [ ] tab"
+		tabs = []hint{keyHint("tab", "letter", "or", "[ ]")}
 	}
-	common := "   tab pane   / search" + tabs + "   t full report   q quit"
-	findings := "   a all rules"
+	common := func(before ...hint) []hint {
+		out := append(before, report)
+		out = append(out, tabs...)
+		return append(out, pane, search, quit)
+	}
+	findings := []hint{keyHint("all rules", "a")}
 	if b.evidenceCut() > 0 {
-		findings += "   x all evidence"
+		findings = append(findings, keyHint("all evidence", "x"))
 	}
-	pane := b.activePane()
+
+	pn := b.activePane()
 	switch {
 	case b.showText && len(b.tabs) == 0:
-		return "full report   up/down pgup/pgdn scroll   left/right pan   q quit"
+		return []hint{label("full report"), scroll, pan, quit}
 	case b.showText:
-		return "full report   up/down pgup/pgdn scroll   left/right pan   t or esc back" + tabs + "   q quit"
+		return append([]hint{scroll, pan, keyHint("back", "t", "or", "esc")}, append(tabs, quit)...)
 	case b.searching:
-		return "type to search   enter keep   esc clear"
-	case pane != nil && pane.listless():
-		return "up/down pgup/pgdn scroll   left/right pan" + tabs + "   t full report   q quit"
-	case pane != nil && b.focus == focusDetail:
-		return "up/down pgup/pgdn scroll   left/right pan   esc list" + common
-	case pane != nil:
-		return "up/down pgup/pgdn move   enter detail" + common
+		return []hint{label("type to search"), keyHint("keep", "enter"), keyHint("clear", "esc")}
+	case b.focus == focusFilters && pn != nil:
+		return common(keyHint("move", "up/down"), keyHint("open source", "enter"))
+	case pn != nil && pn.listless():
+		return append([]hint{scroll, pan}, append(tabs, report, quit)...)
+	case pn != nil && b.focus == focusDetail:
+		return common(scroll, pan, keyHint("list", "esc"))
+	case pn != nil:
+		return common(move, keyHint("detail", "enter"))
 	case b.focus == focusFilters:
-		return "up/down move   enter apply" + findings + common
+		return common(append([]hint{keyHint("move", "up/down"), keyHint("apply", "enter")}, findings...)...)
 	case b.focus == focusDetail:
-		return "up/down pgup/pgdn scroll   left/right pan   esc list" + findings + common
+		return common(append([]hint{scroll, pan, keyHint("list", "esc")}, findings...)...)
 	default:
-		return "up/down pgup/pgdn move   enter detail" + findings + common
+		return common(append([]hint{move, keyHint("detail", "enter")}, findings...)...)
 	}
 }
 
@@ -800,9 +904,46 @@ func (b browser) total() int {
 	return admitted
 }
 
-// filterView renders the two filter groups and the run's summary.
+// filterView renders the left pane's window onto its lines: the pane is
+// scrolled to keep the cursor in view when its contents are taller than the
+// body, and says so at the edge that has more.
 func (b browser) filterView() string {
-	var out strings.Builder
+	lines, cursorLine := b.sidebarLines()
+	height := b.bodyHeight()
+	top := min(b.sideTop, max(len(lines)-height, 0))
+	end := min(top+height, len(lines))
+	window := slices.Clone(lines[top:end])
+	if top > 0 && cursorLine != top {
+		window[0] = styleMuted.Render("  more above")
+	}
+	if end < len(lines) && cursorLine != end-1 {
+		window[len(window)-1] = styleMuted.Render("  more below")
+	}
+	return strings.Join(window, "\n")
+}
+
+// keepCursorVisible scrolls the left pane just far enough that the line under
+// the cursor is inside it. It runs wherever the cursor or the pane's height
+// changes, so the render itself holds no state.
+func (b *browser) keepCursorVisible() {
+	lines, cursorLine := b.sidebarLines()
+	height := b.bodyHeight()
+	switch {
+	case cursorLine < b.sideTop:
+		b.sideTop = cursorLine
+	case cursorLine >= b.sideTop+height:
+		b.sideTop = cursorLine - height + 1
+	}
+	b.sideTop = min(max(b.sideTop, 0), max(len(lines)-height, 0))
+}
+
+// sidebarLines lays out the left pane: the sources with the key that opens
+// each, then the findings filters and the run's summary. A source other than
+// the findings has none of those yet, and the pane says so rather than
+// leaving the space empty, so the layout is the same on every source and
+// findings can later attach to them without it changing. It returns the line
+// the cursor is on as well, which is what scrolling follows.
+func (b browser) sidebarLines() (lines []string, cursorLine int) {
 	option := func(index int, label string, selected bool) {
 		line := "  " + label
 		if selected {
@@ -815,25 +956,47 @@ func (b browser) filterView() string {
 		case selected:
 			style = styleText
 		}
-		out.WriteString(style.Render(fmt.Sprintf("%-*s", filterWidth-1, line)) + "\n")
+		if b.filterCursor == index {
+			cursorLine = len(lines)
+		}
+		lines = append(lines, style.Render(fmt.Sprintf("%-*s", filterWidth-1, line)))
 	}
 
-	out.WriteString(b.paneTitle("severity", focusFilters) + "\n")
-	for i, level := range b.severities {
-		option(i, strings.ToLower(level), b.severity == i)
-	}
-	out.WriteString("\n" + b.paneTitle("check", focusFilters) + "\n")
-	for i, check := range b.checks {
-		option(len(b.severities)+i, check, b.check == i)
+	lines = append(lines, b.paneTitle("source", focusFilters))
+	for i, t := range b.tabs {
+		label := t.name
+		if t.letter != "" {
+			label = t.letter + " " + t.name
+		}
+		option(i, label, b.active == i)
 	}
 
-	out.WriteString("\n" + styleMuted.Render("summary") + "\n")
+	sources := len(b.tabs)
+	notApplicable := styleMuted.Render("  n/a")
+	if b.isFindings() {
+		lines = append(lines, "", b.paneTitle("severity", focusFilters))
+		for i, level := range b.severities {
+			option(sources+i, strings.ToLower(level), b.severity == i)
+		}
+		lines = append(lines, "", b.paneTitle("check", focusFilters))
+		for i, check := range b.checks {
+			option(sources+len(b.severities)+i, check, b.check == i)
+		}
+	} else {
+		lines = append(lines, "", styleMuted.Render("severity"), notApplicable)
+		lines = append(lines, "", styleMuted.Render("check"), notApplicable)
+	}
+
+	lines = append(lines, "", styleMuted.Render("summary"))
+	if !b.isFindings() || len(b.report.Summary) == 0 {
+		return append(lines, notApplicable+styleMuted.Render("  no findings yet")), cursorLine
+	}
 	for _, line := range b.report.Summary {
 		label := fmt.Sprintf("%-*s", summaryLabelWidth, line.Label)
 		value := truncate(line.Value, max(filterWidth-1-lipgloss.Width(label), 1))
-		out.WriteString(styleMuted.Render(label) + styleText.Render(value) + "\n")
+		lines = append(lines, styleMuted.Render(label)+styleText.Render(value))
 	}
-	return out.String()
+	return lines, cursorLine
 }
 
 // paneTitle renders a heading, lit when its pane has the keyboard.
@@ -878,6 +1041,36 @@ func (browser) rowText(item Item) string {
 	return line
 }
 
+// triggerText says what raised a finding: the rule that failed and what it
+// found, the evidence recorded for it, the severity the registry gives that
+// rule, and the ATT&CK techniques the rule is mapped to, so each of those can be
+// traced back to the host observation it came from.
+func triggerText(item Item) string {
+	lines := []string{"rule      " + item.Key + "  (" + item.Check + " check failed)"}
+	if item.Reason != "" {
+		lines = append(lines, "found     "+item.Reason)
+	}
+	switch n := len(item.Evidence); n {
+	case 0:
+		lines = append(lines, "evidence  none recorded; the rule's result alone raised it")
+	case 1:
+		lines = append(lines, "evidence  1 entry, listed below")
+	default:
+		lines = append(lines, fmt.Sprintf("evidence  %d entries, listed below", n))
+	}
+	lines = append(lines, "severity  "+item.Severity+", the registry's rating for this rule")
+	var ids []string
+	for _, technique := range item.Techniques {
+		if fields := strings.Fields(technique); len(fields) > 0 {
+			ids = append(ids, fields[0])
+		}
+	}
+	if len(ids) > 0 {
+		lines = append(lines, "attack    "+strings.Join(ids, ", ")+", because this rule failed")
+	}
+	return strings.Join(lines, "\n")
+}
+
 // detailText renders everything known about one item for the detail pane.
 func (b browser) detailText(item Item) string {
 	wrap := lipgloss.NewStyle().Width(max(b.mainWidth()-1, minWidth))
@@ -901,12 +1094,15 @@ func (b browser) detailText(item Item) string {
 			out.WriteString("\n" + styleMuted.Render(name) + "\n" + wrap.Render(strings.TrimSpace(body)) + "\n")
 		}
 	}
+	if item.isFinding() {
+		section("triggered by", triggerText(item))
+	}
 	section("categories", strings.Join(item.Categories, ", "))
 	section("description", item.Description)
 	section("impact", item.Impact)
 	section("resolution", item.Resolution)
 	section("references", strings.Join(item.References, "\n"))
-	section("att&ck", strings.Join(item.Techniques, "\n"))
+	section("MITRE ATT&CK, made available by this finding", strings.Join(item.Techniques, "\n"))
 	section("mitigations", strings.Join(item.Mitigations, "\n"))
 
 	if len(item.Evidence) > 0 {

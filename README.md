@@ -32,8 +32,8 @@ and open an issue against this doc.
 - **`--enrich` currently has no effect.** No CVE/CWE enrichment adapter
   (NVD, CISA KEV, EPSS, GHSA) is wired yet. The flag is accepted and does
   nothing; findings are not annotated with CVE data.
-- **`--mitre` does not exist yet.** MITRE ATT&CK mapping is planned but not
-  implemented; passing it will fail as an unknown flag.
+- **There is no `--mitre` flag.** MITRE ATT&CK® mapping is registry data shown
+  by default; see MITRE ATT&CK below. Passing `--mitre` fails as an unknown flag.
 - **macOS and BSD are implemented but not yet fully verified.** The Unix
   checkers carry macOS, FreeBSD, and OpenBSD code paths, and the registry
   ships finding definitions for each, but no result has been confirmed against
@@ -63,6 +63,7 @@ and open an issue against this doc.
 | `owatch browse [report-file]` | Open a saved report in the results browser; reads any format that holds the whole report (JSON, YAML) |
 | `owatch completion` | Generate shell completion scripts (see Shell Completion below) |
 | `owatch help` | Show the full command menu (equivalent to `-h`/`--help`) |
+| `owatch notices` | Print the third-party notices for the MITRE data owatch carries |
 | `owatch version` | Display current version |
 
 > `-V`/`--version` on any invocation is equivalent to running `owatch version`.
@@ -129,6 +130,22 @@ With no check flags given, all checks run by default.
 | `-y, --yes` | Do not ask before a permissions check that scans the entire filesystem | false |
 | `--plain` | Print the report to the terminal instead of opening the results browser; the format is text unless `-o` names another | false |
 
+## `osinfo` and `software` Flags
+
+`owatch osinfo` and `owatch software` each run one module and deliver it as `all`
+does: the results browser on a terminal, with the System or Software source
+filled and the others saying they were not collected.
+
+| Flag | Description | Default |
+|---|---|---|
+| `-o, --output` | Format of the full report, wherever it goes (`--plain`, `--report-file`, or `t` in the browser): text, json, yaml. Unspecified, a report file is JSON and anything else is text | text |
+| `--report-file` | Save report to directory; filename is generated automatically | — |
+| `--allow-elevated-write` | Permit an elevated write outside the allowlisted directories or into a directory other users control | false |
+| `--plain` | Print the report to the terminal instead of opening the results browser; the format is text unless `-o` names another | false |
+
+The saved report is an `all` report holding that one module, so `owatch browse`
+opens it.
+
 ## `all` Flags (`owatch all`)
 
 `all` runs every module (osinfo, software, audit) in one consolidated report.
@@ -181,23 +198,31 @@ run proceeds as it would from a script.
 
 ## Results Browser
 
-On a terminal, `owatch audit` and `owatch all` end in an interactive results
-browser instead of printing the report, because a whole-filesystem scan produces
-far more lines than a terminal keeps. The browser has a tab for each part of the
-run: Findings lists each finding with its severity and shows the selected one in
-full with its evidence; System shows the host's fingerprint; Software lists the
-installed packages and can be searched; ATT&CK groups the findings by the MITRE
-ATT&CK technique each makes available. A tab for a module that was skipped or
-failed says so. The complete plain report is one key away.
+On a terminal, `owatch audit`, `owatch osinfo`, `owatch software` and `owatch all`
+end in an interactive results browser instead of printing the report, because a
+whole-filesystem scan produces far more lines than a terminal keeps. Every
+command opens the same layout. The left pane lists the sources, each with the
+key that opens it, above the findings filters and the run's summary; it scrolls
+when it is taller than the window, and a window too narrow for it shows the
+sources as a bar along the top. The filters and the summary belong to findings,
+so they read n/a on a source that has none. The browser has a source for each
+part of the run: Findings lists each finding with its severity and shows the selected one in
+full with what triggered it (the rule that failed, what it found, the severity the registry
+gives it, the techniques it is mapped to) and its evidence; System shows the host's fingerprint; Software lists the
+installed packages and can be searched; MITRE ATT&CK® groups the findings by the
+technique each makes available, with the finding, rule and evidence behind each. A source a command did not run, or a module
+that was skipped or failed, is still listed and says so. A run opens on
+Findings when the audit ran, and otherwise on the first module that did, so
+`owatch osinfo`, or `owatch all --skip-modules audit`, opens on System. The complete plain report is one key away.
 
 | Key | Action |
 |---|---|
-| `f`, `o`, `s`, `m` | Switch to the Findings, System, Software or ATT&CK tab; each tab's letter is shown in the tab bar |
+| `f`, `o`, `s`, `m` | Switch to the Findings, System, Software or MITRE ATT&CK tab from any pane; each tab's letter is shown in the left pane |
 | `[`, `]`, `1` to `9` | Step to the previous or next tab, or go to a tab by its number |
-| `tab`, `shift+tab` | Move between the filter, list and detail panes |
+| `tab`, `shift+tab` | Move between the left, list and detail panes |
 | up/down, pgup/pgdn, home/end | Move through the focused pane |
 | left/right | Pan the detail pane or the full report sideways |
-| `enter` | Apply a filter, or open the selected item in the detail pane |
+| `enter` | In the left pane, open a source or apply a filter; in the list, open the selected item in the detail pane |
 | `/` | Search the active tab: on Findings, titles, rule keys, descriptions, references and evidence, and the detail pane then shows only the matching evidence lines; on Software, package names and versions. `enter` keeps the search, `esc` clears it, and each tab keeps its own |
 | `a` | On Findings, show every evaluated rule, not only findings and rules that could not be evaluated |
 | `x` | On Findings, load all of a finding's evidence when only the first 500 lines are shown |
@@ -254,14 +279,24 @@ owatch browse -o json /path/to/reports/owatch-host-SFUP-20261114T120000Z.json
 
 ## MITRE ATT&CK
 
-Findings that make a known ATT&CK technique available carry it: the technique's
+Findings that make a known MITRE ATT&CK® technique available carry it: the technique's
 identifier, name and tactics, and the mitigations the ATT&CK site lists for it,
 appear under the finding in the text report, in the finding's detail in the
-browser, as an `attack` list on the finding in JSON and YAML, and as the ATT&CK
-tab. The mapping is static data bundled in the binary, read
+browser, as an `attack` list on the finding in JSON and YAML, and as the MITRE
+ATT&CK tab. The mapping is static data bundled in the binary, read
 from the ATT&CK site, so it needs no flag and no network. It says what an adversary
 can do because of the condition, not that anyone has done it. A finding with no
 sound mapping carries none.
+
+## Third-Party Notices
+
+owatch carries MITRE ATT&CK® data, and references the Common Weakness Enumeration
+(CWE™). MITRE's terms for each grant a royalty-free license for commercial use on
+the condition that any copy reproduces MITRE's copyright designation and the
+license. `owatch notices` prints that notice; it is embedded in the binary, so a
+bare copy of owatch carries it, and it is kept in
+[`internal/notices/THIRD_PARTY_NOTICES.md`](internal/notices/THIRD_PARTY_NOTICES.md).
+MITRE ATT&CK and ATT&CK are registered trademarks of The MITRE Corporation.
 
 ## Skips and Partial Runs
 
@@ -303,7 +338,7 @@ The summary counts checks and conditions by result and findings by severity.
 generates the filename automatically:
 
 ```text
-owatch-<hostname>-m.<module_codes>-c.<check_codes>-e.<enrichment_codes>-<flag_codes>-<timestamp>.<ext>
+owatch-<hostname>-m.<module_codes>-c.<check_codes>-e.<enrichment_codes>-<timestamp>.<ext>
 ```
 
 - Segments are omitted entirely when empty — there are never double hyphens.
@@ -348,16 +383,7 @@ segment below — a module code would be redundant with that.
 
 No `e.` segment appears in any filename yet, since no adapter is wired.
 
-### Composing flags
-
-| Letter | Flag | Status |
-|---|---|---|
-| `m` | `--mitre` (MITRE ATT&CK mapping) | reserved, not yet implemented |
-
-This segment is unprefixed and always terminal when present. It will not
-appear in any filename until `--mitre` lands.
-
-Note: c.s (SSH check) and m.s (software module) share the same letter — that's intentional and safe, since each category is its own namespace (the registry only enforces uniqueness within a category, not across all four). This distinction is worth stating explicitly so it doesn't read as a typo when someone's staring at `m.os-c.fpsu` for the first time.
+Note: c.s (SSH check) and m.s (software module) share the same letter — that's intentional and safe, since each category is its own namespace (the registry only enforces uniqueness within a category, not across all three). This distinction is worth stating explicitly so it doesn't read as a typo when someone's staring at `m.os-c.fpsu` for the first time.
 
 ## Shell Completion
 

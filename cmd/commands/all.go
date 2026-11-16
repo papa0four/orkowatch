@@ -78,11 +78,14 @@ type (
 		Errors    []string                   `json:"errors,omitempty" yaml:"errors,omitempty"`
 	}
 
-	// allReport adapts a finished ScanResult to delivery.Report. It pairs the
-	// result with the command whose flags govern its projection.
+	// allReport adapts a finished ScanResult to delivery.Report. The all,
+	// osinfo and software commands share it: they differ in the title the
+	// browser shows and in the severity floor that governs the audit's
+	// projection, which only all has.
 	allReport struct {
-		c      *allCmd
-		result *ScanResult
+		title       string
+		minSeverity string
+		result      *ScanResult
 	}
 )
 
@@ -159,8 +162,8 @@ func (c *allCmd) buildAllMask() (selection.CheckMask, error) {
 }
 
 // toAllResult converts a ScanResult into the typed serialization structure
-// for all command output.
-func (c *allCmd) toAllResult(result *ScanResult) allResult {
+// for all command output, with the audit filtered to minSeverity.
+func toAllResult(result *ScanResult, minSeverity string) allResult {
 	out := allResult{
 		Timestamp: result.Timestamp.UTC().Format(time.RFC3339),
 		Duration:  result.Duration.String(),
@@ -182,7 +185,7 @@ func (c *allCmd) toAllResult(result *ScanResult) allResult {
 
 	// security audit
 	if result.SecurityAudit != nil {
-		view := result.SecurityAudit.View(c.audit.MinSeverity())
+		view := result.SecurityAudit.View(minSeverity)
 		if out.System != nil {
 			// avoid duplicating hist identity alread in out.System
 			view.SystemInfo = nil
@@ -265,7 +268,7 @@ func (c *allCmd) runAllScans(cmd *cobra.Command, args []string) error {
 	}
 
 	result.Duration = time.Since(startTime)
-	if err := c.out.Deliver(allReport{c: c, result: result}, mask); err != nil {
+	if err := c.out.Deliver(allReport{title: "owatch all", minSeverity: c.audit.MinSeverity(), result: result}, mask); err != nil {
 		return err
 	}
 
@@ -312,14 +315,7 @@ func (c *allCmd) runModules(ctx context.Context, mask selection.CheckMask, resul
 		result.Modules = append(result.Modules, skippedModule("osinfo"))
 	} else {
 		reporter.Start(taskOSInfo)
-		osInfo, err := osfingerprint.GetOSFingerprint()
-		if err != nil {
-			result.Errors = append(result.Errors, fmt.Sprintf("OS fingerprint error: %v", err))
-			result.Modules = append(result.Modules, erroredModule("osinfo", err))
-		} else {
-			result.OSInfo = osInfo
-			result.Modules = append(result.Modules, inventoryModule("osinfo"))
-		}
+		collectOSInfo(result)
 		reporter.Finish(taskOSInfo, moduleOutcome(result.Modules))
 	}
 
@@ -327,14 +323,7 @@ func (c *allCmd) runModules(ctx context.Context, mask selection.CheckMask, resul
 		result.Modules = append(result.Modules, skippedModule("software"))
 	} else {
 		reporter.Start(taskSoftware)
-		software, err := softwarelist.GetInstalledSoftwareList(ctx)
-		if err != nil {
-			result.Errors = append(result.Errors, fmt.Sprintf("Software inventory error: %v", err))
-			result.Modules = append(result.Modules, erroredModule("software", err))
-		} else {
-			result.Software = software
-			result.Modules = append(result.Modules, inventoryModule("software"))
-		}
+		collectSoftware(ctx, result)
 		reporter.Finish(taskSoftware, moduleOutcome(result.Modules))
 	}
 
@@ -350,6 +339,32 @@ func (c *allCmd) runModules(ctx context.Context, mask selection.CheckMask, resul
 	}
 	result.SecurityAudit = securityResult
 	result.Modules = append(result.Modules, auditModule(securityResult))
+}
+
+// collectOSInfo runs the OS fingerprint module and records how it ended in
+// result, whether the module returned or failed.
+func collectOSInfo(result *ScanResult) {
+	osInfo, err := osfingerprint.GetOSFingerprint()
+	if err != nil {
+		result.Errors = append(result.Errors, fmt.Sprintf("OS fingerprint error: %v", err))
+		result.Modules = append(result.Modules, erroredModule("osinfo", err))
+		return
+	}
+	result.OSInfo = osInfo
+	result.Modules = append(result.Modules, inventoryModule("osinfo"))
+}
+
+// collectSoftware runs the software inventory module and records how it ended
+// in result, as collectOSInfo does.
+func collectSoftware(ctx context.Context, result *ScanResult) {
+	software, err := softwarelist.GetInstalledSoftwareList(ctx)
+	if err != nil {
+		result.Errors = append(result.Errors, fmt.Sprintf("Software inventory error: %v", err))
+		result.Modules = append(result.Modules, erroredModule("software", err))
+		return
+	}
+	result.Software = software
+	result.Modules = append(result.Modules, inventoryModule("software"))
 }
 
 // moduleOutcome is the display outcome of the module most recently recorded.
@@ -426,13 +441,13 @@ func (c *allCmd) runSecurityAuditModule(ctx context.Context, mask selection.Chec
 
 // View returns the typed serialization structure for the all command.
 func (r allReport) View() any {
-	return r.c.toAllResult(r.result)
+	return toAllResult(r.result, r.minSeverity)
 }
 
 // Browse returns what the results browser shows for the scan, from the same
 // projection View returns, so a saved report opens to the same tabs.
 func (r allReport) Browse(text string) tui.Report {
-	return security.BrowserReport(allSource("owatch all", r.c.toAllResult(r.result), text))
+	return security.BrowserReport(allSource(r.title, toAllResult(r.result, r.minSeverity), text))
 }
 
 // allSource is what the browser shows for an all report: the projection a
@@ -463,7 +478,7 @@ func moduleNotes(modules []moduleRun) []security.ModuleNote {
 // WriteText renders the human-readable summary of the scan from the same
 // projection View returns.
 func (r allReport) WriteText(w io.Writer) error {
-	return writeAllText(w, r.c.toAllResult(r.result))
+	return writeAllText(w, toAllResult(r.result, r.minSeverity))
 }
 
 // writeAllText writes a concise human-readable summary of an all report to w,
@@ -472,6 +487,9 @@ func (r allReport) WriteText(w io.Writer) error {
 // through as the full report, and what owatch browse shows for a saved file
 // are one text.
 func writeAllText(w io.Writer, v allResult) error {
+	if len(v.Modules) == 1 {
+		return writeSingleModuleText(w, v)
+	}
 	ew := render.NewErrWriter(w)
 	ew.Printf("owatch all  --  %s\n\n", v.Timestamp)
 
@@ -519,6 +537,26 @@ func writeAllText(w io.Writer, v allResult) error {
 		}
 	}
 	return ew.Err()
+}
+
+// writeSingleModuleText writes the report of a command that ran one inventory
+// module, osinfo or software, as that module's own text with no all-report
+// heading around it. The projection holds one module row only for such a
+// command, so a saved report is rendered as the run that wrote it was.
+func writeSingleModuleText(w io.Writer, v allResult) error {
+	switch v.Modules[0].Name {
+	case "osinfo":
+		if v.System != nil {
+			return osfingerprint.WriteViewText(w, *v.System)
+		}
+	case "software":
+		view := softwarelist.SoftwareView{}
+		if v.Software != nil {
+			view = *v.Software
+		}
+		return softwarelist.WriteText(w, view)
+	}
+	return nil
 }
 
 func (c *allCmd) isModuleSkipped(module string) bool {
