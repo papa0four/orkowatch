@@ -51,8 +51,10 @@ func TestSidebarPersistsOnEverySource(t *testing.T) {
 	for _, tab := range []string{"f", "o", "s"} {
 		b = press(b, tab)
 		frame := plain(b.render())
-		for _, want := range []string{"f Findings", "o System", "s Software", "summary"} {
-			if !strings.Contains(frame, want) {
+		for _, want := range []*regexp.Regexp{
+			regexp.MustCompile(`f\s+Findings`), regexp.MustCompile(`o\s+System`), regexp.MustCompile(`s\s+Software`), regexp.MustCompile(`summary`),
+		} {
+			if !want.MatchString(frame) {
 				t.Errorf("after %q the left pane lacks %q:\n%s", tab, want, frame)
 			}
 		}

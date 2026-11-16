@@ -217,8 +217,8 @@ Findings when the audit ran, and otherwise on the first module that did, so
 
 | Key | Action |
 |---|---|
-| `f`, `o`, `s`, `m` | Switch to the Findings, System, Software or MITRE ATT&CK tab from any pane; each tab's letter is shown in the left pane |
-| `[`, `]`, `1` to `9` | Step to the previous or next tab, or go to a tab by its number |
+| the key in the left pane's `key` column (`f`, `o`, `s`, `m`) | Switch to that source from any pane; the left pane lists each source under the headings `key` and `source`, so a new source adds a row |
+| `[`, `]`, `1` to `9` | Step to the previous or next source, or go to a source by its number |
 | `tab`, `shift+tab` | Move between the left, list and detail panes |
 | up/down, pgup/pgdn, home/end | Move through the focused pane |
 | left/right | Pan the detail pane or the full report sideways |

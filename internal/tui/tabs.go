@@ -21,6 +21,12 @@ const (
 	TabSoftware = "software"
 	TabAttack   = "attack"
 
+	// The headings of the source table in the left pane, and the gap between
+	// its two columns.
+	keyHeading    = "key"
+	sourceHeading = "source"
+	sourceGap     = "  "
+
 	// tabBarLines is the line the tab bar takes when there is more than one
 	// tab to choose between.
 	tabBarLines = 1
