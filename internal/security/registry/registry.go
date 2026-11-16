@@ -69,6 +69,7 @@ type (
 		CVSSScore   float64         `yaml:"cvss_score"`
 		CVSSVector  string          `yaml:"cvss_vector"`
 		CWE         finding.CWE     `yaml:"cwe"`
+		NoWeakness  string          `yaml:"no_weakness"`
 		Description string          `yaml:"description"`
 		Impact      string          `yaml:"impact"`
 		Resolution  string          `yaml:"resolution"`
@@ -260,6 +261,9 @@ func (d FindingDefinition) Finding() *finding.Finding {
 		Description: d.Description,
 		Severity:    d.Severity,
 		CWE:         d.CWE,
+		Weakness:    d.weakness(),
+		NoWeakness:  strings.TrimSpace(d.NoWeakness),
+		CVSS:        d.cvssScore(),
 		Categories:  d.ToCategories(),
 		Impact:      d.Impact,
 		Resolution:  d.Resolution,
@@ -347,9 +351,9 @@ func mustLoad(name string, data []byte) map[FindingKey]FindingDefinition {
 }
 
 // validated returns d with its defaults applied, or the reason it cannot be
-// used. A definition that can report fail must carry a well-formed CWE,
-// because that identifier is the key enrichment looks weaknesses up by; one
-// that cannot fail needs none.
+// used. A definition that can report fail names a weakness in the bundled CWE
+// dataset, because that identifier is the key enrichment looks weaknesses up
+// by, or says in no_weakness why none fits; one that cannot fail needs neither.
 func (d FindingDefinition) validated() (FindingDefinition, error) {
 	if err := d.validateReferences(); err != nil {
 		return d, err
@@ -376,15 +380,7 @@ func (d FindingDefinition) validated() (FindingDefinition, error) {
 		return d, fmt.Errorf("result %q is not one a definition can declare", d.Result)
 	}
 
-	if d.Result != finding.ResultFail && d.CWE == "" {
-		return d, nil
-	}
-	cwe, err := finding.ParseCWE(string(d.CWE))
-	if err != nil {
-		return d, err
-	}
-	d.CWE = cwe
-	return d, nil
+	return d.validateWeakness()
 }
 
 // scoreTolerance is how far a stated score may sit from the one its vector

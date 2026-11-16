@@ -20,7 +20,7 @@ ssh.config_not_found:
   severity: "MEDIUM"
   cvss_score: 5.3
   cvss_vector: "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:L/I:L/A:L"
-  cwe: "CWE-16"
+  no_weakness: "CWE-16 is an obsolete grouping that MITRE prohibits for mapping, and no entry describes a missing configuration file."
   description: >
     No sshd_config file was found at any expected path. Without an explicit
     configuration file, sshd falls back to compiled-in defaults which vary
@@ -123,7 +123,7 @@ ssh.permit_root_login_not_set:
   severity: "MEDIUM"
   cvss_score: 5.9
   cvss_vector: "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:N/A:N"
-  cwe: "CWE-16"
+  no_weakness: "CWE-16 is an obsolete grouping that MITRE prohibits for mapping. The directive is absent, so the daemon's default applies and the check does not read it; CWE-1188 would apply only if that default were shown to be insecure."
   description: >
     The PermitRootLogin directive was not found in sshd_config. OpenSSH
     compiled defaults vary by distribution and version. On some systems
@@ -152,7 +152,7 @@ ssh.password_auth_not_set:
   severity: "MEDIUM"
   cvss_score: 5.9
   cvss_vector: "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:N/A:N"
-  cwe: "CWE-16"
+  no_weakness: "CWE-16 is an obsolete grouping that MITRE prohibits for mapping. The directive is absent, so the daemon's default applies and the check does not read it; CWE-1188 would apply only if that default were shown to be insecure."
   attack_techniques:
     - id: "T1021.004"
       basis:
@@ -187,12 +187,11 @@ firewall.no_active_manager:
   severity: "CRITICAL"
   cvss_score: 9.1
   cvss_vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N"
-  cwe: "CWE-284"
+  cwe: "CWE-923"
   attack_techniques:
     - id: "T1686"
       basis:
         - "NIST CM-6 maps to this technique, listed there as T1562.004 (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
-        - "CWE-284 relates to CAPEC-578, which CAPEC 3.9 maps to this technique"
   description: >
     None of the recognized firewall managers (iptables, ufw, firewalld,
     pfctl) are active on this system. The host has no detected host-based
@@ -223,12 +222,11 @@ firewall.ufw_inactive:
   severity: "HIGH"
   cvss_score: 8.6
   cvss_vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:L/A:H"
-  cwe: "CWE-284"
+  cwe: "CWE-923"
   attack_techniques:
     - id: "T1686"
       basis:
         - "NIST CM-6 maps to this technique, listed there as T1562.004 (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
-        - "CWE-284 relates to CAPEC-578, which CAPEC 3.9 maps to this technique"
   description: >
     Uncomplicated Firewall (UFW) is installed and reports its status as
     inactive, so no host-based packet filtering is enforced on any network
@@ -260,12 +258,11 @@ firewall.firewalld_not_running:
   severity: "HIGH"
   cvss_score: 8.6
   cvss_vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:L/A:H"
-  cwe: "CWE-284"
+  cwe: "CWE-923"
   attack_techniques:
     - id: "T1686"
       basis:
         - "NIST CM-6 maps to this technique, listed there as T1562.004 (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
-        - "CWE-284 relates to CAPEC-578, which CAPEC 3.9 maps to this technique"
   description: >
     The firewalld daemon is installed but is not running, so the zone
     policy it manages is not being enforced. No host-based packet
@@ -297,12 +294,11 @@ firewall.iptables_default_accept:
   severity: "CRITICAL"
   cvss_score: 9.9
   cvss_vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:L/I:L/A:H"
-  cwe: "CWE-284"
+  cwe: "CWE-1188"
   attack_techniques:
     - id: "T1686"
       basis:
         - "NIST CM-6 maps to this technique, listed there as T1562.004 (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
-        - "CWE-284 relates to CAPEC-578, which CAPEC 3.9 maps to this technique"
   description: >
     The iptables INPUT chain has a default policy of ACCEPT and holds no
     rules, so every packet arriving at the host is permitted. A secure
@@ -374,7 +370,7 @@ users.uid_zero_non_root:
   severity: "HIGH"
   cvss_score: 8.8
   cvss_vector: "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H"
-  cwe: "CWE-250"
+  cwe: "CWE-266"
   description: >
     A user account other than root has been assigned UID 0. On Linux and
     Unix systems, UID 0 confers full superuser privileges regardless of
@@ -403,7 +399,7 @@ users.root_account_unlocked:
   severity: "HIGH"
   cvss_score: 7.0
   cvss_vector: "CVSS:3.1/AV:L/AC:H/PR:L/UI:N/S:U/C:H/I:H/A:H"
-  cwe: "CWE-284"
+  no_weakness: "No CWE entry describes an unlocked root account; CWE-284, the nearest class, is discouraged by MITRE."
   description: >
     The root account is not in a locked state. On systems where
     administrative access is managed via sudo, the root account itself
@@ -431,7 +427,7 @@ users.ldap_configured:
   severity: "LOW"
   cvss_score: 2.3
   cvss_vector: "CVSS:3.1/AV:L/AC:L/PR:H/UI:N/S:U/C:L/I:N/A:N"
-  cwe: "CWE-287"
+  no_weakness: "The finding reports where authentication is performed, not a weakness; CWE-287 is discouraged by MITRE."
   description: >
     /etc/ldap.conf is present, indicating LDAP-based authentication is
     configured. LDAP authentication introduces a network dependency for
@@ -455,7 +451,7 @@ users.kerberos_configured:
   severity: "LOW"
   cvss_score: 2.3
   cvss_vector: "CVSS:3.1/AV:L/AC:L/PR:H/UI:N/S:U/C:L/I:N/A:N"
-  cwe: "CWE-287"
+  no_weakness: "The finding reports where authentication is performed, not a weakness; CWE-287 is discouraged by MITRE."
   attack_techniques:
     - id: "T1558.005"
       basis:
@@ -483,7 +479,7 @@ users.sssd_configured:
   severity: "LOW"
   cvss_score: 2.3
   cvss_vector: "CVSS:3.1/AV:L/AC:L/PR:H/UI:N/S:U/C:L/I:N/A:N"
-  cwe: "CWE-287"
+  no_weakness: "The finding reports where authentication is performed, not a weakness; CWE-287 is discouraged by MITRE."
   attack_techniques:
     - id: "T1003.005"
       basis:
@@ -512,7 +508,7 @@ users.regular_user_admin_privileges:
   severity: "HIGH"
   cvss_score: 7.1
   cvss_vector: "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:N"
-  cwe: "CWE-250"
+  cwe: "CWE-266"
   attack_techniques:
     - id: "T1548.003"
       basis:
@@ -545,7 +541,7 @@ users.login_shell_present:
   severity: "LOW"
   cvss_score: 2.5
   cvss_vector: "CVSS:3.1/AV:L/AC:H/PR:L/UI:N/S:U/C:L/I:N/A:N"
-  cwe: "CWE-272"
+  no_weakness: "CWE-272 concerns dropping an elevated privilege after an operation such as chroot(), which an account with a login shell is not."
   description: >
     A user account has an interactive login shell assigned. For regular
     operator accounts this is expected. For accounts that should not
@@ -576,7 +572,7 @@ users.no_password_login_shell:
   severity: "CRITICAL"
   cvss_score: 9.1
   cvss_vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N"
-  cwe: "CWE-287"
+  cwe: "CWE-1390"
   attack_techniques:
     - id: "T1078.003"
       basis:
@@ -712,7 +708,7 @@ permissions.suid_sgid_binary:
   severity: "HIGH"
   cvss_score: 7.0
   cvss_vector: "CVSS:3.1/AV:L/AC:H/PR:L/UI:N/S:U/C:H/I:H/A:H"
-  cwe: "CWE-250"
+  cwe: "CWE-267"
   attack_techniques:
     - id: "T1548.001"
       basis:

@@ -96,3 +96,34 @@ func TestAttackTabStatesTheBasis(t *testing.T) {
 		t.Errorf("the basis is not shown:\n%s", shown)
 	}
 }
+
+// The browser's finding detail carries the weakness with MITRE's description
+// and the labelled CVSS, or the reason no weakness applies.
+func TestBrowserItemCarriesWeaknessAndCVSS(t *testing.T) {
+	cond := audit.ConditionView{Key: "permissions.world_writable_file", Result: finding.ResultFail,
+		Finding: &audit.FindingView{Title: "World-writable file", Severity: "HIGH",
+			Weakness: &finding.Weakness{ID: "CWE-732", Name: "Incorrect Permission Assignment for Critical Resource",
+				Description: "The product specifies permissions for a security-critical resource in a way that allows it to be read or modified by unintended actors.",
+				Usage:       "Allowed-with-Review", URL: "https://cwe.mitre.org/data/definitions/732.html"},
+			CVSS: &finding.CVSSScore{Version: "3.1", Vector: "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:N", BaseScore: 7.1, Severity: "HIGH",
+				Source: "registry", Nomenclature: "CVSS-B", Basis: "baseline for the condition, not measured on this host"}}}
+	item := browserItem(cond)
+	for _, want := range []string{"CWE-732 Incorrect Permission Assignment", "Allowed-with-Review"} {
+		if !strings.Contains(item.Weakness, want) {
+			t.Errorf("weakness %q lacks %q", item.Weakness, want)
+		}
+	}
+	if !strings.Contains(item.WeaknessAbout, "unintended actors") || !strings.Contains(item.WeaknessAbout, "cwe.mitre.org") {
+		t.Errorf("weakness detail %q lacks MITRE's description or the link", item.WeaknessAbout)
+	}
+	if !strings.Contains(item.CVSS, "7.1 HIGH") || !strings.Contains(item.CVSS, "CVSS-B v3.1") || !strings.Contains(item.CVSS, "not measured on this host") {
+		t.Errorf("CVSS %q is not shown with its label", item.CVSS)
+	}
+
+	cond.Finding.Weakness = nil
+	cond.Finding.NoWeakness = "No entry describes this."
+	item = browserItem(cond)
+	if item.Weakness != "none" || item.WeaknessAbout != "No entry describes this." {
+		t.Errorf("a finding with no weakness shows %q / %q", item.Weakness, item.WeaknessAbout)
+	}
+}

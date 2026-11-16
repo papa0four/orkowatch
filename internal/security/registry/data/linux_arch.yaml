@@ -24,12 +24,11 @@ firewall.no_firewall_installed:
   severity: "CRITICAL"
   cvss_score: 9.1
   cvss_vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N"
-  cwe: "CWE-284"
+  cwe: "CWE-923"
   attack_techniques:
     - id: "T1686"
       basis:
         - "NIST CM-6 maps to this technique, listed there as T1562.004 (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
-        - "CWE-284 relates to CAPEC-578, which CAPEC 3.9 maps to this technique"
   description: >
     Arch Linux does not install a firewall manager by default. Neither
     iptables, nftables, ufw, nor firewalld was detected as active on
@@ -72,12 +71,11 @@ firewall.nftables_no_rules:
   severity: "HIGH"
   cvss_score: 8.6
   cvss_vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:L/A:H"
-  cwe: "CWE-284"
+  cwe: "CWE-923"
   attack_techniques:
     - id: "T1686"
       basis:
         - "NIST CM-6 maps to this technique, listed there as T1562.004 (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
-        - "CWE-284 relates to CAPEC-578, which CAPEC 3.9 maps to this technique"
   description: >
     nftables is the active firewall manager but no rules are loaded.
     An nftables instance with no ruleset provides no packet filtering —
@@ -109,12 +107,11 @@ firewall.iptables_default_accept:
   severity: "CRITICAL"
   cvss_score: 9.9
   cvss_vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:L/I:L/A:H"
-  cwe: "CWE-284"
+  cwe: "CWE-1188"
   attack_techniques:
     - id: "T1686"
       basis:
         - "NIST CM-6 maps to this technique, listed there as T1562.004 (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
-        - "CWE-284 relates to CAPEC-578, which CAPEC 3.9 maps to this technique"
   description: >
     The iptables INPUT chain has a default policy of ACCEPT, meaning
     any traffic not matched by an explicit rule is permitted through.
@@ -156,12 +153,11 @@ users.sudo_nopasswd:
   severity: "HIGH"
   cvss_score: 8.8
   cvss_vector: "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H"
-  cwe: "CWE-269"
+  cwe: "CWE-306"
   attack_techniques:
     - id: "T1548.003"
       basis:
         - "NIST AC-6 maps to this technique (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
-        - "CWE-269 relates to CAPEC-122, CAPEC-233, which CAPEC 3.9 maps to its parent technique T1548"
   description: >
     A sudoers rule contains the NOPASSWD tag, allowing one or more users
     to execute commands with elevated privileges without providing a
@@ -202,12 +198,11 @@ users.wheel_group_unrestricted:
   severity: "HIGH"
   cvss_score: 7.1
   cvss_vector: "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:N"
-  cwe: "CWE-269"
+  cwe: "CWE-266"
   attack_techniques:
     - id: "T1548.003"
       basis:
         - "NIST AC-6 maps to this technique (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
-        - "CWE-269 relates to CAPEC-122, CAPEC-233, which CAPEC 3.9 maps to its parent technique T1548"
   description: >
     The wheel group is configured with unrestricted sudo access to all
     commands. On Arch Linux this is the default sudoers configuration
@@ -394,3 +389,5 @@ permissions.ssh_dir_permissions:
       id: "AC-3"
     - source: NIST
       id: "IA-5"
+
+

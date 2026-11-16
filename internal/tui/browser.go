@@ -99,20 +99,27 @@ type (
 	// as one line. Every other rule carries its result and, where it has
 	// one, the reason.
 	Item struct {
-		Check       string
-		Key         string
-		Result      finding.Result
-		Reason      string
-		Severity    string
-		Title       string
-		Categories  []string
-		Description string
-		Impact      string
-		Resolution  string
-		References  []string
-		Techniques  []string
-		Mitigations []string
-		Evidence    []string
+		Check      string
+		Key        string
+		Result     finding.Result
+		Reason     string
+		Severity   string
+		Title      string
+		Categories []string
+
+		// Weakness is the CWE entry the finding maps to, with MITRE's
+		// description of it, or the reason none fits. CVSS is the registry's
+		// score, labelled with what it is a statement about.
+		Weakness      string
+		WeaknessAbout string
+		CVSS          string
+		Description   string
+		Impact        string
+		Resolution    string
+		References    []string
+		Techniques    []string
+		Mitigations   []string
+		Evidence      []string
 	}
 
 	// itemIndex is an item's searchable text, lower-cased once when the
@@ -261,7 +268,7 @@ func buildIndex(items []Item) []itemIndex {
 	index := make([]itemIndex, len(items))
 	for i, item := range items {
 		fields := []string{item.Title, item.Key, item.Check, item.Reason, item.Description,
-			item.Impact, item.Resolution}
+			item.Impact, item.Resolution, item.Weakness, item.WeaknessAbout}
 		fields = append(fields, item.Categories...)
 		fields = append(fields, item.References...)
 		fields = append(fields, item.Techniques...)
@@ -1097,6 +1104,8 @@ func (b browser) detailText(item Item) string {
 	if item.isFinding() {
 		section("triggered by", triggerText(item))
 	}
+	section("weakness", strings.TrimSpace(item.Weakness+"\n"+item.WeaknessAbout))
+	section("CVSS", item.CVSS)
 	section("categories", strings.Join(item.Categories, ", "))
 	section("description", item.Description)
 	section("impact", item.Impact)
