@@ -1,6 +1,8 @@
 # Linux common finding definitions for the orkowatch registry.
 # These findings apply across all Linux distributions regardless of family.
-# Severity tiers follow CVSS v3.1 base score ranges:
+# Severity tiers follow CVSS v3.1 base score ranges, and each cvss_score is the
+# one its cvss_vector computes. The registry refuses to load a definition where
+# the severity, the score and the vector disagree:
 #   CRITICAL 9.0-10.0 | HIGH 7.0-8.9 | MEDIUM 4.0-6.9 | LOW 0.1-3.9
 # All entries sourced from CIS Distribution Independent Linux Benchmark v2.0.0,
 # NIST SP 800-53 Rev 5, and CVSS v3.1 scoring methodology.
@@ -12,7 +14,7 @@
 ssh.config_not_found:
   title: "SSH daemon configuration file not found"
   severity: "MEDIUM"
-  cvss_score: 5.5
+  cvss_score: 5.3
   cvss_vector: "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:L/I:L/A:L"
   cwe: "CWE-16"
   description: >
@@ -174,7 +176,7 @@ firewall.no_active_manager:
 firewall.ufw_inactive:
   title: "UFW firewall is installed but not enforcing"
   severity: "HIGH"
-  cvss_score: 8.2
+  cvss_score: 8.6
   cvss_vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:L/A:H"
   cwe: "CWE-284"
   attack_techniques: ["T1686"]
@@ -202,7 +204,7 @@ firewall.ufw_inactive:
 firewall.firewalld_not_running:
   title: "firewalld is installed but not running"
   severity: "HIGH"
-  cvss_score: 8.2
+  cvss_score: 8.6
   cvss_vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:L/A:H"
   cwe: "CWE-284"
   attack_techniques: ["T1686"]
@@ -229,8 +231,8 @@ firewall.firewalld_not_running:
 
 firewall.iptables_default_accept:
   title: "iptables INPUT chain accepts by default with no ingress rules"
-  severity: "HIGH"
-  cvss_score: 8.6
+  severity: "CRITICAL"
+  cvss_score: 9.9
   cvss_vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:L/I:L/A:H"
   cwe: "CWE-284"
   attack_techniques: ["T1686"]
@@ -288,8 +290,8 @@ users.empty_password_hash:
 
 users.uid_zero_non_root:
   title: "Non-root account has UID 0"
-  severity: "CRITICAL"
-  cvss_score: 9.8
+  severity: "HIGH"
+  cvss_score: 8.8
   cvss_vector: "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H"
   cwe: "CWE-250"
   description: >
@@ -314,8 +316,8 @@ users.uid_zero_non_root:
 
 users.root_account_unlocked:
   title: "Root account is not locked"
-  severity: "MEDIUM"
-  cvss_score: 6.7
+  severity: "HIGH"
+  cvss_score: 7.0
   cvss_vector: "CVSS:3.1/AV:L/AC:H/PR:L/UI:N/S:U/C:H/I:H/A:H"
   cwe: "CWE-284"
   description: >
@@ -412,8 +414,8 @@ users.sssd_configured:
 
 users.regular_user_admin_privileges:
   title: "Regular user account has administrative group membership"
-  severity: "MEDIUM"
-  cvss_score: 6.5
+  severity: "HIGH"
+  cvss_score: 7.1
   cvss_vector: "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:N"
   cwe: "CWE-250"
   description: >
@@ -466,8 +468,8 @@ users.login_shell_present:
 
 users.no_password_login_shell:
   title: "Account with no password set has a valid login shell"
-  severity: "HIGH"
-  cvss_score: 8.1
+  severity: "CRITICAL"
+  cvss_score: 9.1
   cvss_vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N"
   cwe: "CWE-287"
   attack_techniques: ["T1078.003"]
@@ -584,8 +586,8 @@ permissions.world_writable_file:
 
 permissions.suid_sgid_binary:
   title: "SUID or SGID binary found"
-  severity: "MEDIUM"
-  cvss_score: 6.7
+  severity: "HIGH"
+  cvss_score: 7.0
   cvss_vector: "CVSS:3.1/AV:L/AC:H/PR:L/UI:N/S:U/C:H/I:H/A:H"
   cwe: "CWE-250"
   attack_techniques: ["T1548.001"]

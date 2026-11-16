@@ -14,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"regexp"
 	"runtime"
@@ -22,6 +23,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/papa0four/orkowatch/internal/cvss"
 	"github.com/papa0four/orkowatch/internal/security/finding"
 )
 
@@ -51,9 +53,11 @@ type (
 
 	// FindingDefinition is the authored form of a finding: everything the
 	// registry knows about a condition, independent of the host it is found
-	// on. Finding projects everything but CVSSScore and CVSSVector, which
-	// have no reader yet: they are the static baseline #86 derives severity
-	// from, the value a live score overrides through finding.EffectiveSeverity.
+	// on. Finding projects everything but CVSSScore and CVSSVector, which load
+	// validates and #87 shows: the vector gives the score, the score gives the
+	// severity, and a definition in which the three disagree does not load.
+	// They are the static baseline a live score overrides through
+	// finding.EffectiveSeverity.
 	//
 	// Result is what the condition reports when a checker observes it. It
 	// defaults to fail. A definition that describes a state the rule does
@@ -418,6 +422,10 @@ func (d FindingDefinition) validated() (FindingDefinition, error) {
 	}
 	d.Severity = severity
 
+	if err := d.validateCVSS(); err != nil {
+		return d, err
+	}
+
 	switch d.Result {
 	case "":
 		d.Result = finding.ResultFail
@@ -435,6 +443,31 @@ func (d FindingDefinition) validated() (FindingDefinition, error) {
 	}
 	d.CWE = cwe
 	return d, nil
+}
+
+// scoreTolerance is how far a stated score may sit from the one its vector
+// computes. Scores are written to one decimal, so any real disagreement is a
+// whole tenth or more.
+const scoreTolerance = 0.05
+
+// validateCVSS confirms the three values a definition states about severity
+// agree: the vector is a CVSS v3.1 base vector, the score is the one that
+// vector computes, and the severity is the band of that score. Severity is a
+// property the registry authors, so a disagreement is a data defect and must
+// halt startup, not surface later as a finding rated one way by its text and
+// another by its numbers.
+func (d FindingDefinition) validateCVSS() error {
+	vector, err := cvss.Parse(d.CVSSVector)
+	if err != nil {
+		return fmt.Errorf("cvss_vector: %w", err)
+	}
+	if computed := vector.BaseScore(); math.Abs(computed-d.CVSSScore) >= scoreTolerance {
+		return fmt.Errorf("cvss_score %.1f is not the %.1f that its cvss_vector computes", d.CVSSScore, computed)
+	}
+	if band := cvss.Band(d.CVSSScore); band != d.Severity {
+		return fmt.Errorf("severity %s is not the %s band of cvss_score %.1f", d.Severity, band, d.CVSSScore)
+	}
+	return nil
 }
 
 // validateCategories confirms every NIST-classified reference in d resolves

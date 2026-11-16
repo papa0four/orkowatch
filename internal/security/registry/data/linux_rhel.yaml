@@ -1,7 +1,9 @@
 # RHEL family finding definitions for the orkowatch registry.
 # Covers RHEL, CentOS, Rocky Linux, AlmaLinux, Oracle Linux, Amazon Linux,
 # and derivatives identified via ID_LIKE=rhel in /etc/os-release.
-# Severity tiers follow CVSS v3.1 base score ranges:
+# Severity tiers follow CVSS v3.1 base score ranges, and each cvss_score is the
+# one its cvss_vector computes. The registry refuses to load a definition where
+# the severity, the score and the vector disagree:
 #   CRITICAL 9.0-10.0 | HIGH 7.0-8.9 | MEDIUM 4.0-6.9 | LOW 0.1-3.9
 # All entries sourced from CIS Red Hat Enterprise Linux 9 Benchmark v1.0.0,
 # NIST SP 800-53 Rev 5, and CVSS v3.1 scoring methodology.
@@ -13,7 +15,7 @@
 firewall.firewalld_not_running:
   title: "firewalld is installed but not running"
   severity: "HIGH"
-  cvss_score: 8.2
+  cvss_score: 8.6
   cvss_vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:L/A:H"
   cwe: "CWE-284"
   attack_techniques: ["T1686"]
@@ -127,7 +129,7 @@ users.sudo_nopasswd:
 users.wheel_group_empty:
   title: "The wheel group has no members"
   severity: "LOW"
-  cvss_score: 2.1
+  cvss_score: 2.5
   cvss_vector: "CVSS:3.1/AV:L/AC:H/PR:L/UI:N/S:U/C:N/I:L/A:N"
   cwe: "CWE-269"
   description: >
@@ -183,8 +185,8 @@ users.passwd_no_shadow:
 # Consumer: #142. No checker emits this definition yet.
 permissions.shadow_world_readable:
   title: "/etc/shadow is readable by non-root users"
-  severity: "CRITICAL"
-  cvss_score: 9.1
+  severity: "HIGH"
+  cvss_score: 8.4
   cvss_vector: "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:N"
   cwe: "CWE-732"
   attack_techniques: ["T1003.008"]
