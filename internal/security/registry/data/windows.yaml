@@ -63,6 +63,7 @@ ssh.root_login_permitted:
   cvss_score: 9.8
   cvss_vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"
   cwe: "CWE-250"
+  attack_techniques: ["T1021.004"]
   description: >
     The SSH configuration does not explicitly set PermitRootLogin to no.
     Direct privileged login over SSH gives an attacker full system control
@@ -88,6 +89,7 @@ ssh.password_auth_enabled:
   cvss_score: 7.5
   cvss_vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N"
   cwe: "CWE-521"
+  attack_techniques: ["T1021.004", "T1110.001"]
   description: >
     PasswordAuthentication is set to yes in the SSH configuration.
     Password-based SSH is susceptible to brute-force and credential
@@ -116,6 +118,7 @@ firewall.profile_inactive:
   cvss_score: 9.1
   cvss_vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N"
   cwe: "CWE-284"
+  attack_techniques: ["T1686"]
   description: >
     One or more Windows Firewall profiles (Domain, Private, or Public) are
     not active. A disabled firewall profile removes the host-based packet
@@ -143,6 +146,7 @@ firewall.all_profiles_disabled:
   cvss_score: 9.8
   cvss_vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"
   cwe: "CWE-284"
+  attack_techniques: ["T1686"]
   description: >
     Windows Defender Firewall is disabled across all profiles — Domain,
     Private, and Public. The host has no active host-based packet filtering
@@ -173,6 +177,7 @@ users.no_password_required:
   cvss_score: 7.4
   cvss_vector: "CVSS:3.1/AV:L/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:H"
   cwe: "CWE-309"
+  attack_techniques: ["T1078.003"]
   description: >
     One or more enabled local accounts carry the account flag that exempts
     them from the password requirement. The flag permits a blank password;
@@ -199,6 +204,7 @@ users.password_min_length_zero:
   cvss_score: 4.8
   cvss_vector: "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:L/I:L/A:N"
   cwe: "CWE-521"
+  attack_techniques: ["T1110.001"]
   description: >
     The local password policy has a minimum password length of zero, so
     Windows accepts a password of any length, including an empty one, when
@@ -220,6 +226,7 @@ users.lockout_threshold_disabled:
   cvss_score: 4.8
   cvss_vector: "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:L/I:L/A:N"
   cwe: "CWE-307"
+  attack_techniques: ["T1110.001"]
   description: >
     The local lockout policy has a threshold of zero, so no number of
     consecutive failed logon attempts locks an account.
@@ -265,6 +272,7 @@ users.uac_disabled:
   cvss_score: 9.3
   cvss_vector: "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H"
   cwe: "CWE-250"
+  attack_techniques: ["T1548.002"]
   description: >
     User Account Control is disabled via the EnableLUA registry key being
     set to 0. UAC is the primary privilege escalation barrier on Windows.
@@ -419,6 +427,7 @@ permissions.everyone_full_control:
   cvss_score: 9.8
   cvss_vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"
   cwe: "CWE-732"
+  attack_techniques: ["T1574.001", "T1574.010"]
   description: >
     The Everyone group has been granted Full Control (F) on a critical
     system directory. This grants unrestricted read, write, execute, and
@@ -445,6 +454,7 @@ permissions.users_full_control:
   cvss_score: 7.8
   cvss_vector: "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H"
   cwe: "CWE-732"
+  attack_techniques: ["T1574.001", "T1574.010"]
   description: >
     The BUILTIN\Users group has been granted Full Control (F) on a critical
     system directory. Any authenticated local user can read, write, execute,
@@ -471,6 +481,7 @@ permissions.broad_group_write_access:
   cvss_score: 4.4
   cvss_vector: "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:N/I:L/A:L"
   cwe: "CWE-732"
+  attack_techniques: ["T1574.005", "T1574.010"]
   description: >
     An access control entry grants write, modify or full control to
     Everyone, Authenticated Users or the Users group. Any account in the
@@ -522,6 +533,7 @@ permissions.admin_share_present:
   cvss_score: 2.7
   cvss_vector: "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:L/I:N/A:N"
   cwe: "CWE-284"
+  attack_techniques: ["T1021.002"]
   description: >
     Default Windows administrative shares (C$, ADMIN$, IPC$) are present.
     These shares are enabled by default and require Administrator credentials

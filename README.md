@@ -186,12 +186,13 @@ browser instead of printing the report, because a whole-filesystem scan produces
 far more lines than a terminal keeps. The browser has a tab for each part of the
 run: Findings lists each finding with its severity and shows the selected one in
 full with its evidence; System shows the host's fingerprint; Software lists the
-installed packages and can be searched. A tab for a module that was skipped or
+installed packages and can be searched; ATT&CK groups the findings by the MITRE
+ATT&CK technique each makes available. A tab for a module that was skipped or
 failed says so. The complete plain report is one key away.
 
 | Key | Action |
 |---|---|
-| `f`, `o`, `s` | Switch to the Findings, System or Software tab; each tab's letter is shown in the tab bar |
+| `f`, `o`, `s`, `m` | Switch to the Findings, System, Software or ATT&CK tab; each tab's letter is shown in the tab bar |
 | `[`, `]`, `1` to `9` | Step to the previous or next tab, or go to a tab by its number |
 | `tab`, `shift+tab` | Move between the filter, list and detail panes |
 | up/down, pgup/pgdn, home/end | Move through the focused pane |
@@ -217,6 +218,17 @@ owatch browse
 # Open a specific report
 owatch browse /path/to/reports/owatch-host-SFUP-20261114T120000Z.json
 ```
+
+## MITRE ATT&CK
+
+Findings that make a known ATT&CK technique available carry it: the technique's
+identifier, name and tactics, and the mitigations the ATT&CK site lists for it,
+appear under the finding in the text report, in the finding's detail in the
+browser, as an `attack` list on the finding in JSON and YAML, and as the ATT&CK
+tab. The mapping is static data bundled in the binary, read
+from the ATT&CK site, so it needs no flag and no network. It says what an adversary
+can do because of the condition, not that anyone has done it. A finding with no
+sound mapping carries none.
 
 ## Skips and Partial Runs
 

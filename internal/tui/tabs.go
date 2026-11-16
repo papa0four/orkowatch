@@ -19,6 +19,7 @@ const (
 	TabFindings = "findings"
 	TabSystem   = "system"
 	TabSoftware = "software"
+	TabAttack   = "attack"
 
 	// tabBarLines is the line the tab bar takes when there is more than one
 	// tab to choose between.
@@ -72,7 +73,7 @@ var (
 		TabFindings: "f",
 		TabSystem:   "o",
 		TabSoftware: "s",
-		"attack":    "m",
+		TabAttack:   "m",
 		"nvd":       "n",
 		"kev":       "k",
 		"epss":      "e",

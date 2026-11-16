@@ -70,6 +70,11 @@ type (
 		Impact      string         `yaml:"impact"`
 		Resolution  string         `yaml:"resolution"`
 		References  []string       `yaml:"references"`
+
+		// AttackTechniques lists the ATT&CK techniques an adversary can use
+		// because of the condition. Every identifier must be in the bundled
+		// dataset in data/attack.yaml.
+		AttackTechniques []string `yaml:"attack_techniques"`
 	}
 )
 
@@ -271,7 +276,23 @@ func (d FindingDefinition) Finding() *finding.Finding {
 		Impact:      d.Impact,
 		Resolution:  d.Resolution,
 		References:  d.ToReferences(),
+		Techniques:  d.ToTechniques(),
 	}
+}
+
+// ToTechniques returns the bundled ATT&CK technique for each identifier d
+// lists, in the order listed. Every identifier has already passed
+// checkTechniques at registry load time, so a miss here would mean the data
+// changed after loading, not that it was wrong.
+func (d FindingDefinition) ToTechniques() []finding.Technique {
+	if len(d.AttackTechniques) == 0 {
+		return nil
+	}
+	out := make([]finding.Technique, 0, len(d.AttackTechniques))
+	for _, id := range d.AttackTechniques {
+		out = append(out, techniques[id])
+	}
+	return out
 }
 
 // ToReferences classifies flat YAML reference strings into
@@ -339,6 +360,18 @@ func loadRegistries() (platformRegistry, familyRegistry, familyRegistry) {
 		DistroFreeBSD: mustLoad("unix_freebsd.yaml", unixFreeBSDData),
 		DistroOpenBSD: mustLoad("unix_openbsd.yaml", unixOpenBSDData),
 	}
+
+	var sets []map[FindingKey]FindingDefinition
+	for _, defs := range platform {
+		sets = append(sets, defs)
+	}
+	for _, defs := range linux {
+		sets = append(sets, defs)
+	}
+	for _, defs := range unix {
+		sets = append(sets, defs)
+	}
+	checkTechniqueUse(sets...)
 	return platform, linux, unix
 }
 
@@ -373,6 +406,9 @@ func mustLoad(name string, data []byte) map[FindingKey]FindingDefinition {
 // that cannot fail needs none.
 func (d FindingDefinition) validated() (FindingDefinition, error) {
 	if err := d.validateCategories(); err != nil {
+		return d, err
+	}
+	if err := checkTechniques(d.AttackTechniques); err != nil {
 		return d, err
 	}
 

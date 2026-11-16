@@ -1,0 +1,104 @@
+# MITRE ATT&CK techniques and mitigations the registry's finding definitions
+# reference.
+#
+# Each entry was read from its page on attack.mitre.org on 2026-11-15, where
+# the site's current release is ATT&CK v20.1 (13 October 2026). The id, name
+# and tactics of a technique, and the mitigations its page lists, are as the
+# page gives them; the name of each mitigation was cross-checked against the
+# site's mitigations index. A technique with no definition referencing it, a
+# mitigation no technique lists, or a definition naming an id absent here,
+# stops the registry from loading.
+#
+# A technique is attached to a finding where the technique's page, or the
+# finding's own impact text, names the host condition the finding reports. It
+# says what an adversary can do because of that condition. It does not say the
+# adversary has done it.
+#
+# T1685 and T1686 are the current techniques for disabling security tools and
+# system firewalls. The D3FEND knowledge base, which MITRE publishes, marks
+# the earlier T1562.001 and T1562.004 as revoked in their favour.
+
+version: "v20.1"
+
+mitigations:
+  M1013: "Application Developer Guidance"
+  M1018: "User Account Management"
+  M1022: "Restrict File and Directory Permissions"
+  M1024: "Restrict Registry Permissions"
+  M1026: "Privileged Account Management"
+  M1027: "Password Policies"
+  M1028: "Operating System Configuration"
+  M1032: "Multi-factor Authentication"
+  M1035: "Limit Access to Resource Over Network"
+  M1036: "Account Use Policies"
+  M1037: "Filter Network Traffic"
+  M1038: "Execution Prevention"
+  M1041: "Encrypt Sensitive Information"
+  M1042: "Disable or Remove Feature or Program"
+  M1044: "Restrict Library Loading"
+  M1047: "Audit"
+  M1051: "Update Software"
+  M1052: "User Account Control"
+  M1054: "Software Configuration"
+
+techniques:
+  T1003.008:
+    name: "/etc/passwd and /etc/shadow"
+    tactics: ["Credential Access"]
+    mitigations: ["M1027", "M1026"]
+  T1021.002:
+    name: "SMB/Windows Admin Shares"
+    tactics: ["Lateral Movement"]
+    mitigations: ["M1037", "M1035", "M1027", "M1026"]
+  T1021.004:
+    name: "SSH"
+    tactics: ["Lateral Movement"]
+    mitigations: ["M1042", "M1032", "M1018"]
+  T1078.003:
+    name: "Local Accounts"
+    tactics: ["Stealth", "Persistence", "Privilege Escalation", "Initial Access"]
+    mitigations: ["M1032", "M1027", "M1026", "M1018"]
+  T1098.004:
+    name: "SSH Authorized Keys"
+    tactics: ["Persistence", "Privilege Escalation"]
+    mitigations: ["M1042", "M1022", "M1018"]
+  T1110.001:
+    name: "Password Guessing"
+    tactics: ["Credential Access"]
+    mitigations: ["M1036", "M1032", "M1027", "M1051"]
+  T1548.001:
+    name: "Setuid and Setgid"
+    tactics: ["Privilege Escalation"]
+    mitigations: ["M1028"]
+  T1548.002:
+    name: "Bypass User Account Control"
+    tactics: ["Privilege Escalation"]
+    mitigations: ["M1047", "M1026", "M1051", "M1052"]
+  T1548.003:
+    name: "Sudo and Sudo Caching"
+    tactics: ["Privilege Escalation"]
+    mitigations: ["M1028", "M1026", "M1022"]
+  T1552.004:
+    name: "Private Keys"
+    tactics: ["Credential Access"]
+    mitigations: ["M1047", "M1041", "M1027", "M1022"]
+  T1574.001:
+    name: "DLL"
+    tactics: ["Stealth", "Execution"]
+    mitigations: ["M1013", "M1047", "M1038", "M1044", "M1051"]
+  T1574.005:
+    name: "Executable Installer File Permissions Weakness"
+    tactics: ["Stealth", "Execution"]
+    mitigations: ["M1047", "M1052", "M1018"]
+  T1574.010:
+    name: "Services File Permissions Weakness"
+    tactics: ["Stealth", "Execution"]
+    mitigations: ["M1047", "M1052", "M1018"]
+  T1685:
+    name: "Disable or Modify Tools"
+    tactics: ["Defense Impairment"]
+    mitigations: ["M1047", "M1042", "M1038", "M1022", "M1024", "M1054", "M1018"]
+  T1686:
+    name: "Disable or Modify System Firewall"
+    tactics: ["Defense Impairment"]
+    mitigations: ["M1047", "M1022", "M1024", "M1018"]

@@ -77,7 +77,68 @@ func BrowserReport(src BrowserSource) tui.Report {
 	} else if note, ok := moduleNote(src.Modules, "software"); ok {
 		report.Tabs = append(report.Tabs, tui.Tab{ID: tui.TabSoftware, Name: "Software", Note: note})
 	}
+
+	if src.Audit != nil {
+		if tab, ok := attackTab(src.Audit); ok {
+			report.Tabs = append(report.Tabs, tab)
+		}
+	}
 	return report
+}
+
+// attackTab groups the run's findings by the ATT&CK technique each makes
+// available, one record per technique in identifier order. It reports false
+// when no finding carries one, so a run with none has no tab to be empty.
+func attackTab(view *audit.View) (tui.Tab, bool) {
+	type group struct {
+		technique finding.Technique
+		findings  []string
+	}
+	groups := make(map[string]*group)
+	for _, check := range view.Results {
+		for _, condition := range check.Conditions {
+			def := condition.Finding
+			if def == nil || condition.Result != finding.ResultFail {
+				continue
+			}
+			rule, _, _ := strings.Cut(condition.Key, ".")
+			line := strings.ToLower(def.Severity) + "  " + def.Title + " (" + rule + ")"
+			for _, technique := range def.Attack {
+				g := groups[technique.ID]
+				if g == nil {
+					g = &group{technique: technique}
+					groups[technique.ID] = g
+				}
+				g.findings = append(g.findings, line)
+			}
+		}
+	}
+	if len(groups) == 0 {
+		return tui.Tab{}, false
+	}
+
+	ids := make([]string, 0, len(groups))
+	for id := range groups {
+		ids = append(ids, id)
+	}
+	slices.Sort(ids)
+
+	records := make([]tui.Record, 0, len(ids))
+	for _, id := range ids {
+		g := groups[id]
+		tactics := strings.Join(g.technique.Tactics, ", ")
+		records = append(records, tui.Record{
+			Title:    safeLines(id + "  " + g.technique.Name),
+			Subtitle: safeLines(tactics),
+			Fields: []tui.SummaryLine{
+				{Label: "tactics", Value: safeLines(tactics)},
+				{Label: "page", Value: safeLines(g.technique.URL)},
+				{Label: "mitigations", Value: safeLines(mitigationLines(g.technique.Mitigations))},
+				{Label: "findings (" + strconv.Itoa(len(g.findings)) + ")", Value: safeLines(strings.Join(g.findings, "\n"))},
+			},
+		})
+	}
+	return tui.Tab{ID: tui.TabAttack, Name: "ATT&CK", Records: records}, true
 }
 
 // moduleNote says why a module has no data: its result and reason as the run
@@ -160,6 +221,16 @@ func checkItem(check audit.CheckView) tui.Item {
 	}
 }
 
+// mitigationLines lists mitigations one to a line, as the technique's page
+// lists them.
+func mitigationLines(mitigations []finding.Mitigation) string {
+	lines := make([]string, 0, len(mitigations))
+	for _, m := range mitigations {
+		lines = append(lines, audit.MitigationText(m))
+	}
+	return strings.Join(lines, "\n")
+}
+
 // browserItem converts one condition. Its check is named by the rule key's
 // prefix, the short form the browser's filter column has room for.
 func browserItem(condition audit.ConditionView) tui.Item {
@@ -182,6 +253,16 @@ func browserItem(condition audit.ConditionView) tui.Item {
 		item.Resolution = safeLines(def.Resolution)
 		for _, ref := range def.References {
 			item.References = append(item.References, safeLines(audit.ReferenceText(ref)))
+		}
+		seen := make(map[string]bool)
+		for _, technique := range def.Attack {
+			item.Techniques = append(item.Techniques, safeLines(audit.TechniqueText(technique)))
+			for _, m := range technique.Mitigations {
+				if !seen[m.ID] {
+					seen[m.ID] = true
+					item.Mitigations = append(item.Mitigations, safeLines(audit.MitigationText(m)))
+				}
+			}
 		}
 	}
 

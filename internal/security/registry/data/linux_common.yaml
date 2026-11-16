@@ -40,6 +40,7 @@ ssh.root_login_permitted:
   cvss_score: 9.8
   cvss_vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"
   cwe: "CWE-250"
+  attack_techniques: ["T1021.004"]
   description: >
     PermitRootLogin is not set to no in sshd_config. Direct root login
     over SSH gives an attacker full system control upon credential compromise
@@ -68,6 +69,7 @@ ssh.password_auth_enabled:
   cvss_score: 7.5
   cvss_vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N"
   cwe: "CWE-521"
+  attack_techniques: ["T1021.004", "T1110.001"]
   description: >
     PasswordAuthentication is set to yes in sshd_config. Password-based
     SSH authentication is susceptible to brute-force and credential stuffing
@@ -148,6 +150,7 @@ firewall.no_active_manager:
   cvss_score: 9.1
   cvss_vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N"
   cwe: "CWE-284"
+  attack_techniques: ["T1686"]
   description: >
     None of the recognized firewall managers (iptables, ufw, firewalld,
     pfctl) are active on this system. The host has no detected host-based
@@ -174,6 +177,7 @@ firewall.ufw_inactive:
   cvss_score: 8.2
   cvss_vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:L/A:H"
   cwe: "CWE-284"
+  attack_techniques: ["T1686"]
   description: >
     Uncomplicated Firewall (UFW) is installed and reports its status as
     inactive, so no host-based packet filtering is enforced on any network
@@ -201,6 +205,7 @@ firewall.firewalld_not_running:
   cvss_score: 8.2
   cvss_vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:L/A:H"
   cwe: "CWE-284"
+  attack_techniques: ["T1686"]
   description: >
     The firewalld daemon is installed but is not running, so the zone
     policy it manages is not being enforced. No host-based packet
@@ -228,6 +233,7 @@ firewall.iptables_default_accept:
   cvss_score: 8.6
   cvss_vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:L/I:L/A:H"
   cwe: "CWE-284"
+  attack_techniques: ["T1686"]
   description: >
     The iptables INPUT chain has a default policy of ACCEPT and holds no
     rules, so every packet arriving at the host is permitted. A secure
@@ -259,6 +265,7 @@ users.empty_password_hash:
   cvss_score: 9.8
   cvss_vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"
   cwe: "CWE-258"
+  attack_techniques: ["T1078.003"]
   description: >
     One or more user accounts have an empty password hash field in
     /etc/shadow. An empty hash means the account has no password and
@@ -463,6 +470,7 @@ users.no_password_login_shell:
   cvss_score: 8.1
   cvss_vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N"
   cwe: "CWE-287"
+  attack_techniques: ["T1078.003"]
   description: >
     A user account has no password set in /etc/shadow and is assigned
     an interactive login shell. An account with no password hash and a
@@ -580,6 +588,7 @@ permissions.suid_sgid_binary:
   cvss_score: 6.7
   cvss_vector: "CVSS:3.1/AV:L/AC:H/PR:L/UI:N/S:U/C:H/I:H/A:H"
   cwe: "CWE-250"
+  attack_techniques: ["T1548.001"]
   description: >
     A binary with the SUID or SGID bit set was found. SUID binaries
     execute with the file owner's privileges rather than the calling

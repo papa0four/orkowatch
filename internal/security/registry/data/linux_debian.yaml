@@ -16,6 +16,7 @@ firewall.ufw_inactive:
   cvss_score: 8.2
   cvss_vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:L/A:H"
   cwe: "CWE-284"
+  attack_techniques: ["T1686"]
   description: >
     Uncomplicated Firewall (UFW) is the default firewall management tool
     on Debian and Ubuntu systems. UFW is installed but reported as inactive,
@@ -43,6 +44,7 @@ firewall.ufw_not_installed:
   cvss_score: 9.1
   cvss_vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N"
   cwe: "CWE-284"
+  attack_techniques: ["T1686"]
   description: >
     Neither UFW nor any other recognized firewall manager (iptables,
     nftables, firewalld) was detected on this Debian-family system.
@@ -72,6 +74,7 @@ users.sudo_nopasswd:
   cvss_score: 8.8
   cvss_vector: "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H"
   cwe: "CWE-269"
+  attack_techniques: ["T1548.003"]
   description: >
     A sudoers rule contains the NOPASSWD tag, allowing one or more users
     to execute commands with elevated privileges without providing a
@@ -98,6 +101,7 @@ users.passwd_no_shadow:
   cvss_score: 7.5
   cvss_vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N"
   cwe: "CWE-522"
+  attack_techniques: ["T1003.008"]
   description: >
     One or more user accounts have password hashes stored directly in
     /etc/passwd rather than /etc/shadow. The passwd file is world-readable
@@ -127,6 +131,7 @@ permissions.shadow_world_readable:
   cvss_score: 9.1
   cvss_vector: "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:N"
   cwe: "CWE-732"
+  attack_techniques: ["T1003.008"]
   description: >
     /etc/shadow has permissions that allow non-root users to read its
     contents. The shadow file contains hashed passwords for all local
@@ -181,6 +186,7 @@ permissions.ssh_dir_permissions:
   cvss_score: 7.8
   cvss_vector: "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H"
   cwe: "CWE-732"
+  attack_techniques: ["T1098.004", "T1552.004"]
   description: >
     A user's ~/.ssh directory or ~/.ssh/authorized_keys file has
     permissions that exceed the expected mode. OpenSSH enforces strict

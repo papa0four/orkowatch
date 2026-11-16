@@ -20,6 +20,7 @@ firewall.no_firewall_installed:
   cvss_score: 9.1
   cvss_vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N"
   cwe: "CWE-284"
+  attack_techniques: ["T1686"]
   description: >
     Arch Linux does not install a firewall manager by default. Neither
     iptables, nftables, ufw, nor firewalld was detected as active on
@@ -54,6 +55,7 @@ firewall.nftables_no_rules:
   cvss_score: 8.2
   cvss_vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:L/A:H"
   cwe: "CWE-284"
+  attack_techniques: ["T1686"]
   description: >
     nftables is the active firewall manager but no rules are loaded.
     An nftables instance with no ruleset provides no packet filtering —
@@ -80,6 +82,7 @@ firewall.iptables_default_accept:
   cvss_score: 8.6
   cvss_vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:L/I:L/A:H"
   cwe: "CWE-284"
+  attack_techniques: ["T1686"]
   description: >
     The iptables INPUT chain has a default policy of ACCEPT, meaning
     any traffic not matched by an explicit rule is permitted through.
@@ -113,6 +116,7 @@ users.sudo_nopasswd:
   cvss_score: 8.8
   cvss_vector: "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H"
   cwe: "CWE-269"
+  attack_techniques: ["T1548.003"]
   description: >
     A sudoers rule contains the NOPASSWD tag, allowing one or more users
     to execute commands with elevated privileges without providing a
@@ -202,6 +206,7 @@ permissions.shadow_world_readable:
   cvss_score: 9.1
   cvss_vector: "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:N"
   cwe: "CWE-732"
+  attack_techniques: ["T1003.008"]
   description: >
     /etc/shadow has permissions that allow non-root users to read its
     contents. On Arch Linux the expected permission is 640 with ownership
@@ -259,6 +264,7 @@ permissions.ssh_dir_permissions:
   cvss_score: 7.8
   cvss_vector: "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H"
   cwe: "CWE-732"
+  attack_techniques: ["T1098.004", "T1552.004"]
   description: >
     A user's ~/.ssh directory or ~/.ssh/authorized_keys file has
     permissions that exceed the expected mode. On Arch Linux, OpenSSH
