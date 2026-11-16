@@ -105,7 +105,7 @@ func TestBrowserItemCarriesWeaknessAndCVSS(t *testing.T) {
 			Weakness: &finding.Weakness{ID: "CWE-732", Name: "Incorrect Permission Assignment for Critical Resource",
 				Description: "The product specifies permissions for a security-critical resource in a way that allows it to be read or modified by unintended actors.",
 				Usage:       "Allowed-with-Review", URL: "https://cwe.mitre.org/data/definitions/732.html"},
-			CVSS: &finding.CVSSScore{Version: "3.1", Vector: "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:N", BaseScore: 7.1, Severity: "HIGH",
+			CVSS: &finding.CVSSScore{Version: "4.0", Vector: "CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:H/VI:H/VA:N/SC:N/SI:N/SA:N", BaseScore: 8.4, Severity: "HIGH",
 				Source: "registry", Nomenclature: "CVSS-B", Basis: "baseline for the condition, not measured on this host"}}}
 	item := browserItem(cond)
 	for _, want := range []string{"CWE-732 Incorrect Permission Assignment", "Allowed-with-Review"} {
@@ -116,7 +116,7 @@ func TestBrowserItemCarriesWeaknessAndCVSS(t *testing.T) {
 	if !strings.Contains(item.WeaknessAbout, "unintended actors") || !strings.Contains(item.WeaknessAbout, "cwe.mitre.org") {
 		t.Errorf("weakness detail %q lacks MITRE's description or the link", item.WeaknessAbout)
 	}
-	if !strings.Contains(item.CVSS, "7.1 HIGH") || !strings.Contains(item.CVSS, "CVSS-B v3.1") || !strings.Contains(item.CVSS, "not measured on this host") {
+	if !strings.Contains(item.CVSS, "8.4 HIGH") || !strings.Contains(item.CVSS, "CVSS-B v4.0") || !strings.Contains(item.CVSS, "not measured on this host") {
 		t.Errorf("CVSS %q is not shown with its label", item.CVSS)
 	}
 

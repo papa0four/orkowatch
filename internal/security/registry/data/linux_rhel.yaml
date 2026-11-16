@@ -1,8 +1,9 @@
 # RHEL family finding definitions for the orkowatch registry.
 # Covers RHEL, CentOS, Rocky Linux, AlmaLinux, Oracle Linux, Amazon Linux,
 # and derivatives identified via ID_LIKE=rhel in /etc/os-release.
-# Severity tiers follow CVSS v3.1 base score ranges, and each cvss_score is the
-# one its cvss_vector computes. The registry refuses to load a definition where
+# Each cvss_vector is the CVSS v4.0 baseline of the condition, scored by FIRST's algorithm,
+# and each cvss_score is the one its vector computes. Severity tiers follow the score
+# ranges of the specification's Table 22. The registry refuses to load a definition where
 # the severity, the score and the vector disagree:
 #   CRITICAL 9.0-10.0 | HIGH 7.0-8.9 | MEDIUM 4.0-6.9 | LOW 0.1-3.9
 # A NIST reference names only the control: its title and release come from the
@@ -19,8 +20,8 @@
 firewall.firewalld_not_running:
   title: "firewalld is installed but not running"
   severity: "HIGH"
-  cvss_score: 8.6
-  cvss_vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:L/A:H"
+  cvss_score: 8.8
+  cvss_vector: "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:L/VI:L/VA:H/SC:N/SI:N/SA:N"
   cwe: "CWE-923"
   attack_techniques:
     - id: "T1686"
@@ -56,8 +57,8 @@ firewall.firewalld_not_running:
 firewall.firewalld_not_installed:
   title: "No recognized firewall manager is installed"
   severity: "CRITICAL"
-  cvss_score: 9.1
-  cvss_vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N"
+  cvss_score: 9.3
+  cvss_vector: "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:N/SC:N/SI:N/SA:N"
   cwe: "CWE-923"
   attack_techniques:
     - id: "T1686"
@@ -90,8 +91,8 @@ firewall.firewalld_not_installed:
 firewall.firewalld_default_zone_public:
   title: "firewalld default zone is set to public"
   severity: "MEDIUM"
-  cvss_score: 5.3
-  cvss_vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N"
+  cvss_score: 6.9
+  cvss_vector: "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:L/VI:N/VA:N/SC:N/SI:N/SA:N"
   no_weakness: "CWE 5.0 has no entry for a firewall zone choice of this kind."
   description: >
     The firewalld default zone is set to public, which is the least
@@ -125,8 +126,8 @@ firewall.firewalld_default_zone_public:
 users.sudo_nopasswd:
   title: "Sudoers entry permits privilege escalation without password"
   severity: "HIGH"
-  cvss_score: 8.8
-  cvss_vector: "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H"
+  cvss_score: 8.5
+  cvss_vector: "CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N"
   cwe: "CWE-306"
   attack_techniques:
     - id: "T1548.003"
@@ -157,9 +158,9 @@ users.sudo_nopasswd:
 # Consumer: #142. No checker emits this definition yet.
 users.wheel_group_empty:
   title: "The wheel group has no members"
-  severity: "LOW"
-  cvss_score: 2.5
-  cvss_vector: "CVSS:3.1/AV:L/AC:H/PR:L/UI:N/S:U/C:N/I:L/A:N"
+  severity: "MEDIUM"
+  cvss_score: 4.8
+  cvss_vector: "CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:N/VI:L/VA:N/SC:N/SI:N/SA:N"
   no_weakness: "An empty administrative group is not a weakness; CWE-269 is discouraged by MITRE."
   description: >
     The wheel group, which controls sudo access on RHEL-family systems,
@@ -193,8 +194,8 @@ users.wheel_group_empty:
 users.passwd_no_shadow:
   title: "Password hashes stored in /etc/passwd instead of /etc/shadow"
   severity: "HIGH"
-  cvss_score: 7.5
-  cvss_vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N"
+  cvss_score: 8.7
+  cvss_vector: "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:N/VA:N/SC:N/SI:N/SA:N"
   cwe: "CWE-522"
   attack_techniques:
     - id: "T1003.008"
@@ -230,7 +231,7 @@ permissions.shadow_world_readable:
   title: "/etc/shadow is readable by non-root users"
   severity: "HIGH"
   cvss_score: 8.4
-  cvss_vector: "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:N"
+  cvss_vector: "CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:H/VI:H/VA:N/SC:N/SI:N/SA:N"
   cwe: "CWE-732"
   attack_techniques:
     - id: "T1003.008"
@@ -264,8 +265,8 @@ permissions.shadow_world_readable:
 permissions.sudoers_world_readable:
   title: "/etc/sudoers has overly permissive permissions"
   severity: "HIGH"
-  cvss_score: 7.1
-  cvss_vector: "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:N"
+  cvss_score: 8.4
+  cvss_vector: "CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:H/VI:H/VA:N/SC:N/SI:N/SA:N"
   cwe: "CWE-732"
   attack_techniques:
     - id: "T1548.003"
@@ -299,8 +300,8 @@ permissions.sudoers_world_readable:
 permissions.ssh_dir_permissions:
   title: "SSH directory or authorized_keys has incorrect permissions"
   severity: "HIGH"
-  cvss_score: 7.8
-  cvss_vector: "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H"
+  cvss_score: 8.5
+  cvss_vector: "CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N"
   cwe: "CWE-732"
   attack_techniques:
     - id: "T1098.004"
@@ -342,8 +343,8 @@ permissions.ssh_dir_permissions:
 permissions.selinux_disabled:
   title: "SELinux is disabled or set to permissive mode"
   severity: "HIGH"
-  cvss_score: 7.8
-  cvss_vector: "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H"
+  cvss_score: 8.5
+  cvss_vector: "CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N"
   no_weakness: "CWE 5.0 has no entry for a disabled mandatory access control mechanism; the nearest, CWE-693, is discouraged by MITRE."
   attack_techniques:
     - id: "T1685"

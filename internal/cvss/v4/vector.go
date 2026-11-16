@@ -129,6 +129,13 @@ func Parse(vector string) (Vector, error) {
 	return Vector{text: vector, values: values}, nil
 }
 
+// CalculatorURL is the address that opens FIRST's CVSS v4.0 calculator on a vector:
+// the calculator reads the vector from the fragment of the address. It is a link
+// for a reader to check a score with, and owatch never requests it.
+func CalculatorURL(vector string) string {
+	return "https://www.first.org/cvss/calculator/4.0#" + vector
+}
+
 // String returns the vector as it was given.
 func (v Vector) String() string { return v.text }
 

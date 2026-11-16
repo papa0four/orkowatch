@@ -10,6 +10,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	v4 "github.com/papa0four/orkowatch/internal/cvss/v4"
 	"github.com/papa0four/orkowatch/internal/security/finding"
 )
 
@@ -198,12 +199,13 @@ func (d FindingDefinition) cvssScore() *finding.CVSSScore {
 	}
 	version, _, _ := strings.Cut(strings.TrimPrefix(d.CVSSVector, "CVSS:"), "/")
 	return &finding.CVSSScore{
-		Version:      version,
-		Vector:       d.CVSSVector,
-		BaseScore:    d.CVSSScore,
-		Severity:     d.Severity,
-		Source:       "registry",
-		Nomenclature: "CVSS-B",
-		Basis:        "baseline for the condition, not measured on this host",
+		Version:       version,
+		Vector:        d.CVSSVector,
+		BaseScore:     d.CVSSScore,
+		Severity:      d.Severity,
+		Source:        "registry",
+		Nomenclature:  "CVSS-B",
+		Basis:         "baseline for the condition, not measured on this host",
+		CalculatorURL: v4.CalculatorURL(d.CVSSVector),
 	}
 }

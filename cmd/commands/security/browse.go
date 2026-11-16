@@ -361,7 +361,11 @@ func setWeaknessAndCVSS(item *tui.Item, def *audit.FindingView) {
 		item.WeaknessAbout = safeLines(def.NoWeakness)
 	}
 	if def.CVSS != nil {
-		item.CVSS = safeLines(audit.CVSSText(*def.CVSS))
+		item.CVSS = audit.CVSSText(*def.CVSS)
+		if def.CVSS.CalculatorURL != "" {
+			item.CVSS += "\n" + def.CVSS.CalculatorURL
+		}
+		item.CVSS = safeLines(item.CVSS)
 	}
 }
 

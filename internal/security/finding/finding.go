@@ -25,7 +25,8 @@ const (
 	SymbolCritical = "[X]"
 )
 
-// The qualitative severity rating scale of CVSS v3.1 section 5, in ascending
+// The qualitative severity rating scale of CVSS v3.1 section 5, which CVSS v4.0
+// keeps as its Table 22, in ascending
 // rank order. Definitions carry CVSS vectors, so this scale is the anchor
 // rather than XCCDF's own severity enumeration, which has no critical.
 const (
@@ -147,6 +148,10 @@ type (
 		Source       string  `json:"source" yaml:"source"`
 		Nomenclature string  `json:"nomenclature" yaml:"nomenclature"`
 		Basis        string  `json:"basis" yaml:"basis"`
+
+		// CalculatorURL opens FIRST's calculator on the vector, so a reader can
+		// reproduce the score there. It is a link and owatch does not follow it.
+		CalculatorURL string `json:"calculator_url,omitempty" yaml:"calculator_url,omitempty"`
 	}
 
 	// Technique is a MITRE ATT&CK technique an adversary can use because of

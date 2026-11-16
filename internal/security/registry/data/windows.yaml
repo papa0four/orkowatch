@@ -1,6 +1,7 @@
 # Windows finding definitions for the orkowatch registry.
-# Severity tiers follow CVSS v3.1 base score ranges, and each cvss_score is the
-# one its cvss_vector computes. The registry refuses to load a definition where
+# Each cvss_vector is the CVSS v4.0 baseline of the condition, scored by FIRST's algorithm,
+# and each cvss_score is the one its vector computes. Severity tiers follow the score
+# ranges of the specification's Table 22. The registry refuses to load a definition where
 # the severity, the score and the vector disagree:
 #   CRITICAL 9.0-10.0 | HIGH 7.0-8.9 | MEDIUM 4.0-6.9 | LOW 0.1-3.9
 # A NIST reference names only the control: its title and release come from the
@@ -17,8 +18,8 @@
 ssh.server_not_running:
   title: "OpenSSH Server installed but not running"
   severity: "MEDIUM"
-  cvss_score: 4.4
-  cvss_vector: "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:L/I:L/A:N"
+  cvss_score: 4.8
+  cvss_vector: "CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:L/VI:L/VA:N/SC:N/SI:N/SA:N"
   no_weakness: "CWE-16 is an obsolete grouping that MITRE prohibits for mapping, and no entry describes an installed service that is not running."
   description: >
     The OpenSSH Server (sshd) service is installed but currently stopped.
@@ -45,8 +46,8 @@ ssh.server_not_running:
 ssh.config_not_found:
   title: "OpenSSH configuration file not found"
   severity: "MEDIUM"
-  cvss_score: 5.3
-  cvss_vector: "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:L/I:L/A:L"
+  cvss_score: 4.8
+  cvss_vector: "CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:L/VI:L/VA:L/SC:N/SI:N/SA:N"
   no_weakness: "CWE-16 is an obsolete grouping that MITRE prohibits for mapping, and no entry describes a missing configuration file."
   description: >
     No sshd_config file was found at C:\ProgramData\ssh\sshd_config.
@@ -77,8 +78,8 @@ ssh.config_not_found:
 ssh.root_login_permitted:
   title: "SSH PermitRootLogin is not explicitly disabled"
   severity: "CRITICAL"
-  cvss_score: 9.8
-  cvss_vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"
+  cvss_score: 9.3
+  cvss_vector: "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N"
   cwe: "CWE-250"
   attack_techniques:
     - id: "T1021.004"
@@ -116,8 +117,8 @@ ssh.root_login_permitted:
 ssh.password_auth_enabled:
   title: "SSH password authentication is enabled"
   severity: "HIGH"
-  cvss_score: 7.5
-  cvss_vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N"
+  cvss_score: 8.7
+  cvss_vector: "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:N/VA:N/SC:N/SI:N/SA:N"
   cwe: "CWE-521"
   attack_techniques:
     - id: "T1021.004"
@@ -156,8 +157,8 @@ ssh.password_auth_enabled:
 firewall.profile_inactive:
   title: "One or more Windows Firewall profiles are inactive"
   severity: "CRITICAL"
-  cvss_score: 9.1
-  cvss_vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N"
+  cvss_score: 9.3
+  cvss_vector: "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:N/SC:N/SI:N/SA:N"
   cwe: "CWE-923"
   attack_techniques:
     - id: "T1686"
@@ -191,8 +192,8 @@ firewall.profile_inactive:
 firewall.all_profiles_disabled:
   title: "Windows Firewall is completely disabled on all profiles"
   severity: "CRITICAL"
-  cvss_score: 9.8
-  cvss_vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"
+  cvss_score: 9.3
+  cvss_vector: "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N"
   cwe: "CWE-923"
   attack_techniques:
     - id: "T1686"
@@ -230,8 +231,8 @@ firewall.all_profiles_disabled:
 users.no_password_required:
   title: "Active account is permitted to have a blank password"
   severity: "HIGH"
-  cvss_score: 7.4
-  cvss_vector: "CVSS:3.1/AV:L/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:H"
+  cvss_score: 8.6
+  cvss_vector: "CVSS:4.0/AV:L/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N"
   cwe: "CWE-521"
   attack_techniques:
     - id: "T1078.003"
@@ -266,8 +267,8 @@ users.no_password_required:
 users.password_min_length_zero:
   title: "Password policy sets no minimum password length"
   severity: "MEDIUM"
-  cvss_score: 4.8
-  cvss_vector: "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:L/I:L/A:N"
+  cvss_score: 6.9
+  cvss_vector: "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:L/VI:L/VA:N/SC:N/SI:N/SA:N"
   cwe: "CWE-521"
   attack_techniques:
     - id: "T1110.001"
@@ -292,8 +293,8 @@ users.password_min_length_zero:
 users.lockout_threshold_disabled:
   title: "Account lockout is disabled"
   severity: "MEDIUM"
-  cvss_score: 4.8
-  cvss_vector: "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:L/I:L/A:N"
+  cvss_score: 6.9
+  cvss_vector: "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:L/VI:L/VA:N/SC:N/SI:N/SA:N"
   cwe: "CWE-307"
   attack_techniques:
     - id: "T1110.001"
@@ -316,8 +317,8 @@ users.lockout_threshold_disabled:
 users.administrator_account_active:
   title: "User account has local Administrator privileges"
   severity: "HIGH"
-  cvss_score: 7.1
-  cvss_vector: "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:N"
+  cvss_score: 8.4
+  cvss_vector: "CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:H/VI:H/VA:N/SC:N/SI:N/SA:N"
   cwe: "CWE-266"
   description: >
     One or more user accounts are members of the local Administrators group.
@@ -345,8 +346,8 @@ users.administrator_account_active:
 users.uac_disabled:
   title: "User Account Control (UAC) is disabled"
   severity: "HIGH"
-  cvss_score: 8.8
-  cvss_vector: "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H"
+  cvss_score: 8.5
+  cvss_vector: "CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N"
   cwe: "CWE-250"
   attack_techniques:
     - id: "T1548.002"
@@ -380,7 +381,7 @@ users.microsoft_account_no_local_password:
   severity: "NONE"
   result: "notapplicable"
   cvss_score: 0.0
-  cvss_vector: "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:N/I:N/A:N"
+  cvss_vector: "CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:N/VI:N/VA:N/SC:N/SI:N/SA:N"
   description: >
     One or more accounts are linked to a Microsoft identity (personal
     Microsoft account) and carry no local password hash. Authentication
@@ -418,7 +419,7 @@ users.azure_ad_account_no_local_password:
   severity: "NONE"
   result: "notapplicable"
   cvss_score: 0.0
-  cvss_vector: "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:N/I:N/A:N"
+  cvss_vector: "CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:N/VI:N/VA:N/SC:N/SI:N/SA:N"
   description: >
     One or more accounts are joined via Azure Active Directory (Entra ID)
     and carry no local password hash. Authentication is managed by the
@@ -451,7 +452,7 @@ users.domain_account_no_local_password:
   severity: "NONE"
   result: "notapplicable"
   cvss_score: 0.0
-  cvss_vector: "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:N/I:N/A:N"
+  cvss_vector: "CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:N/VI:N/VA:N/SC:N/SI:N/SA:N"
   description: >
     One or more accounts are sourced from an Active Directory domain
     and carry no local password hash. Authentication is handled by the
@@ -486,8 +487,8 @@ users.domain_account_no_local_password:
 users.unknown_principal_no_local_password:
   title: "Account with undetermined principal source has no local password hash"
   severity: "MEDIUM"
-  cvss_score: 5.5
-  cvss_vector: "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N"
+  cvss_score: 6.8
+  cvss_vector: "CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:H/VI:N/VA:N/SC:N/SI:N/SA:N"
   no_weakness: "The principal's source could not be determined; no CWE entry describes that, and CWE-287 is discouraged by MITRE."
   description: >
     One or more accounts report an Unknown PrincipalSource from
@@ -522,8 +523,8 @@ users.unknown_principal_no_local_password:
 permissions.everyone_full_control:
   title: "Everyone group has full control on a system path"
   severity: "CRITICAL"
-  cvss_score: 9.8
-  cvss_vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"
+  cvss_score: 9.3
+  cvss_vector: "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N"
   cwe: "CWE-732"
   attack_techniques:
     - id: "T1574.010"
@@ -556,8 +557,8 @@ permissions.everyone_full_control:
 permissions.users_full_control:
   title: "Users group has full control on a system path"
   severity: "HIGH"
-  cvss_score: 7.8
-  cvss_vector: "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H"
+  cvss_score: 8.5
+  cvss_vector: "CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N"
   cwe: "CWE-732"
   attack_techniques:
     - id: "T1574.010"
@@ -590,8 +591,8 @@ permissions.users_full_control:
 permissions.broad_group_write_access:
   title: "A broad group can change a path"
   severity: "MEDIUM"
-  cvss_score: 4.4
-  cvss_vector: "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:N/I:L/A:L"
+  cvss_score: 4.8
+  cvss_vector: "CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:N/VI:L/VA:L/SC:N/SI:N/SA:N"
   cwe: "CWE-732"
   attack_techniques:
     - id: "T1574.005"
@@ -629,9 +630,9 @@ permissions.broad_group_write_access:
 
 permissions.unresolved_sid_grant:
   title: "Access is granted to an account that no longer exists"
-  severity: "LOW"
-  cvss_score: 3.6
-  cvss_vector: "CVSS:3.1/AV:L/AC:H/PR:L/UI:N/S:U/C:L/I:L/A:N"
+  severity: "MEDIUM"
+  cvss_score: 4.8
+  cvss_vector: "CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:L/VI:L/VA:N/SC:N/SI:N/SA:N"
   cwe: "CWE-732"
   description: >
     An access control entry grants write, modify or full control to a
@@ -652,9 +653,9 @@ permissions.unresolved_sid_grant:
 
 permissions.admin_share_present:
   title: "Default administrative shares are present"
-  severity: "LOW"
-  cvss_score: 2.7
-  cvss_vector: "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:L/I:N/A:N"
+  severity: "MEDIUM"
+  cvss_score: 5.1
+  cvss_vector: "CVSS:4.0/AV:N/AC:L/AT:N/PR:H/UI:N/VC:L/VI:N/VA:N/SC:N/SI:N/SA:N"
   no_weakness: "Administrative shares are a Windows default and no CWE entry describes them as a weakness; CWE-284 is discouraged by MITRE."
   attack_techniques:
     - id: "T1021.002"
