@@ -81,7 +81,11 @@ type (
 		// views, in the order they are offered.
 		FindingsNote string
 		Tabs         []Tab
-		Text         string
+
+		// Start is the identifier of the tab the browser opens on. Empty, or
+		// naming a tab the report does not offer, it opens on the findings.
+		Start string
+		Text  string
 	}
 
 	// SummaryLine is one labelled figure in the browser's summary.
@@ -244,6 +248,11 @@ func newBrowser(report Report) browser {
 		}
 	}
 	b.showSelected()
+	for i, t := range b.tabs {
+		if t.id == report.Start {
+			b.selectTab(i)
+		}
+	}
 	return b
 }
 

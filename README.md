@@ -210,8 +210,9 @@ part of the run: Findings lists each finding with its severity and shows the sel
 full with its evidence; System shows the host's fingerprint; Software lists the
 installed packages and can be searched; MITRE ATT&CK® groups the findings by the
 technique each makes available. A source a command did not run, or a module
-that was skipped or failed, is still listed and says so. The complete plain
-report is one key away.
+that was skipped or failed, is still listed and says so. A run of one module
+alone, such as `owatch osinfo`, opens on what it produced; the audit, or a run of
+several modules, opens on Findings. The complete plain report is one key away.
 
 | Key | Action |
 |---|---|

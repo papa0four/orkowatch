@@ -107,3 +107,21 @@ func TestNarrowWindowUsesTabBar(t *testing.T) {
 		t.Errorf("no way to see the sources at a narrow width:\n%s", frame)
 	}
 }
+
+// A report that names a tab to start on opens there, with that source in the
+// left pane's selection, and one that names none opens on the findings.
+func TestStartTab(t *testing.T) {
+	r := sidebarReport(2)
+	if b := newBrowser(r); b.tabs[b.active].id != TabFindings {
+		t.Errorf("no Start opened on %q", b.tabs[b.active].id)
+	}
+	r.Start = TabSoftware
+	b := sized(newBrowser(r), 100, 30)
+	if b.tabs[b.active].id != TabSoftware || b.filterCursor != b.active {
+		t.Errorf("Start software opened on %q with the left pane on row %d", b.tabs[b.active].id, b.filterCursor)
+	}
+	r.Start = "no-such-tab"
+	if b := newBrowser(r); b.tabs[b.active].id != TabFindings {
+		t.Errorf("an unknown Start opened on %q", b.tabs[b.active].id)
+	}
+}

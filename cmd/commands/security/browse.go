@@ -55,7 +55,7 @@ type ModuleNote struct {
 // them straight to the terminal and any of them can carry text from the host
 // or from a report file.
 func BrowserReport(src BrowserSource) tui.Report {
-	report := tui.Report{Title: safeLines(src.Title), Text: safeLines(src.Text)}
+	report := tui.Report{Title: safeLines(src.Title), Text: safeLines(src.Text), Start: landingTab(src.Modules)}
 	if src.System != nil {
 		report.Host = safeLines(src.System.Hostname)
 	}
@@ -148,6 +148,29 @@ func attackTab(view *audit.View) (tui.Tab, bool) {
 		})
 	}
 	return tui.Tab{ID: tui.TabAttack, Name: "MITRE ATT&CK", Noun: "techniques", Records: records}, true
+}
+
+// landingTab is the tab the browser opens on. A run of one module alone opens
+// on what it produced, so the operator is not left to find it; a run of the
+// audit, of several modules, or of all of them opens on the findings. A module
+// counts as run unless it was excluded, which is how an all run with skips and
+// a command that runs one module are told apart from a full run.
+func landingTab(modules []ModuleNote) string {
+	var ran []string
+	for _, m := range modules {
+		if m.Result != finding.ResultNotSelected {
+			ran = append(ran, m.Name)
+		}
+	}
+	if len(ran) == 1 {
+		switch ran[0] {
+		case "osinfo":
+			return tui.TabSystem
+		case "software":
+			return tui.TabSoftware
+		}
+	}
+	return tui.TabFindings
 }
 
 // notRun says why a source has no data: the run's own account of the module
