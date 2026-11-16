@@ -46,8 +46,9 @@ type ModuleNote struct {
 	Reason string
 }
 
-// BrowserReport builds what the results browser shows. A source that did not
-// run still gets its tab when the run said why, so the operator sees that
+// BrowserReport builds what the results browser shows. Findings, System and
+// Software are always offered, so every command opens the same layout: a source
+// that was not collected has its tab with the reason, so the operator sees that
 // nothing was collected rather than wondering whether the tab is missing.
 // Every string the browser draws is made safe for the terminal here, through
 // safeLines or, for evidence, render.EvidenceText, because the browser writes
@@ -70,20 +71,20 @@ func BrowserReport(src BrowserSource) tui.Report {
 				report.Items = append(report.Items, browserItem(condition))
 			}
 		}
-	} else if note, ok := moduleNote(src.Modules, "audit"); ok {
-		report.FindingsNote = note
+	} else {
+		report.FindingsNote = notRun(src.Modules, "audit", "owatch audit")
 	}
 
 	if src.System != nil {
 		report.Tabs = append(report.Tabs, systemTab(*src.System))
-	} else if note, ok := moduleNote(src.Modules, "osinfo"); ok {
-		report.Tabs = append(report.Tabs, tui.Tab{ID: tui.TabSystem, Name: "System", Note: note})
+	} else {
+		report.Tabs = append(report.Tabs, tui.Tab{ID: tui.TabSystem, Name: "System", Note: notRun(src.Modules, "osinfo", "owatch osinfo")})
 	}
 
 	if src.Software != nil {
 		report.Tabs = append(report.Tabs, softwareTab(*src.Software))
-	} else if note, ok := moduleNote(src.Modules, "software"); ok {
-		report.Tabs = append(report.Tabs, tui.Tab{ID: tui.TabSoftware, Name: "Software", Note: note})
+	} else {
+		report.Tabs = append(report.Tabs, tui.Tab{ID: tui.TabSoftware, Name: "Software", Note: notRun(src.Modules, "software", "owatch software")})
 	}
 
 	if src.Audit != nil {
@@ -147,6 +148,17 @@ func attackTab(view *audit.View) (tui.Tab, bool) {
 		})
 	}
 	return tui.Tab{ID: tui.TabAttack, Name: "MITRE ATT&CK", Noun: "techniques", Records: records}, true
+}
+
+// notRun says why a source has no data: the run's own account of the module
+// when it recorded one, as an all run does, and otherwise that the command
+// never included it, with the command that collects it.
+func notRun(modules []ModuleNote, name, command string) string {
+	if note, ok := moduleNote(modules, name); ok {
+		return note
+	}
+	return "not collected: this command does not run the " + name + " module. owatch all collects every source; " +
+		command + " collects only this one"
 }
 
 // moduleNote says why a module has no data: its result and reason as the run

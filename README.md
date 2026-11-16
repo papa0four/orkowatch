@@ -130,6 +130,22 @@ With no check flags given, all checks run by default.
 | `-y, --yes` | Do not ask before a permissions check that scans the entire filesystem | false |
 | `--plain` | Print the report to the terminal instead of opening the results browser; the format is text unless `-o` names another | false |
 
+## `osinfo` and `software` Flags
+
+`owatch osinfo` and `owatch software` each run one module and deliver it as `all`
+does: the results browser on a terminal, with the System or Software source
+filled and the others saying they were not collected.
+
+| Flag | Description | Default |
+|---|---|---|
+| `-o, --output` | Format of the full report, wherever it goes (`--plain`, `--report-file`, or `t` in the browser): text, json, yaml. Unspecified, a report file is JSON and anything else is text | text |
+| `--report-file` | Save report to directory; filename is generated automatically | — |
+| `--allow-elevated-write` | Permit an elevated write outside the allowlisted directories or into a directory other users control | false |
+| `--plain` | Print the report to the terminal instead of opening the results browser; the format is text unless `-o` names another | false |
+
+The saved report is an `all` report holding that one module, so `owatch browse`
+opens it.
+
 ## `all` Flags (`owatch all`)
 
 `all` runs every module (osinfo, software, audit) in one consolidated report.
@@ -182,23 +198,29 @@ run proceeds as it would from a script.
 
 ## Results Browser
 
-On a terminal, `owatch audit` and `owatch all` end in an interactive results
-browser instead of printing the report, because a whole-filesystem scan produces
-far more lines than a terminal keeps. The browser has a tab for each part of the
-run: Findings lists each finding with its severity and shows the selected one in
+On a terminal, `owatch audit`, `owatch osinfo`, `owatch software` and `owatch all`
+end in an interactive results browser instead of printing the report, because a
+whole-filesystem scan produces far more lines than a terminal keeps. Every
+command opens the same layout. The left pane lists the sources, each with the
+key that opens it, above the findings filters and the run's summary; it scrolls
+when it is taller than the window, and a window too narrow for it shows the
+sources as a bar along the top. The filters and the summary belong to findings,
+so they read n/a on a source that has none. The browser has a source for each
+part of the run: Findings lists each finding with its severity and shows the selected one in
 full with its evidence; System shows the host's fingerprint; Software lists the
 installed packages and can be searched; MITRE ATT&CK® groups the findings by the
-technique each makes available. A tab for a module that was skipped or
-failed says so. The complete plain report is one key away.
+technique each makes available. A source a command did not run, or a module
+that was skipped or failed, is still listed and says so. The complete plain
+report is one key away.
 
 | Key | Action |
 |---|---|
-| `f`, `o`, `s`, `m` | Switch to the Findings, System, Software or MITRE ATT&CK tab; each tab's letter is shown in the tab bar |
+| `f`, `o`, `s`, `m` | Switch to the Findings, System, Software or MITRE ATT&CK tab from any pane; each tab's letter is shown in the left pane |
 | `[`, `]`, `1` to `9` | Step to the previous or next tab, or go to a tab by its number |
-| `tab`, `shift+tab` | Move between the filter, list and detail panes |
+| `tab`, `shift+tab` | Move between the left, list and detail panes |
 | up/down, pgup/pgdn, home/end | Move through the focused pane |
 | left/right | Pan the detail pane or the full report sideways |
-| `enter` | Apply a filter, or open the selected item in the detail pane |
+| `enter` | In the left pane, open a source or apply a filter; in the list, open the selected item in the detail pane |
 | `/` | Search the active tab: on Findings, titles, rule keys, descriptions, references and evidence, and the detail pane then shows only the matching evidence lines; on Software, package names and versions. `enter` keeps the search, `esc` clears it, and each tab keeps its own |
 | `a` | On Findings, show every evaluated rule, not only findings and rules that could not be evaluated |
 | `x` | On Findings, load all of a finding's evidence when only the first 500 lines are shown |

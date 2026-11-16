@@ -3,29 +3,28 @@
 package cmd
 
 import (
-	"fmt"
-
 	"github.com/spf13/cobra"
 
-	"github.com/papa0four/orkowatch/internal/softwarelist"
+	"github.com/papa0four/orkowatch/internal/selection"
 )
 
-// newSoftwareCmd returns the command that lists installed software
+// newSoftwareCmd returns the command that lists installed software.
 func newSoftwareCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "software",
-		Args:  cobra.NoArgs,
-		Short: "List installed software on the host",
-		Long:  `The software command gathers and lists the installed software packages from the host operating system, including version details where available.`,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			entries, err := softwarelist.GetInstalledSoftwareList(cmd.Context())
-			if err != nil {
-				return fmt.Errorf("software: %w", err)
-			}
-			if err := softwarelist.WriteText(cmd.OutOrStdout(), softwarelist.View(entries)); err != nil {
-				return fmt.Errorf("failed to write message: %w", err)
-			}
-			return nil
-		},
-	}
+	return newInventoryCmd(standaloneModule{
+		use:   "software",
+		short: "List installed software on the host",
+		long: `The software command gathers and lists the installed software packages from the host operating system, including version details where available.
+
+The report opens in the results browser on a terminal, with the same layout as an audit.`,
+		example: `  # Open the installed software in the results browser
+  owatch software
+
+  # Print it as text instead of opening the results browser
+  owatch software --plain
+
+  # Save it to a directory in YAML format
+  owatch software -o yaml --report-file /path/to/reports`,
+		mask:    selection.ModuleSoftware,
+		collect: collectSoftware,
+	})
 }

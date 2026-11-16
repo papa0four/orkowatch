@@ -280,16 +280,18 @@ func (b browser) activePane() *recordPane {
 	return b.panes[b.active]
 }
 
-// tabBarHeight is the lines the tab bar takes: one when there is more than
-// one tab to choose between, none otherwise.
+// tabBarHeight is the lines the tab bar takes: one when the window is too
+// narrow for the left pane, which otherwise lists the sources, and there is
+// more than one to choose between.
 func (b browser) tabBarHeight() int {
-	if len(b.tabs) > 1 {
+	if len(b.tabs) > 1 && !b.sidebarShown() {
 		return tabBarLines
 	}
 	return 0
 }
 
 // tabBar renders the tabs with the key that selects each, the active one lit.
+// It stands in for the left pane's source list in a window too narrow for it.
 func (b browser) tabBar() string {
 	parts := make([]string, 0, len(b.tabs))
 	for i, t := range b.tabs {
@@ -323,9 +325,9 @@ func (b browser) tabForKey(k string) int {
 	return -1
 }
 
-// selectTab makes tab i the active one. Each tab keeps its own search, and
-// the panes are sized again because the filter pane is shown only beside the
-// findings.
+// selectTab makes tab i the active one. Each tab keeps its own search. The
+// keyboard stays in the left pane when the source was chosen there, so the
+// next source is one key away, and goes to the list otherwise.
 func (b *browser) selectTab(i int) {
 	if i == b.active || i < 0 || i >= len(b.tabs) {
 		return
@@ -334,7 +336,10 @@ func (b *browser) selectTab(i int) {
 	b.active = i
 	b.query = b.queries[i]
 	b.searching = false
-	b.focus = focusList
+	if b.focus != focusFilters {
+		b.focus = focusList
+	}
+	b.filterCursor = i
 	b.layout()
 	b.showSelected()
 }
@@ -364,6 +369,10 @@ func (b browser) recordBody(p *recordPane) string {
 func (b browser) onRecordKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	p := b.activePane()
 	k := msg.String()
+	if b.focus == focusFilters {
+		b.onFilterKey(k)
+		return b, nil
+	}
 	if p.listless() {
 		return b, scroll(&p.detail, msg)
 	}
