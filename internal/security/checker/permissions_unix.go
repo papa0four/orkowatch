@@ -89,6 +89,12 @@ type (
 		denied  *deniedJudge
 	}
 
+	// pathLocation names the kind of place everything beneath prefix is.
+	pathLocation struct {
+		prefix   string
+		location string
+	}
+
 	// reachability is whether a principal other than root can traverse to an
 	// entry. The zero value is reachNonRoot so an entry the walk failed to
 	// judge is over-reported rather than quietly excused. Values are ordered
@@ -153,6 +159,38 @@ const (
 	// group has no other member.
 	reachRootOnly
 )
+
+// The kinds of place a path can be recorded as lying in. A path in neither is
+// recorded with no location, so the common entry adds no fact.
+const (
+	locationTemporary = "temporary"
+	locationHome      = "home"
+)
+
+// pathLocations are the places a scanned entry is recorded as lying in. A
+// writable file means something different in a temporary directory every user
+// writes to than in a directory that belongs to the system. The common
+// entries are the locations the Filesystem Hierarchy Standard gives to
+// temporary files and to user home directories; a platform adds its own in
+// platformLocations, and where a platform's own have not been verified it
+// adds none, so an entry there is left unclassified rather than misclassified.
+var pathLocations = append([]pathLocation{
+	{"/tmp", locationTemporary},
+	{"/var/tmp", locationTemporary},
+	{"/home", locationHome},
+	{"/root", locationHome},
+}, platformLocations()...)
+
+// locationOf returns the kind of place path lies in, or empty when it lies in
+// none of pathLocations.
+func locationOf(path string) string {
+	for _, place := range pathLocations {
+		if pathWithin(path, place.prefix) {
+			return place.location
+		}
+	}
+	return ""
+}
 
 // The rules this check concludes: two judged on the critical paths, three on
 // every entry the traversal visits.
@@ -365,9 +403,9 @@ func checkCriticalPath(cp criticalPath, r *report) {
 	modeOK := mode.Perm()&^cp.expected == 0
 	if !modeOK {
 		r.observed(ruleExcessMode, evidence(kindFile, cp.path,
-			"description", cp.description,
-			"mode", formatMode(mode),
-			"expected", formatMode(cp.expected)))
+			fact(factDescription, cp.description),
+			fact(factMode, formatMode(mode)),
+			fact(factExpected, formatMode(cp.expected))))
 	}
 
 	uid, _, _, ok := fileIdentity(info)
@@ -376,9 +414,9 @@ func checkCriticalPath(cp criticalPath, r *report) {
 		r.inconclusive(finding.ResultError, cp.path+" ownership could not be determined", ruleNotRootOwned)
 	case uid != rootUID:
 		r.observed(ruleNotRootOwned, evidence(kindFile, cp.path,
-			"description", cp.description,
-			"uid", strconv.FormatUint(uint64(uid), decimalBase),
-			"expected", "root"))
+			fact(factDescription, cp.description),
+			fact(factUID, strconv.FormatUint(uint64(uid), decimalBase)),
+			fact(factExpected, "root")))
 	case modeOK:
 		r.note(finding.SymbolOK, "%s has correct permissions and ownership: %s root", cp.path, formatMode(mode))
 	}
@@ -593,11 +631,12 @@ func fileIdentity(info fs.FileInfo) (uid, gid uint32, dev uint64, ok bool) {
 // value that failed, and a name would be misleading.
 func (e scanEntry) evidence() finding.Evidence {
 	return evidence(kindFile, e.path,
-		"mode", formatMode(e.mode),
-		"uid", strconv.FormatUint(uint64(e.uid), decimalBase),
-		"gid", strconv.FormatUint(uint64(e.gid), decimalBase),
-		"unresolved", e.unresolved(),
-		"reach", e.reach.label())
+		fact(factMode, formatMode(e.mode)),
+		fact(factUID, strconv.FormatUint(uint64(e.uid), decimalBase)),
+		fact(factGID, strconv.FormatUint(uint64(e.gid), decimalBase)),
+		fact(factUnresolved, e.unresolved()),
+		fact(factReach, e.reach.label()),
+		fact(factLocation, locationOf(e.path)))
 }
 
 // unresolved names which identifiers the name service could not account for,

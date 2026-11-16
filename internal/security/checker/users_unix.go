@@ -187,7 +187,7 @@ func (u *UnixUserChecker) analyzeUsers(users []userAccount, r *report) {
 // the privilege it demands.
 func judgeAccount(user userAccount, r *report) {
 	account := evidence(kindAccount, user.username,
-		"uid", strconv.FormatUint(uint64(user.uid), decimalBase), "shell", user.shell)
+		fact(factUID, strconv.FormatUint(uint64(user.uid), decimalBase)), fact(factShell, user.shell))
 
 	if user.uid == rootUID && user.username != "root" {
 		r.observed("users.uid_zero_non_root", account)
@@ -256,7 +256,7 @@ func (u *UnixUserChecker) checkAuthConfig(r *report) {
 		_, err := os.Stat(source.path)
 		switch {
 		case err == nil:
-			r.observed(source.key, evidence(kindFile, source.path, "source", source.label))
+			r.observed(source.key, evidence(kindFile, source.path, fact(factSource, source.label)))
 		case errors.Is(err, fs.ErrNotExist):
 			r.pass(source.key)
 		default:

@@ -22,9 +22,36 @@ const (
 	kindACL       = "acl-entry"
 	kindShare     = "share"
 	kindSetting   = "setting"
+)
 
-	// factPair is the name and value one fact consists of.
-	factPair = 2
+// factName is the name of one observation on an evidence subject. The names are
+// declared here, once, because the rules that read a fact and the checkers that
+// record it must agree on the spelling, and a literal at each end can drift
+// apart without a compiler or a test noticing. Not every name is recorded on
+// every platform.
+type factName string
+
+const (
+	factDescription      factName = "description"
+	factMode             factName = "mode"
+	factExpected         factName = "expected"
+	factUID              factName = "uid"
+	factGID              factName = "gid"
+	factUnresolved       factName = "unresolved"
+	factReach            factName = "reach"
+	factLocation         factName = "location"
+	factShell            factName = "shell"
+	factSource           factName = "source"
+	factState            factName = "state"
+	factValue            factName = "value"
+	factListing          factName = "listing"
+	factStatus           factName = "status"
+	factPrincipal        factName = "principal"
+	factAccess           factName = "access"
+	factScope            factName = "scope"
+	factSID              factName = "sid"
+	factPasswordRequired factName = "password_required"
+	factInternetIdentity factName = "internet_identity"
 )
 
 // report accumulates one check's outcome: a condition per rule the check
@@ -145,17 +172,19 @@ func (r *report) finish() finding.AuditResult {
 	return r.result
 }
 
-// evidence builds one evidence entry from a subject and alternating fact
-// names and values. A fact with an empty value is omitted, so a caller can
-// pass an observation that may not apply without branching.
-func evidence(kind, subject string, nameValues ...string) finding.Evidence {
-	if len(nameValues)%factPair != 0 {
-		panic("checker: evidence facts must be name and value pairs")
-	}
+// fact records one observation. An empty value records nothing, so a caller
+// can pass an observation that may not apply without branching.
+func fact(name factName, value string) finding.Fact {
+	return finding.Fact{Name: string(name), Value: value}
+}
+
+// evidence builds one evidence entry from a subject and the facts observed on
+// it, in the order given. A fact with an empty value is omitted.
+func evidence(kind, subject string, facts ...finding.Fact) finding.Evidence {
 	entry := finding.Evidence{Kind: kind, Subject: subject}
-	for ; len(nameValues) >= factPair; nameValues = nameValues[factPair:] {
-		if name, value := nameValues[0], nameValues[1]; value != "" {
-			entry.Facts = append(entry.Facts, finding.Fact{Name: name, Value: value})
+	for _, f := range facts {
+		if f.Value != "" {
+			entry.Facts = append(entry.Facts, f)
 		}
 	}
 	return entry

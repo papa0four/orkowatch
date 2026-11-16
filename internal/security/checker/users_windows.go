@@ -96,9 +96,9 @@ func judgeWindowsAccount(account windowsAccount, admins map[string]bool, r *repo
 	}
 
 	subject := evidence(kindAccount, account.name,
-		"sid", account.sid,
-		"password_required", strconv.FormatBool(account.passwordRequired),
-		"internet_identity", strconv.FormatBool(account.internetIdentity))
+		fact(factSID, account.sid),
+		fact(factPasswordRequired, strconv.FormatBool(account.passwordRequired)),
+		fact(factInternetIdentity, strconv.FormatBool(account.internetIdentity)))
 
 	if admins[account.sid] {
 		r.observed(ruleAdminActive, subject)
@@ -138,13 +138,13 @@ func checkPasswordPolicy(r *report) {
 	r.note(finding.SymbolInfo, "Lockout observation window: %s", policyAge(policy.lockoutWindow))
 
 	if policy.minLength == 0 {
-		r.observed(ruleMinLengthZero, evidence(kindSetting, "minimum password length", "value", "0"))
+		r.observed(ruleMinLengthZero, evidence(kindSetting, "minimum password length", fact(factValue, "0")))
 	} else {
 		r.pass(ruleMinLengthZero)
 	}
 
 	if policy.lockoutThreshold == 0 {
-		r.observed(ruleLockoutDisabled, evidence(kindSetting, "lockout threshold", "value", "0"))
+		r.observed(ruleLockoutDisabled, evidence(kindSetting, "lockout threshold", fact(factValue, "0")))
 	} else {
 		r.pass(ruleLockoutDisabled)
 	}
@@ -176,6 +176,6 @@ func checkUAC(r *report) {
 	case enabled:
 		r.pass(ruleUACDisabled)
 	default:
-		r.observed(ruleUACDisabled, evidence(kindSetting, uacPolicyValue, "value", "0"))
+		r.observed(ruleUACDisabled, evidence(kindSetting, uacPolicyValue, fact(factValue, "0")))
 	}
 }

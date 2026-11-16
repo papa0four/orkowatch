@@ -11,6 +11,11 @@ import (
 	"strconv"
 )
 
+// platformLocations adds none: macOS keeps home directories under /Users and
+// temporary files under /private, which have not been verified on a macOS
+// host here.
+func platformLocations() []pathLocation { return nil }
+
 // platformCriticalPaths lists the paths macOS adds to the common set.
 func platformCriticalPaths() []criticalPath {
 	return []criticalPath{

@@ -72,7 +72,7 @@ func (f *WindowsFirewallChecker) Check(ctx context.Context) finding.AuditResult 
 			r.note(finding.SymbolOK, "%s profile is active", profile.name)
 			continue
 		}
-		inactive = append(inactive, evidence(kindProfile, profile.name, "state", "OFF"))
+		inactive = append(inactive, evidence(kindProfile, profile.name, fact(factState, "OFF")))
 	}
 
 	switch {

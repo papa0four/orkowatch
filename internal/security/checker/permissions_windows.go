@@ -237,7 +237,7 @@ func (w *aclWalk) inspect(reader *aclReader, path string, found *aclFound) {
 		found.unreadable++
 	case open:
 		found.add(ruleEveryoneFull, evidence(kindACL, path,
-			"principal", "everyone", "access", accessFull, "scope", "no access control list"))
+			fact(factPrincipal, "everyone"), fact(factAccess, accessFull), fact(factScope, "no access control list")))
 	default:
 		judgeGrants(reader, path, grants, w.named[strings.ToLower(path)], found)
 	}
@@ -259,7 +259,8 @@ func judgeGrants(reader *aclReader, path string, grants []aclGrant, inherited bo
 		if broad {
 			who := reader.resolve(grant.sid)
 			subject := evidence(kindACL, path,
-				"principal", who.name, "sid", grant.sid.String(), "access", level, "scope", grantScope(grant.flags))
+				fact(factPrincipal, who.name), fact(factSID, grant.sid.String()),
+				fact(factAccess, level), fact(factScope, grantScope(grant.flags)))
 			switch {
 			case level == accessFull && group == windows.WinWorldSid:
 				found.add(ruleEveryoneFull, subject)
@@ -279,7 +280,7 @@ func judgeGrants(reader *aclReader, path string, grants []aclGrant, inherited bo
 		}
 		if who := reader.resolve(grant.sid); !who.resolved {
 			found.add(ruleUnresolvedSID, evidence(kindACL, path,
-				"sid", sid, "access", level, "scope", grantScope(grant.flags)))
+				fact(factSID, sid), fact(factAccess, level), fact(factScope, grantScope(grant.flags))))
 		}
 	}
 }
@@ -328,7 +329,7 @@ func (p *WindowsPermissionChecker) checkNetworkShares(ctx context.Context, r *re
 
 		switch name := strings.Fields(share)[0]; name {
 		case "ADMIN$", "C$", "IPC$":
-			r.observed(ruleAdminShare, evidence(kindShare, name, "listing", share))
+			r.observed(ruleAdminShare, evidence(kindShare, name, fact(factListing, share)))
 		default:
 			r.note(finding.SymbolInfo, "%s", share)
 		}

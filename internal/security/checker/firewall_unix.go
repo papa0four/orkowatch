@@ -196,7 +196,7 @@ func (f *UnixFirewallChecker) reportTool(ctx context.Context, tool firewallTool,
 			r.note(finding.SymbolWarning, "%s is installed but not enforcing", tool.name)
 			return toolOutcome{state: state}
 		}
-		r.observed(tool.disabledKey, evidence(kindManager, tool.name, "state", "installed, not enforcing"))
+		r.observed(tool.disabledKey, evidence(kindManager, tool.name, fact(factState, "installed, not enforcing")))
 		return toolOutcome{state: state}
 	default:
 		outcome := toolOutcome{

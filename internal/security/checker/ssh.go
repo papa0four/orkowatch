@@ -155,10 +155,10 @@ func reportSSHDirective(r *report, readErr error, rule sshRule) {
 		r.inconclusive(finding.ResultNotChecked,
 			rule.name+" is not set; the sshd default applies and is not read", rule.unsafeKey)
 		if rule.absentKey != "" {
-			r.observed(rule.absentKey, evidence(kindDirective, rule.name, "state", "not set"))
+			r.observed(rule.absentKey, evidence(kindDirective, rule.name, fact(factState, "not set")))
 		}
 	case rule.unsafe(rule.setting.value):
-		r.observed(rule.unsafeKey, evidence(kindDirective, rule.name, "value", rule.setting.value))
+		r.observed(rule.unsafeKey, evidence(kindDirective, rule.name, fact(factValue, rule.setting.value)))
 		r.pass(rule.absentKey)
 	default:
 		r.pass(rule.unsafeKey, rule.absentKey)
