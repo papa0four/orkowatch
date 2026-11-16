@@ -1,7 +1,8 @@
 # Linux common finding definitions for the orkowatch registry.
 # These findings apply across all Linux distributions regardless of family.
-# Severity tiers follow CVSS v3.1 base score ranges, and each cvss_score is the
-# one its cvss_vector computes. The registry refuses to load a definition where
+# Each cvss_vector is the CVSS v4.0 baseline of the condition, scored by FIRST's algorithm,
+# and each cvss_score is the one its vector computes. Severity tiers follow the score
+# ranges of the specification's Table 22. The registry refuses to load a definition where
 # the severity, the score and the vector disagree:
 #   CRITICAL 9.0-10.0 | HIGH 7.0-8.9 | MEDIUM 4.0-6.9 | LOW 0.1-3.9
 # A NIST reference names only the control: its title and release come from the
@@ -18,8 +19,8 @@
 ssh.config_not_found:
   title: "SSH daemon configuration file not found"
   severity: "MEDIUM"
-  cvss_score: 5.3
-  cvss_vector: "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:L/I:L/A:L"
+  cvss_score: 4.8
+  cvss_vector: "CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:L/VI:L/VA:L/SC:N/SI:N/SA:N"
   no_weakness: "CWE-16 is an obsolete grouping that MITRE prohibits for mapping, and no entry describes a missing configuration file."
   description: >
     No sshd_config file was found at any expected path. Without an explicit
@@ -46,8 +47,8 @@ ssh.config_not_found:
 ssh.root_login_permitted:
   title: "SSH PermitRootLogin is not explicitly disabled"
   severity: "CRITICAL"
-  cvss_score: 9.8
-  cvss_vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"
+  cvss_score: 9.3
+  cvss_vector: "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N"
   cwe: "CWE-250"
   attack_techniques:
     - id: "T1021.004"
@@ -83,8 +84,8 @@ ssh.root_login_permitted:
 ssh.password_auth_enabled:
   title: "SSH password authentication is enabled"
   severity: "HIGH"
-  cvss_score: 7.5
-  cvss_vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N"
+  cvss_score: 8.7
+  cvss_vector: "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:N/VA:N/SC:N/SI:N/SA:N"
   cwe: "CWE-521"
   attack_techniques:
     - id: "T1021.004"
@@ -120,9 +121,9 @@ ssh.password_auth_enabled:
 
 ssh.permit_root_login_not_set:
   title: "PermitRootLogin directive is absent from SSH configuration"
-  severity: "MEDIUM"
-  cvss_score: 5.9
-  cvss_vector: "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:N/A:N"
+  severity: "HIGH"
+  cvss_score: 8.7
+  cvss_vector: "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:N/VA:N/SC:N/SI:N/SA:N"
   no_weakness: "CWE-16 is an obsolete grouping that MITRE prohibits for mapping. The directive is absent, so the daemon's default applies and the check does not read it; CWE-1188 would apply only if that default were shown to be insecure."
   description: >
     The PermitRootLogin directive was not found in sshd_config. OpenSSH
@@ -149,9 +150,9 @@ ssh.permit_root_login_not_set:
 
 ssh.password_auth_not_set:
   title: "PasswordAuthentication directive is absent from SSH configuration"
-  severity: "MEDIUM"
-  cvss_score: 5.9
-  cvss_vector: "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:N/A:N"
+  severity: "HIGH"
+  cvss_score: 8.7
+  cvss_vector: "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:N/VA:N/SC:N/SI:N/SA:N"
   no_weakness: "CWE-16 is an obsolete grouping that MITRE prohibits for mapping. The directive is absent, so the daemon's default applies and the check does not read it; CWE-1188 would apply only if that default were shown to be insecure."
   attack_techniques:
     - id: "T1021.004"
@@ -185,8 +186,8 @@ ssh.password_auth_not_set:
 firewall.no_active_manager:
   title: "No active firewall manager detected"
   severity: "CRITICAL"
-  cvss_score: 9.1
-  cvss_vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N"
+  cvss_score: 9.3
+  cvss_vector: "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:N/SC:N/SI:N/SA:N"
   cwe: "CWE-923"
   attack_techniques:
     - id: "T1686"
@@ -220,8 +221,8 @@ firewall.no_active_manager:
 firewall.ufw_inactive:
   title: "UFW firewall is installed but not enforcing"
   severity: "HIGH"
-  cvss_score: 8.6
-  cvss_vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:L/A:H"
+  cvss_score: 8.8
+  cvss_vector: "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:L/VI:L/VA:H/SC:N/SI:N/SA:N"
   cwe: "CWE-923"
   attack_techniques:
     - id: "T1686"
@@ -256,8 +257,8 @@ firewall.ufw_inactive:
 firewall.firewalld_not_running:
   title: "firewalld is installed but not running"
   severity: "HIGH"
-  cvss_score: 8.6
-  cvss_vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:L/A:H"
+  cvss_score: 8.8
+  cvss_vector: "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:L/VI:L/VA:H/SC:N/SI:N/SA:N"
   cwe: "CWE-923"
   attack_techniques:
     - id: "T1686"
@@ -291,9 +292,9 @@ firewall.firewalld_not_running:
 
 firewall.iptables_default_accept:
   title: "iptables INPUT chain accepts by default with no ingress rules"
-  severity: "CRITICAL"
-  cvss_score: 9.9
-  cvss_vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:L/I:L/A:H"
+  severity: "HIGH"
+  cvss_score: 8.8
+  cvss_vector: "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:L/VI:L/VA:H/SC:N/SI:N/SA:N"
   cwe: "CWE-1188"
   attack_techniques:
     - id: "T1686"
@@ -332,8 +333,8 @@ firewall.iptables_default_accept:
 users.empty_password_hash:
   title: "User account has no password set in /etc/shadow"
   severity: "CRITICAL"
-  cvss_score: 9.8
-  cvss_vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"
+  cvss_score: 9.3
+  cvss_vector: "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N"
   cwe: "CWE-258"
   attack_techniques:
     - id: "T1078.003"
@@ -368,8 +369,8 @@ users.empty_password_hash:
 users.uid_zero_non_root:
   title: "Non-root account has UID 0"
   severity: "HIGH"
-  cvss_score: 8.8
-  cvss_vector: "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H"
+  cvss_score: 8.5
+  cvss_vector: "CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N"
   cwe: "CWE-266"
   description: >
     A user account other than root has been assigned UID 0. On Linux and
@@ -397,8 +398,8 @@ users.uid_zero_non_root:
 users.root_account_unlocked:
   title: "Root account is not locked"
   severity: "HIGH"
-  cvss_score: 7.0
-  cvss_vector: "CVSS:3.1/AV:L/AC:H/PR:L/UI:N/S:U/C:H/I:H/A:H"
+  cvss_score: 8.5
+  cvss_vector: "CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N"
   no_weakness: "No CWE entry describes an unlocked root account; CWE-284, the nearest class, is discouraged by MITRE."
   description: >
     The root account is not in a locked state. On systems where
@@ -424,9 +425,9 @@ users.root_account_unlocked:
 
 users.ldap_configured:
   title: "LDAP authentication is configured"
-  severity: "LOW"
-  cvss_score: 2.3
-  cvss_vector: "CVSS:3.1/AV:L/AC:L/PR:H/UI:N/S:U/C:L/I:N/A:N"
+  severity: "MEDIUM"
+  cvss_score: 4.6
+  cvss_vector: "CVSS:4.0/AV:L/AC:L/AT:N/PR:H/UI:N/VC:L/VI:N/VA:N/SC:N/SI:N/SA:N"
   no_weakness: "The finding reports where authentication is performed, not a weakness; CWE-287 is discouraged by MITRE."
   description: >
     /etc/ldap.conf is present, indicating LDAP-based authentication is
@@ -448,9 +449,9 @@ users.ldap_configured:
 
 users.kerberos_configured:
   title: "Kerberos authentication is configured"
-  severity: "LOW"
-  cvss_score: 2.3
-  cvss_vector: "CVSS:3.1/AV:L/AC:L/PR:H/UI:N/S:U/C:L/I:N/A:N"
+  severity: "MEDIUM"
+  cvss_score: 4.6
+  cvss_vector: "CVSS:4.0/AV:L/AC:L/AT:N/PR:H/UI:N/VC:L/VI:N/VA:N/SC:N/SI:N/SA:N"
   no_weakness: "The finding reports where authentication is performed, not a weakness; CWE-287 is discouraged by MITRE."
   attack_techniques:
     - id: "T1558.005"
@@ -476,9 +477,9 @@ users.kerberos_configured:
 
 users.sssd_configured:
   title: "SSSD authentication is configured"
-  severity: "LOW"
-  cvss_score: 2.3
-  cvss_vector: "CVSS:3.1/AV:L/AC:L/PR:H/UI:N/S:U/C:L/I:N/A:N"
+  severity: "MEDIUM"
+  cvss_score: 4.6
+  cvss_vector: "CVSS:4.0/AV:L/AC:L/AT:N/PR:H/UI:N/VC:L/VI:N/VA:N/SC:N/SI:N/SA:N"
   no_weakness: "The finding reports where authentication is performed, not a weakness; CWE-287 is discouraged by MITRE."
   attack_techniques:
     - id: "T1003.005"
@@ -506,8 +507,8 @@ users.sssd_configured:
 users.regular_user_admin_privileges:
   title: "Regular user account has administrative group membership"
   severity: "HIGH"
-  cvss_score: 7.1
-  cvss_vector: "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:N"
+  cvss_score: 8.4
+  cvss_vector: "CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:H/VI:H/VA:N/SC:N/SI:N/SA:N"
   cwe: "CWE-266"
   attack_techniques:
     - id: "T1548.003"
@@ -538,9 +539,9 @@ users.regular_user_admin_privileges:
 
 users.login_shell_present:
   title: "User account has an interactive login shell"
-  severity: "LOW"
-  cvss_score: 2.5
-  cvss_vector: "CVSS:3.1/AV:L/AC:H/PR:L/UI:N/S:U/C:L/I:N/A:N"
+  severity: "MEDIUM"
+  cvss_score: 4.8
+  cvss_vector: "CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:L/VI:N/VA:N/SC:N/SI:N/SA:N"
   no_weakness: "CWE-272 concerns dropping an elevated privilege after an operation such as chroot(), which an account with a login shell is not."
   description: >
     A user account has an interactive login shell assigned. For regular
@@ -570,8 +571,8 @@ users.login_shell_present:
 users.no_password_login_shell:
   title: "Account with no password set has a valid login shell"
   severity: "CRITICAL"
-  cvss_score: 9.1
-  cvss_vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N"
+  cvss_score: 9.3
+  cvss_vector: "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:N/SC:N/SI:N/SA:N"
   cwe: "CWE-1390"
   attack_techniques:
     - id: "T1078.003"
@@ -612,8 +613,8 @@ users.no_password_login_shell:
 permissions.critical_path_not_root_owned:
   title: "Critical system path is not owned by root"
   severity: "HIGH"
-  cvss_score: 7.8
-  cvss_vector: "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H"
+  cvss_score: 8.5
+  cvss_vector: "CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N"
   cwe: "CWE-282"
   description: >
     A file or directory the system relies on for authentication, privilege
@@ -644,8 +645,8 @@ permissions.critical_path_not_root_owned:
 permissions.path_exceeds_expected_mode:
   title: "File or directory permissions exceed expected mode"
   severity: "MEDIUM"
-  cvss_score: 5.5
-  cvss_vector: "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N"
+  cvss_score: 6.8
+  cvss_vector: "CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:H/VI:N/VA:N/SC:N/SI:N/SA:N"
   cwe: "CWE-732"
   description: >
     A critical system file or directory has permissions that exceed the
@@ -677,8 +678,8 @@ permissions.path_exceeds_expected_mode:
 permissions.world_writable_file:
   title: "World-writable file found on the scanned filesystem"
   severity: "HIGH"
-  cvss_score: 7.8
-  cvss_vector: "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H"
+  cvss_score: 8.5
+  cvss_vector: "CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N"
   cwe: "CWE-732"
   description: >
     A file with world-writable permissions (mode includes 0002) was found
@@ -706,8 +707,8 @@ permissions.world_writable_file:
 permissions.suid_sgid_binary:
   title: "SUID or SGID binary found"
   severity: "HIGH"
-  cvss_score: 7.0
-  cvss_vector: "CVSS:3.1/AV:L/AC:H/PR:L/UI:N/S:U/C:H/I:H/A:H"
+  cvss_score: 8.5
+  cvss_vector: "CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N"
   cwe: "CWE-267"
   attack_techniques:
     - id: "T1548.001"
@@ -743,8 +744,8 @@ permissions.suid_sgid_binary:
 permissions.unowned_file:
   title: "File with no valid owner or group found"
   severity: "MEDIUM"
-  cvss_score: 4.4
-  cvss_vector: "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:L/I:L/A:N"
+  cvss_score: 4.8
+  cvss_vector: "CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:L/VI:L/VA:N/SC:N/SI:N/SA:N"
   cwe: "CWE-732"
   description: >
     A file with no valid owning user or group was found. Unowned files

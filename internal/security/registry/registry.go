@@ -22,7 +22,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/papa0four/orkowatch/internal/cvss"
+	v4 "github.com/papa0four/orkowatch/internal/cvss/v4"
 	"github.com/papa0four/orkowatch/internal/security/finding"
 )
 
@@ -389,20 +389,24 @@ func (d FindingDefinition) validated() (FindingDefinition, error) {
 const scoreTolerance = 0.05
 
 // validateCVSS confirms the three values a definition states about severity
-// agree: the vector is a CVSS v3.1 base vector, the score is the one that
-// vector computes, and the severity is the band of that score. Severity is a
+// agree: the vector is a CVSS v4.0 vector of Base metrics only, which is the
+// baseline of the condition and not a score modified for a host, the score is the
+// one that vector computes, and the severity is the band of that score. Severity is a
 // property the registry authors, so a disagreement is a data defect and must
 // halt startup, not surface later as a finding rated one way by its text and
 // another by its numbers.
 func (d FindingDefinition) validateCVSS() error {
-	vector, err := cvss.Parse(d.CVSSVector)
+	vector, err := v4.Parse(d.CVSSVector)
 	if err != nil {
 		return fmt.Errorf("cvss_vector: %w", err)
 	}
-	if computed := vector.BaseScore(); math.Abs(computed-d.CVSSScore) >= scoreTolerance {
+	if label := vector.Nomenclature(); label != "CVSS-B" {
+		return fmt.Errorf("cvss_vector is %s: a baseline states Base metrics only, and what a host modifies is computed for the host", label)
+	}
+	if computed := vector.Score(); math.Abs(computed-d.CVSSScore) >= scoreTolerance {
 		return fmt.Errorf("cvss_score %.1f is not the %.1f that its cvss_vector computes", d.CVSSScore, computed)
 	}
-	if band := cvss.Band(d.CVSSScore); band != d.Severity {
+	if band := v4.Severity(d.CVSSScore); band != d.Severity {
 		return fmt.Errorf("severity %s is not the %s band of cvss_score %.1f", d.Severity, band, d.CVSSScore)
 	}
 	return nil

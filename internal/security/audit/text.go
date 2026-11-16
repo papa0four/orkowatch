@@ -123,14 +123,7 @@ func writeFinding(ew *render.ErrWriter, condition ConditionView) error {
 		return err
 	}
 	ew.Printf("  Rule: %s\n", condition.Key)
-	if def.Weakness != nil {
-		ew.Printf("  Weakness: %s\n", WeaknessText(*def.Weakness))
-	} else if def.NoWeakness != "" {
-		ew.Printf("  Weakness: none. %s\n", def.NoWeakness)
-	}
-	if def.CVSS != nil {
-		ew.Printf("  CVSS: %s\n", CVSSText(*def.CVSS))
-	}
+	writeWeaknessAndCVSS(ew, def)
 	if len(def.Categories) > 0 {
 		ew.Printf("  Categories: %s\n", strings.Join(def.Categories, ", "))
 	}
@@ -162,6 +155,24 @@ func writeFinding(ew *render.ErrWriter, condition ConditionView) error {
 		}
 	}
 	return writeEvidence(ew, "  ", condition.Evidence)
+}
+
+// writeWeaknessAndCVSS writes the lines that say what kind of weakness a
+// finding is and how its condition is scored: the weakness, or why none fits,
+// the score with its label, and the link that opens FIRST's calculator on it.
+func writeWeaknessAndCVSS(ew *render.ErrWriter, def *FindingView) {
+	if def.Weakness != nil {
+		ew.Printf("  Weakness: %s\n", WeaknessText(*def.Weakness))
+	} else if def.NoWeakness != "" {
+		ew.Printf("  Weakness: none. %s\n", def.NoWeakness)
+	}
+	if def.CVSS == nil {
+		return
+	}
+	ew.Printf("  CVSS: %s\n", CVSSText(*def.CVSS))
+	if def.CVSS.CalculatorURL != "" {
+		ew.Printf("  CVSS calculator: %s\n", def.CVSS.CalculatorURL)
+	}
 }
 
 // writeCondition renders a condition that is not a finding as one line: its

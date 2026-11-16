@@ -120,7 +120,7 @@ func TestShippedFindingsCarryWeaknessAndLabelledCVSS(t *testing.T) {
 		case d.CWE == "" && f.NoWeakness == "":
 			t.Errorf("%s: carries neither a weakness nor a reason", label)
 		}
-		if f.CVSS == nil || f.CVSS.Nomenclature != "CVSS-B" || f.CVSS.Version != "3.1" || f.CVSS.Source != "registry" || f.CVSS.BaseScore != d.CVSSScore {
+		if f.CVSS == nil || f.CVSS.Nomenclature != "CVSS-B" || f.CVSS.Version != "4.0" || f.CVSS.Source != "registry" || f.CVSS.BaseScore != d.CVSSScore {
 			t.Errorf("%s: CVSS %+v is not the registry's labelled baseline", label, f.CVSS)
 		}
 	}

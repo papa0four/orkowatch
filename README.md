@@ -313,9 +313,11 @@ own guidance on mapping to it (`weakness` in JSON and YAML). The registry refuse
 load a definition that maps to an entry MITRE marks Discouraged or Prohibited. Where
 no entry describes a finding, which is the case for a disabled SELinux, the finding
 says so and gives the reason (`no_weakness`) rather than naming a weakness that does
-not fit. The CVSS score (`cvss`) is labelled with FIRST's nomenclature: CVSS-B is a
-base score, here the registry's baseline for the condition in general, and the label
-says it is not measured on the host the finding was raised on.
+not fit. The CVSS score (`cvss`) is a CVSS v4.0 score, labelled with FIRST's
+nomenclature: CVSS-B is a base score, here the registry's baseline for the condition
+in general, and the label says it is not measured on the host the finding was raised
+on. It carries a link that opens FIRST's calculator on its vector, so the score can
+be reproduced there; owatch computes it itself and never requests the link.
 
 ## Third-Party Notices
 
