@@ -322,7 +322,6 @@ func loadRegistries() (platformRegistry, familyRegistry, familyRegistry) {
 		sets = append(sets, defs)
 	}
 	checkTechniqueUse(sets...)
-	checkWeaknessUse(sets...)
 	return platform, linux, unix
 }
 

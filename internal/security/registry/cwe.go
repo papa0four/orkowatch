@@ -6,7 +6,6 @@ import (
 	"bytes"
 	_ "embed"
 	"fmt"
-	"sort"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -25,33 +24,56 @@ type (
 		Weaknesses  map[string]cweEntry `yaml:"weaknesses"`
 	}
 
-	// cweEntry is one weakness as MITRE's catalog states it.
+	// cweEntry is one weakness as MITRE's catalog states it. Parents are its
+	// ChildOf relations in the Research Concepts view. Description is carried
+	// only for the entries a definition maps to.
 	cweEntry struct {
-		Name        string `yaml:"name"`
-		Abstraction string `yaml:"abstraction"`
-		Usage       string `yaml:"usage"`
-		Description string `yaml:"description"`
+		Name        string   `yaml:"name"`
+		Abstraction string   `yaml:"abstraction"`
+		Usage       string   `yaml:"usage"`
+		Parents     []string `yaml:"parents"`
+		Description string   `yaml:"description"`
+	}
+
+	// weaknessRecord is a loaded entry. The parents are consumed by the
+	// enrichment adapters (#90), which reach the CVEs NVD files under a child of
+	// a finding's weakness through them; until then the registry checks that they
+	// form a hierarchy.
+	weaknessRecord struct {
+		name        string
+		abstraction string
+		usage       string
+		description string
+		parents     []finding.CWE
 	}
 )
 
-// cweUsable lists the mapping usages MITRE gives an entry that a finding may
-// map to. An entry MITRE marks Discouraged or Prohibited is refused, so the data
-// cannot drift back to a weakness MITRE advises against.
-var cweUsable = map[string]bool{"Allowed": true, "Allowed-with-Review": true}
+// MITRE's vocabulary for an entry's mapping usage and abstraction. The loader
+// refuses a value outside it, so a catalog release that adds one is noticed
+// instead of read as something it is not.
+var (
+	cweUsages       = map[string]bool{"Allowed": true, "Allowed-with-Review": true, "Discouraged": true, "Prohibited": true}
+	cweAbstractions = map[string]bool{"Pillar": true, "Class": true, "Base": true, "Variant": true, "Compound": true}
+
+	// cweUsable lists the mapping usages MITRE gives an entry that a finding may
+	// map to.
+	cweUsable = map[string]bool{"Allowed": true, "Allowed-with-Review": true}
+)
 
 var (
 	//go:embed data/cwe.yaml
 	cweData []byte
 
-	// weaknesses is the bundled dataset keyed by identifier. Definitions are
+	// weaknesses is the bundled catalog keyed by identifier. Definitions are
 	// validated against it as they load, so it is read first.
 	weaknesses = mustLoadWeaknesses(cweData)
 )
 
-// mustLoadWeaknesses decodes the bundled dataset strictly and panics on a
-// malformed entry, halting startup rather than letting a finding carry a
-// weakness with no name or one MITRE advises against mapping to.
-func mustLoadWeaknesses(data []byte) map[finding.CWE]finding.Weakness {
+// mustLoadWeaknesses decodes the bundled catalog strictly and panics on a
+// malformed one, halting startup rather than letting a finding carry a weakness
+// from a catalog with a broken hierarchy or a usage the registry does not
+// understand.
+func mustLoadWeaknesses(data []byte) map[finding.CWE]weaknessRecord {
 	var file cweFile
 	decoder := yaml.NewDecoder(bytes.NewReader(data))
 	decoder.KnownFields(true)
@@ -61,26 +83,72 @@ func mustLoadWeaknesses(data []byte) map[finding.CWE]finding.Weakness {
 	if file.Version == "" || file.Verified == "" {
 		panic("registry: cwe.yaml names no catalog version or verification date")
 	}
-	out := make(map[finding.CWE]finding.Weakness, len(file.Weaknesses))
+	out := make(map[finding.CWE]weaknessRecord, len(file.Weaknesses))
 	for raw, e := range file.Weaknesses {
 		id, err := finding.ParseCWE(raw)
 		switch {
 		case err != nil:
 			panic("registry: cwe.yaml: " + err.Error())
-		case strings.TrimSpace(e.Name) == "" || strings.TrimSpace(e.Description) == "":
-			panic(fmt.Sprintf("registry: cwe.yaml: %s has no name or description", raw))
-		case !cweUsable[e.Usage]:
-			panic(fmt.Sprintf("registry: cwe.yaml: %s is %s for mapping by MITRE's guidance and cannot be used", raw, e.Usage))
+		case strings.TrimSpace(e.Name) == "":
+			panic(fmt.Sprintf("registry: cwe.yaml: %s has no name", raw))
+		case !cweUsages[e.Usage]:
+			panic(fmt.Sprintf("registry: cwe.yaml: %s has usage %q, which is not one of MITRE's", raw, e.Usage))
+		case !cweAbstractions[e.Abstraction]:
+			panic(fmt.Sprintf("registry: cwe.yaml: %s has abstraction %q, which is not one of MITRE's", raw, e.Abstraction))
 		}
-		out[id] = finding.Weakness{ID: id, Name: e.Name, Description: e.Description, Usage: e.Usage, URL: cweURL(raw)}
+		rec := weaknessRecord{name: e.Name, abstraction: e.Abstraction, usage: e.Usage, description: e.Description}
+		for _, p := range e.Parents {
+			parent, err := finding.ParseCWE(p)
+			if err != nil {
+				panic(fmt.Sprintf("registry: cwe.yaml: %s names parent %q: %v", raw, p, err))
+			}
+			rec.parents = append(rec.parents, parent)
+		}
+		out[id] = rec
 	}
+	checkHierarchy(out)
 	return out
 }
 
+// checkHierarchy panics unless every parent is an entry of the catalog and the
+// relations contain no cycle, which MITRE's hierarchy cannot, so one means the
+// file was damaged.
+func checkHierarchy(records map[finding.CWE]weaknessRecord) {
+	const (
+		unvisited = iota
+		visiting
+		done
+	)
+	state := make(map[finding.CWE]int, len(records))
+	var visit func(id finding.CWE)
+	visit = func(id finding.CWE) {
+		state[id] = visiting
+		for _, p := range records[id].parents {
+			if _, ok := records[p]; !ok {
+				panic(fmt.Sprintf("registry: cwe.yaml: %s names parent %s, which is not in the catalog", id, p))
+			}
+			switch state[p] {
+			case visiting:
+				panic(fmt.Sprintf("registry: cwe.yaml: %s and %s are each other's ancestor", id, p))
+			case unvisited:
+				visit(p)
+			}
+		}
+		state[id] = done
+	}
+	for id := range records {
+		if state[id] == unvisited {
+			visit(id)
+		}
+	}
+}
+
 // validateWeakness checks how d states its weakness. A definition that can fail
-// maps to a weakness in the bundled dataset, or says in no_weakness why none
+// maps to a weakness MITRE allows for mapping, or says in no_weakness why none
 // fits, so the absence of one is a decision recorded in the data and not an
-// omission. One that cannot fail needs neither. Naming both is refused.
+// omission. One that cannot fail needs neither. Naming both is refused, as is a
+// weakness MITRE marks Discouraged or Prohibited, one the catalog lacks, and one
+// the finding could not describe because the file carries no description for it.
 func (d FindingDefinition) validateWeakness() (FindingDefinition, error) {
 	reason := strings.TrimSpace(d.NoWeakness)
 	switch {
@@ -98,34 +166,17 @@ func (d FindingDefinition) validateWeakness() (FindingDefinition, error) {
 	if err != nil {
 		return d, err
 	}
-	if _, ok := weaknesses[cwe]; !ok {
-		return d, fmt.Errorf("%s is not in the bundled CWE dataset", cwe)
+	rec, ok := weaknesses[cwe]
+	switch {
+	case !ok:
+		return d, fmt.Errorf("%s is not a weakness in the bundled CWE catalog", cwe)
+	case !cweUsable[rec.usage]:
+		return d, fmt.Errorf("%s is %s for mapping by MITRE's guidance and cannot be used", cwe, rec.usage)
+	case rec.description == "":
+		return d, fmt.Errorf("%s has no description in the bundled CWE catalog, so a finding could not show it", cwe)
 	}
 	d.CWE = cwe
 	return d, nil
-}
-
-// checkWeaknessUse panics when a bundled weakness is named by no definition,
-// since an entry nothing cites is data with no reader.
-func checkWeaknessUse(sets ...map[FindingKey]FindingDefinition) {
-	used := make(map[finding.CWE]bool, len(weaknesses))
-	for _, defs := range sets {
-		for _, def := range defs {
-			if def.CWE != "" {
-				used[def.CWE] = true
-			}
-		}
-	}
-	var unused []string
-	for id := range weaknesses {
-		if !used[id] {
-			unused = append(unused, string(id))
-		}
-	}
-	if len(unused) > 0 {
-		sort.Strings(unused)
-		panic("registry: cwe.yaml holds weaknesses no definition names: " + strings.Join(unused, ", "))
-	}
 }
 
 // weakness returns the bundled entry d maps to, or nil when it maps to none.
@@ -133,8 +184,8 @@ func (d FindingDefinition) weakness() *finding.Weakness {
 	if d.CWE == "" {
 		return nil
 	}
-	w := weaknesses[d.CWE]
-	return &w
+	rec := weaknesses[d.CWE]
+	return &finding.Weakness{ID: d.CWE, Name: rec.name, Description: rec.description, Usage: rec.usage, URL: cweURL(string(d.CWE))}
 }
 
 // cvssScore is the registry's CVSS value for d, labelled for what it is: a
