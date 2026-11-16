@@ -1,0 +1,171 @@
+// internal/security/registry/reference_test.go
+
+package registry
+
+import (
+	"slices"
+	"strings"
+	"testing"
+
+	"github.com/papa0four/orkowatch/internal/security/finding"
+)
+
+// allDefinitions returns every shipped definition under a label naming where
+// it came from.
+func allDefinitions() map[string]FindingDefinition {
+	out := make(map[string]FindingDefinition)
+	for platform, defs := range registry {
+		for key, d := range defs {
+			out[string(platform)+"/"+string(key)] = d
+		}
+	}
+	for family, defs := range linuxRegistry {
+		for key, d := range defs {
+			out["linux/"+string(family)+"/"+string(key)] = d
+		}
+	}
+	for family, defs := range unixRegistry {
+		for key, d := range defs {
+			out["unix/"+string(family)+"/"+string(key)] = d
+		}
+	}
+	return out
+}
+
+// No reference a report can carry is one that was not verified.
+func TestUnverifiedReferencesAreWithheld(t *testing.T) {
+	var withheld, shown int
+	for label, d := range allDefinitions() {
+		for _, spec := range d.References {
+			if spec.Verified != "" {
+				shown++
+				continue
+			}
+			withheld++
+			if _, ok := spec.report(); ok {
+				t.Errorf("%s: unverified %s reference %q is reported", label, spec.Source, spec.ID)
+			}
+		}
+		for _, ref := range d.ToReferences() {
+			if ref.Type == RefTypeCIS {
+				t.Errorf("%s: a CIS reference is reported while none is verified: %s", label, ref.Title)
+			}
+		}
+	}
+	if withheld == 0 || shown == 0 {
+		t.Fatalf("expected both verified and withheld references, got %d shown and %d withheld", shown, withheld)
+	}
+}
+
+// Every NIST citation names the catalog release it was checked against.
+func TestNISTReferencesNameTheirRelease(t *testing.T) {
+	for label, d := range allDefinitions() {
+		for _, spec := range d.References {
+			if spec.Source == RefTypeNIST && !strings.HasPrefix(spec.Version, "SP 800-53 Rev 5") {
+				t.Errorf("%s: NIST %s was checked against %q", label, spec.ID, spec.Version)
+			}
+		}
+	}
+}
+
+// The citations added with this audit reach the finding a checker builds from
+// the definition, looked up the way a checker looks it up for the host it ran on.
+func TestAuditedReferencesReachFindings(t *testing.T) {
+	const (
+		rhelSELinux = "https://docs.redhat.com/en/documentation/red_hat_enterprise_linux/9/html/using_selinux/changing-selinux-states-and-modes_using-selinux#changing-to-enforcing-mode_changing-selinux-states-and-modes"
+		rhelSudo    = "https://docs.redhat.com/en/documentation/red_hat_enterprise_linux/9/html/configuring_basic_system_settings/managing-sudo-access_configuring-basic-system-settings"
+		msSSH       = "https://learn.microsoft.com/en-us/windows-server/administration/openssh/openssh-server-configuration"
+	)
+	windows := OSContext{Platform: PlatformWindows}
+	rhel := OSContext{Platform: PlatformLinux, Families: []Distro{DistroRHEL}}
+	arch := OSContext{Platform: PlatformLinux, Families: []Distro{DistroArch}}
+	cases := []struct {
+		host OSContext
+		key  FindingKey
+		url  string
+	}{
+		{rhel, "permissions.selinux_disabled", rhelSELinux},
+		{rhel, "users.wheel_group_empty", rhelSudo},
+		{arch, "users.aur_helper_installed", "https://wiki.archlinux.org/title/Arch_User_Repository#Verify_the_PKGBUILD"},
+		{arch, "users.wheel_group_unrestricted", "https://wiki.archlinux.org/title/Sudo#Example_entries"},
+		{arch, "users.sudo_nopasswd", "https://wiki.archlinux.org/title/Security#Use_sudo_instead_of_su"},
+		{windows, "ssh.config_not_found", msSSH},
+		{windows, "ssh.root_login_permitted", msSSH},
+		{windows, "users.microsoft_account_no_local_password", "https://learn.microsoft.com/en-us/windows/win32/api/lmaccess/ns-lmaccess-user_info_24"},
+	}
+	for _, c := range cases {
+		d, ok := Lookup(c.host, c.key)
+		if !ok {
+			t.Errorf("%s: no definition for the host", c.key)
+			continue
+		}
+		var urls []string
+		for _, ref := range d.Finding().References {
+			urls = append(urls, ref.URL)
+		}
+		if !slices.Contains(urls, c.url) {
+			t.Errorf("%s does not carry %s; it carries %v", c.key, c.url, urls)
+		}
+	}
+}
+
+// The citations this audit found wrong are gone: IA-3 from the identity
+// provider findings, SI-3 from the firewall profile and SI-16 from SELinux, and
+// the two Arch anchors that do not exist on their pages.
+func TestCorrectedCitationsAreGone(t *testing.T) {
+	for label, d := range allDefinitions() {
+		for _, spec := range d.References {
+			switch {
+			case spec.ID == "IA-3":
+				t.Errorf("%s still cites IA-3, device identification, for a finding about users", label)
+			case spec.ID == "SI-3" && label == "windows/firewall.profile_inactive":
+				t.Errorf("%s still cites SI-3, malicious code protection", label)
+			case spec.ID == "SI-16" && label == "linux/rhel/permissions.selinux_disabled":
+				t.Errorf("%s still cites SI-16, memory protection", label)
+			case strings.HasSuffix(spec.URL, "/AUR#Safety") || strings.HasSuffix(spec.URL, "/Security#sudo"):
+				t.Errorf("%s cites %s, an anchor its page does not have", label, spec.URL)
+			}
+		}
+	}
+}
+
+func TestReferenceSpecRules(t *testing.T) {
+	good := ReferenceSpec{Source: RefTypeNIST, ID: "AC-6", Title: "Least Privilege", Version: "SP 800-53 Rev 5.2.0", Verified: "2026-11-15"}
+	if err := good.validate(); err != nil {
+		t.Fatalf("a well-formed NIST reference was refused: %v", err)
+	}
+	bad := map[string]ReferenceSpec{
+		"unknown source":        {Source: "BLOG", ID: "x"},
+		"NIST not a control":    {Source: RefTypeNIST, ID: "least privilege", Title: "t", Version: "v"},
+		"NIST without title":    {Source: RefTypeNIST, ID: "AC-6", Version: "v"},
+		"NIST without version":  {Source: RefTypeNIST, ID: "AC-6", Title: "t"},
+		"URL not https":         {Source: RefTypeURL, Title: "t", URL: "http://example.com", Version: "v"},
+		"URL without title":     {Source: RefTypeURL, URL: "https://example.com", Version: "v"},
+		"CIS without benchmark": {Source: RefTypeCIS, Version: "v1", ID: "1.1"},
+		"bad date":              {Source: RefTypeNIST, ID: "AC-6", Title: "t", Version: "v", Verified: "yesterday"},
+	}
+	for name, spec := range bad {
+		if err := spec.validate(); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+
+	unverified := good
+	unverified.Verified = ""
+	if _, ok := unverified.report(); ok {
+		t.Error("an unverified reference is reported")
+	}
+	ref, ok := good.report()
+	if !ok || ref.Title != "NIST SP 800-53 Rev 5.2.0 AC-6 (Least Privilege)" || ref.Type != RefTypeNIST {
+		t.Errorf("NIST reference reported as %+v", ref)
+	}
+
+	d := FindingDefinition{CWE: finding.CWE("CWE-284"), References: []ReferenceSpec{good, unverified}}
+	refs := d.ToReferences()
+	if len(refs) != 2 || refs[0].Type != RefTypeCWE || refs[0].URL != "https://cwe.mitre.org/data/definitions/284.html" {
+		t.Errorf("references of a definition with a cwe and one verified entry: %+v", refs)
+	}
+	if got := d.ToCategories(); len(got) != 1 || got[0] != "AC" {
+		t.Errorf("categories %v, want [AC]", got)
+	}
+}

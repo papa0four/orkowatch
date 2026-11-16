@@ -4,8 +4,10 @@
 # one its cvss_vector computes. The registry refuses to load a definition where
 # the severity, the score and the vector disagree:
 #   CRITICAL 9.0-10.0 | HIGH 7.0-8.9 | MEDIUM 4.0-6.9 | LOW 0.1-3.9
-# All entries sourced from CIS Distribution Independent Linux Benchmark v2.0.0,
-# NIST SP 800-53 Rev 5, and CVSS v3.1 scoring methodology.
+# Each reference states its source, the edition of it that was checked and the
+# date it was verified (see registry.ReferenceSpec). One with no verified date has
+# not been checked and is withheld from every report. The weakness a definition
+# maps to is its cwe field, and its reference is built from that.
 
 # -------------------------
 # SSH checker findings
@@ -32,9 +34,15 @@ ssh.config_not_found:
     PasswordAuthentication, PermitRootLogin, AllowUsers, and cipher
     suites. Restart sshd after making changes: systemctl restart sshd.
   references:
-    - "CIS Distribution Independent Linux Benchmark v2.0.0 §5.2"
-    - "NIST SP 800-53 Rev 5 CM-6 (Configuration Settings)"
-    - "https://cwe.mitre.org/data/definitions/16.html"
+    - source: CIS
+      benchmark: "CIS Distribution Independent Linux Benchmark"
+      version: "v2.0.0"
+      id: "5.2"
+    - source: NIST
+      id: "CM-6"
+      title: "Configuration Settings"
+      version: "SP 800-53 Rev 5.2.0"
+      verified: "2026-11-15"
 
 ssh.root_login_permitted:
   title: "SSH PermitRootLogin is not explicitly disabled"
@@ -60,10 +68,20 @@ ssh.root_login_permitted:
     non-privileged account followed by explicit privilege escalation
     via sudo.
   references:
-    - "CIS Distribution Independent Linux Benchmark v2.0.0 §5.2.8"
-    - "NIST SP 800-53 Rev 5 AC-6 (Least Privilege)"
-    - "NIST SP 800-53 Rev 5 IA-2 (Identification and Authentication)"
-    - "https://cwe.mitre.org/data/definitions/250.html"
+    - source: CIS
+      benchmark: "CIS Distribution Independent Linux Benchmark"
+      version: "v2.0.0"
+      id: "5.2.8"
+    - source: NIST
+      id: "AC-6"
+      title: "Least Privilege"
+      version: "SP 800-53 Rev 5.2.0"
+      verified: "2026-11-15"
+    - source: NIST
+      id: "IA-2"
+      title: "Identification and Authentication (Organizational Users)"
+      version: "SP 800-53 Rev 5.2.0"
+      verified: "2026-11-15"
 
 ssh.password_auth_enabled:
   title: "SSH password authentication is enabled"
@@ -88,9 +106,15 @@ ssh.password_auth_enabled:
     required users before disabling password auth to avoid lockout.
     Restart sshd after changes.
   references:
-    - "CIS Distribution Independent Linux Benchmark v2.0.0 §5.2.11"
-    - "NIST SP 800-53 Rev 5 IA-5(1) (Authenticator Management)"
-    - "https://cwe.mitre.org/data/definitions/521.html"
+    - source: CIS
+      benchmark: "CIS Distribution Independent Linux Benchmark"
+      version: "v2.0.0"
+      id: "5.2.11"
+    - source: NIST
+      id: "IA-5(1)"
+      title: "Password-based Authentication"
+      version: "SP 800-53 Rev 5.2.0"
+      verified: "2026-11-15"
 
 ssh.permit_root_login_not_set:
   title: "PermitRootLogin directive is absent from SSH configuration"
@@ -114,9 +138,15 @@ ssh.permit_root_login_not_set:
     of the assumed default. Explicit configuration is always safer than
     relying on compiled-in defaults.
   references:
-    - "CIS Distribution Independent Linux Benchmark v2.0.0 §5.2.8"
-    - "NIST SP 800-53 Rev 5 CM-6 (Configuration Settings)"
-    - "https://cwe.mitre.org/data/definitions/16.html"
+    - source: CIS
+      benchmark: "CIS Distribution Independent Linux Benchmark"
+      version: "v2.0.0"
+      id: "5.2.8"
+    - source: NIST
+      id: "CM-6"
+      title: "Configuration Settings"
+      version: "SP 800-53 Rev 5.2.0"
+      verified: "2026-11-15"
 
 ssh.password_auth_not_set:
   title: "PasswordAuthentication directive is absent from SSH configuration"
@@ -138,9 +168,15 @@ ssh.password_auth_not_set:
     Configure key-based authentication before disabling password auth
     to prevent lockout. Restart sshd after changes.
   references:
-    - "CIS Distribution Independent Linux Benchmark v2.0.0 §5.2.11"
-    - "NIST SP 800-53 Rev 5 CM-6 (Configuration Settings)"
-    - "https://cwe.mitre.org/data/definitions/16.html"
+    - source: CIS
+      benchmark: "CIS Distribution Independent Linux Benchmark"
+      version: "v2.0.0"
+      id: "5.2.11"
+    - source: NIST
+      id: "CM-6"
+      title: "Configuration Settings"
+      version: "SP 800-53 Rev 5.2.0"
+      verified: "2026-11-15"
 
 # -------------------------
 # Firewall checker findings
@@ -169,9 +205,15 @@ firewall.no_active_manager:
     firewalld. Configure rules to permit only required traffic and deny
     all else by default.
   references:
-    - "CIS Distribution Independent Linux Benchmark v2.0.0 §3.5"
-    - "NIST SP 800-53 Rev 5 SC-7 (Boundary Protection)"
-    - "https://cwe.mitre.org/data/definitions/284.html"
+    - source: CIS
+      benchmark: "CIS Distribution Independent Linux Benchmark"
+      version: "v2.0.0"
+      id: "3.5"
+    - source: NIST
+      id: "SC-7"
+      title: "Boundary Protection"
+      version: "SP 800-53 Rev 5.2.0"
+      verified: "2026-11-15"
 
 firewall.ufw_inactive:
   title: "UFW firewall is installed but not enforcing"
@@ -197,9 +239,15 @@ firewall.ufw_inactive:
     allow rules for required services before enabling to avoid lockout:
     ufw allow ssh.
   references:
-    - "CIS Distribution Independent Linux Benchmark v2.0.0 §3.5"
-    - "NIST SP 800-53 Rev 5 SC-7 (Boundary Protection)"
-    - "https://cwe.mitre.org/data/definitions/284.html"
+    - source: CIS
+      benchmark: "CIS Distribution Independent Linux Benchmark"
+      version: "v2.0.0"
+      id: "3.5"
+    - source: NIST
+      id: "SC-7"
+      title: "Boundary Protection"
+      version: "SP 800-53 Rev 5.2.0"
+      verified: "2026-11-15"
 
 firewall.firewalld_not_running:
   title: "firewalld is installed but not running"
@@ -225,9 +273,15 @@ firewall.firewalld_not_running:
     firewall-cmd --list-all, and narrow the zone to the services the host
     actually offers.
   references:
-    - "CIS Distribution Independent Linux Benchmark v2.0.0 §3.5"
-    - "NIST SP 800-53 Rev 5 SC-7 (Boundary Protection)"
-    - "https://cwe.mitre.org/data/definitions/284.html"
+    - source: CIS
+      benchmark: "CIS Distribution Independent Linux Benchmark"
+      version: "v2.0.0"
+      id: "3.5"
+    - source: NIST
+      id: "SC-7"
+      title: "Boundary Protection"
+      version: "SP 800-53 Rev 5.2.0"
+      verified: "2026-11-15"
 
 firewall.iptables_default_accept:
   title: "iptables INPUT chain accepts by default with no ingress rules"
@@ -253,9 +307,15 @@ firewall.iptables_default_accept:
     default drop to avoid lockout, and persist the result through the
     distribution's iptables restore mechanism so it survives reboot.
   references:
-    - "CIS Distribution Independent Linux Benchmark v2.0.0 §3.5"
-    - "NIST SP 800-53 Rev 5 SC-7 (Boundary Protection)"
-    - "https://cwe.mitre.org/data/definitions/284.html"
+    - source: CIS
+      benchmark: "CIS Distribution Independent Linux Benchmark"
+      version: "v2.0.0"
+      id: "3.5"
+    - source: NIST
+      id: "SC-7"
+      title: "Boundary Protection"
+      version: "SP 800-53 Rev 5.2.0"
+      verified: "2026-11-15"
 
 # -------------------------
 # User checker findings
@@ -284,9 +344,15 @@ users.empty_password_hash:
     passwd -l <username> and set the shell to /usr/sbin/nologin in
     /etc/passwd.
   references:
-    - "CIS Distribution Independent Linux Benchmark v2.0.0 §6.2.1"
-    - "NIST SP 800-53 Rev 5 IA-5 (Authenticator Management)"
-    - "https://cwe.mitre.org/data/definitions/258.html"
+    - source: CIS
+      benchmark: "CIS Distribution Independent Linux Benchmark"
+      version: "v2.0.0"
+      id: "6.2.1"
+    - source: NIST
+      id: "IA-5"
+      title: "Authenticator Management"
+      version: "SP 800-53 Rev 5.2.0"
+      verified: "2026-11-15"
 
 users.uid_zero_non_root:
   title: "Non-root account has UID 0"
@@ -310,9 +376,15 @@ users.uid_zero_non_root:
     Investigate how UID 0 was assigned and whether unauthorized access
     occurred. Only the root account should have UID 0.
   references:
-    - "CIS Distribution Independent Linux Benchmark v2.0.0 §6.2.5"
-    - "NIST SP 800-53 Rev 5 AC-6 (Least Privilege)"
-    - "https://cwe.mitre.org/data/definitions/250.html"
+    - source: CIS
+      benchmark: "CIS Distribution Independent Linux Benchmark"
+      version: "v2.0.0"
+      id: "6.2.5"
+    - source: NIST
+      id: "AC-6"
+      title: "Least Privilege"
+      version: "SP 800-53 Rev 5.2.0"
+      verified: "2026-11-15"
 
 users.root_account_unlocked:
   title: "Root account is not locked"
@@ -335,9 +407,15 @@ users.root_account_unlocked:
     configured to provide necessary administrative access before locking.
     Verify PermitRootLogin no is set in sshd_config independently.
   references:
-    - "CIS Distribution Independent Linux Benchmark v2.0.0 §5.4.1"
-    - "NIST SP 800-53 Rev 5 AC-6 (Least Privilege)"
-    - "https://cwe.mitre.org/data/definitions/284.html"
+    - source: CIS
+      benchmark: "CIS Distribution Independent Linux Benchmark"
+      version: "v2.0.0"
+      id: "5.4.1"
+    - source: NIST
+      id: "AC-6"
+      title: "Least Privilege"
+      version: "SP 800-53 Rev 5.2.0"
+      verified: "2026-11-15"
 
 users.ldap_configured:
   title: "LDAP authentication is configured"
@@ -360,8 +438,11 @@ users.ldap_configured:
     Ensure a local fallback authentication method exists for system
     recovery. Review /etc/ldap.conf for cleartext bind credentials.
   references:
-    - "NIST SP 800-53 Rev 5 IA-2 (Identification and Authentication)"
-    - "https://cwe.mitre.org/data/definitions/287.html"
+    - source: NIST
+      id: "IA-2"
+      title: "Identification and Authentication (Organizational Users)"
+      version: "SP 800-53 Rev 5.2.0"
+      verified: "2026-11-15"
 
 users.kerberos_configured:
   title: "Kerberos authentication is configured"
@@ -384,8 +465,11 @@ users.kerberos_configured:
     DES and RC4 entries. Ensure time synchronization is configured.
     Verify KDC redundancy for availability.
   references:
-    - "NIST SP 800-53 Rev 5 IA-2 (Identification and Authentication)"
-    - "https://cwe.mitre.org/data/definitions/287.html"
+    - source: NIST
+      id: "IA-2"
+      title: "Identification and Authentication (Organizational Users)"
+      version: "SP 800-53 Rev 5.2.0"
+      verified: "2026-11-15"
 
 users.sssd_configured:
   title: "SSSD authentication is configured"
@@ -409,8 +493,11 @@ users.sssd_configured:
     offline authentication behavior to verify local fallback functions
     correctly.
   references:
-    - "NIST SP 800-53 Rev 5 IA-2 (Identification and Authentication)"
-    - "https://cwe.mitre.org/data/definitions/287.html"
+    - source: NIST
+      id: "IA-2"
+      title: "Identification and Authentication (Organizational Users)"
+      version: "SP 800-53 Rev 5.2.0"
+      verified: "2026-11-15"
 
 users.regular_user_admin_privileges:
   title: "Regular user account has administrative group membership"
@@ -434,9 +521,15 @@ users.regular_user_admin_privileges:
     elevated access. Scope sudo rules to specific commands where full
     root access is not required.
   references:
-    - "CIS Distribution Independent Linux Benchmark v2.0.0 §5.4.1"
-    - "NIST SP 800-53 Rev 5 AC-6 (Least Privilege)"
-    - "https://cwe.mitre.org/data/definitions/250.html"
+    - source: CIS
+      benchmark: "CIS Distribution Independent Linux Benchmark"
+      version: "v2.0.0"
+      id: "5.4.1"
+    - source: NIST
+      id: "AC-6"
+      title: "Least Privilege"
+      version: "SP 800-53 Rev 5.2.0"
+      verified: "2026-11-15"
 
 users.login_shell_present:
   title: "User account has an interactive login shell"
@@ -462,9 +555,15 @@ users.login_shell_present:
     <username>. Review all accounts with interactive shells and confirm
     each is operationally justified.
   references:
-    - "CIS Distribution Independent Linux Benchmark v2.0.0 §5.4.2"
-    - "NIST SP 800-53 Rev 5 AC-2 (Account Management)"
-    - "https://cwe.mitre.org/data/definitions/272.html"
+    - source: CIS
+      benchmark: "CIS Distribution Independent Linux Benchmark"
+      version: "v2.0.0"
+      id: "5.4.2"
+    - source: NIST
+      id: "AC-2"
+      title: "Account Management"
+      version: "SP 800-53 Rev 5.2.0"
+      verified: "2026-11-15"
 
 users.no_password_login_shell:
   title: "Account with no password set has a valid login shell"
@@ -491,9 +590,15 @@ users.no_password_login_shell:
     <username> or userdel <username>. Audit all accounts with empty
     password fields: awk -F: '$2 == "" ' /etc/shadow.
   references:
-    - "CIS Distribution Independent Linux Benchmark v2.0.0 §5.4.1"
-    - "NIST SP 800-53 Rev 5 IA-5 (Authenticator Management)"
-    - "https://cwe.mitre.org/data/definitions/287.html"
+    - source: CIS
+      benchmark: "CIS Distribution Independent Linux Benchmark"
+      version: "v2.0.0"
+      id: "5.4.1"
+    - source: NIST
+      id: "IA-5"
+      title: "Authenticator Management"
+      version: "SP 800-53 Rev 5.2.0"
+      verified: "2026-11-15"
 
 # -------------------------
 # Permissions checker findings
@@ -524,9 +629,15 @@ permissions.critical_path_not_root_owned:
     changed before restoring it, because the change itself indicates
     either a misapplied administrative action or unauthorized access.
   references:
-    - "CIS Distribution Independent Linux Benchmark v2.0.0 §6.1"
-    - "NIST SP 800-53 Rev 5 AC-3 (Access Enforcement)"
-    - "https://cwe.mitre.org/data/definitions/282.html"
+    - source: CIS
+      benchmark: "CIS Distribution Independent Linux Benchmark"
+      version: "v2.0.0"
+      id: "6.1"
+    - source: NIST
+      id: "AC-3"
+      title: "Access Enforcement"
+      version: "SP 800-53 Rev 5.2.0"
+      verified: "2026-11-15"
 
 permissions.path_exceeds_expected_mode:
   title: "File or directory permissions exceed expected mode"
@@ -554,9 +665,15 @@ permissions.path_exceeds_expected_mode:
     safe. Consult the CIS benchmark for the specific distribution before
     relaxing any path.
   references:
-    - "CIS Distribution Independent Linux Benchmark v2.0.0 §6.1"
-    - "NIST SP 800-53 Rev 5 AC-3 (Access Enforcement)"
-    - "https://cwe.mitre.org/data/definitions/732.html"
+    - source: CIS
+      benchmark: "CIS Distribution Independent Linux Benchmark"
+      version: "v2.0.0"
+      id: "6.1"
+    - source: NIST
+      id: "AC-3"
+      title: "Access Enforcement"
+      version: "SP 800-53 Rev 5.2.0"
+      verified: "2026-11-15"
 
 permissions.world_writable_file:
   title: "World-writable file found on the scanned filesystem"
@@ -580,9 +697,15 @@ permissions.world_writable_file:
     modified. Audit cron jobs, service scripts, and init files that
     reference the affected path.
   references:
-    - "CIS Distribution Independent Linux Benchmark v2.0.0 §6.1.10"
-    - "NIST SP 800-53 Rev 5 AC-3 (Access Enforcement)"
-    - "https://cwe.mitre.org/data/definitions/732.html"
+    - source: CIS
+      benchmark: "CIS Distribution Independent Linux Benchmark"
+      version: "v2.0.0"
+      id: "6.1.10"
+    - source: NIST
+      id: "AC-3"
+      title: "Access Enforcement"
+      version: "SP 800-53 Rev 5.2.0"
+      verified: "2026-11-15"
 
 permissions.suid_sgid_binary:
   title: "SUID or SGID binary found"
@@ -608,9 +731,15 @@ permissions.suid_sgid_binary:
     <path>. Compare against a known-good baseline for the distribution
     to identify unexpected additions.
   references:
-    - "CIS Distribution Independent Linux Benchmark v2.0.0 §6.1.11, §6.1.12"
-    - "NIST SP 800-53 Rev 5 AC-6 (Least Privilege)"
-    - "https://cwe.mitre.org/data/definitions/250.html"
+    - source: CIS
+      benchmark: "CIS Distribution Independent Linux Benchmark"
+      version: "v2.0.0"
+      id: "6.1.11, §6.1.12"
+    - source: NIST
+      id: "AC-6"
+      title: "Least Privilege"
+      version: "SP 800-53 Rev 5.2.0"
+      verified: "2026-11-15"
 
 permissions.unowned_file:
   title: "File with no valid owner or group found"
@@ -633,6 +762,12 @@ permissions.unowned_file:
     file is not needed, remove it. Audit recently deleted accounts to
     identify the source of orphaned files.
   references:
-    - "CIS Distribution Independent Linux Benchmark v2.0.0 §6.1.13, §6.1.14"
-    - "NIST SP 800-53 Rev 5 AC-3 (Access Enforcement)"
-    - "https://cwe.mitre.org/data/definitions/732.html"
+    - source: CIS
+      benchmark: "CIS Distribution Independent Linux Benchmark"
+      version: "v2.0.0"
+      id: "6.1.13, §6.1.14"
+    - source: NIST
+      id: "AC-3"
+      title: "Access Enforcement"
+      version: "SP 800-53 Rev 5.2.0"
+      verified: "2026-11-15"

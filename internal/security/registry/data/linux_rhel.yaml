@@ -5,8 +5,10 @@
 # one its cvss_vector computes. The registry refuses to load a definition where
 # the severity, the score and the vector disagree:
 #   CRITICAL 9.0-10.0 | HIGH 7.0-8.9 | MEDIUM 4.0-6.9 | LOW 0.1-3.9
-# All entries sourced from CIS Red Hat Enterprise Linux 9 Benchmark v1.0.0,
-# NIST SP 800-53 Rev 5, and CVSS v3.1 scoring methodology.
+# Each reference states its source, the edition of it that was checked and the
+# date it was verified (see registry.ReferenceSpec). One with no verified date has
+# not been checked and is withheld from every report. The weakness a definition
+# maps to is its cwe field, and its reference is built from that.
 
 # -------------------------
 # Firewall checker findings
@@ -36,9 +38,15 @@ firewall.firewalld_not_running:
     before enabling to avoid lockout: firewall-cmd --permanent
     --add-service=ssh && firewall-cmd --reload.
   references:
-    - "CIS Red Hat Enterprise Linux 9 Benchmark v1.0.0 §3.5.1"
-    - "NIST SP 800-53 Rev 5 SC-7 (Boundary Protection)"
-    - "https://cwe.mitre.org/data/definitions/284.html"
+    - source: CIS
+      benchmark: "CIS Red Hat Enterprise Linux 9 Benchmark"
+      version: "v1.0.0"
+      id: "3.5.1"
+    - source: NIST
+      id: "SC-7"
+      title: "Boundary Protection"
+      version: "SP 800-53 Rev 5.2.0"
+      verified: "2026-11-15"
 
 # Consumer: #142. No checker emits this definition yet.
 firewall.firewalld_not_installed:
@@ -62,9 +70,15 @@ firewall.firewalld_not_installed:
     enable --now firewalld. Configure default zone policy to drop or
     reject and add explicit rules for required services.
   references:
-    - "CIS Red Hat Enterprise Linux 9 Benchmark v1.0.0 §3.5.1"
-    - "NIST SP 800-53 Rev 5 SC-7 (Boundary Protection)"
-    - "https://cwe.mitre.org/data/definitions/284.html"
+    - source: CIS
+      benchmark: "CIS Red Hat Enterprise Linux 9 Benchmark"
+      version: "v1.0.0"
+      id: "3.5.1"
+    - source: NIST
+      id: "SC-7"
+      title: "Boundary Protection"
+      version: "SP 800-53 Rev 5.2.0"
+      verified: "2026-11-15"
 
 # Consumer: #142. No checker emits this definition yet.
 firewall.firewalld_default_zone_public:
@@ -90,9 +104,15 @@ firewall.firewalld_default_zone_public:
     the drop or block zone with explicit service allowances is more
     appropriate than public.
   references:
-    - "CIS Red Hat Enterprise Linux 9 Benchmark v1.0.0 §3.5.1.4"
-    - "NIST SP 800-53 Rev 5 SC-7 (Boundary Protection)"
-    - "https://cwe.mitre.org/data/definitions/284.html"
+    - source: CIS
+      benchmark: "CIS Red Hat Enterprise Linux 9 Benchmark"
+      version: "v1.0.0"
+      id: "3.5.1.4"
+    - source: NIST
+      id: "SC-7"
+      title: "Boundary Protection"
+      version: "SP 800-53 Rev 5.2.0"
+      verified: "2026-11-15"
 
 # -------------------------
 # User checker findings
@@ -121,9 +141,15 @@ users.sudo_nopasswd:
     Edit safely with: visudo. If NOPASSWD is required for automation,
     scope it to the minimum required commands rather than ALL.
   references:
-    - "CIS Red Hat Enterprise Linux 9 Benchmark v1.0.0 §5.3.7"
-    - "NIST SP 800-53 Rev 5 AC-6 (Least Privilege)"
-    - "https://cwe.mitre.org/data/definitions/269.html"
+    - source: CIS
+      benchmark: "CIS Red Hat Enterprise Linux 9 Benchmark"
+      version: "v1.0.0"
+      id: "5.3.7"
+    - source: NIST
+      id: "AC-6"
+      title: "Least Privilege"
+      version: "SP 800-53 Rev 5.2.0"
+      verified: "2026-11-15"
 
 # Consumer: #142. No checker emits this definition yet.
 users.wheel_group_empty:
@@ -148,9 +174,20 @@ users.wheel_group_empty:
     access: grep wheel /etc/sudoers. Ensure direct root login is
     disabled and sudo is the sole escalation path.
   references:
-    - "CIS Red Hat Enterprise Linux 9 Benchmark v1.0.0 §5.3"
-    - "NIST SP 800-53 Rev 5 AC-6 (Least Privilege)"
-    - "https://cwe.mitre.org/data/definitions/269.html"
+    - source: CIS
+      benchmark: "CIS Red Hat Enterprise Linux 9 Benchmark"
+      version: "v1.0.0"
+      id: "5.3"
+    - source: NIST
+      id: "AC-6"
+      title: "Least Privilege"
+      version: "SP 800-53 Rev 5.2.0"
+      verified: "2026-11-15"
+    - source: URL
+      title: "Red Hat Enterprise Linux 9, Configuring basic system settings: Managing sudo access"
+      url: "https://docs.redhat.com/en/documentation/red_hat_enterprise_linux/9/html/configuring_basic_system_settings/managing-sudo-access_configuring-basic-system-settings"
+      version: "Red Hat Enterprise Linux 9"
+      verified: "2026-11-15"
 
 # Consumer: #142. No checker emits this definition yet.
 users.passwd_no_shadow:
@@ -174,9 +211,15 @@ users.passwd_no_shadow:
     passwd field entries with x. Verify with: pwck -r. Ensure /etc/shadow
     has permissions 000 with root ownership on RHEL-family systems.
   references:
-    - "CIS Red Hat Enterprise Linux 9 Benchmark v1.0.0 §6.2.2"
-    - "NIST SP 800-53 Rev 5 IA-5 (Authenticator Management)"
-    - "https://cwe.mitre.org/data/definitions/522.html"
+    - source: CIS
+      benchmark: "CIS Red Hat Enterprise Linux 9 Benchmark"
+      version: "v1.0.0"
+      id: "6.2.2"
+    - source: NIST
+      id: "IA-5"
+      title: "Authenticator Management"
+      version: "SP 800-53 Rev 5.2.0"
+      verified: "2026-11-15"
 
 # -------------------------
 # Permissions checker findings
@@ -207,9 +250,15 @@ permissions.shadow_world_readable:
     Rotate passwords for all local accounts as a precaution if the
     file was readable for an unknown period.
   references:
-    - "CIS Red Hat Enterprise Linux 9 Benchmark v1.0.0 §6.1.3"
-    - "NIST SP 800-53 Rev 5 AC-3 (Access Enforcement)"
-    - "https://cwe.mitre.org/data/definitions/732.html"
+    - source: CIS
+      benchmark: "CIS Red Hat Enterprise Linux 9 Benchmark"
+      version: "v1.0.0"
+      id: "6.1.3"
+    - source: NIST
+      id: "AC-3"
+      title: "Access Enforcement"
+      version: "SP 800-53 Rev 5.2.0"
+      verified: "2026-11-15"
 
 # Consumer: #142. No checker emits this definition yet.
 permissions.sudoers_world_readable:
@@ -234,9 +283,15 @@ permissions.sudoers_world_readable:
     /etc/sudoers.d/. Always edit via visudo to prevent syntax errors
     that could break sudo access entirely.
   references:
-    - "CIS Red Hat Enterprise Linux 9 Benchmark v1.0.0 §5.3.2"
-    - "NIST SP 800-53 Rev 5 AC-3 (Access Enforcement)"
-    - "https://cwe.mitre.org/data/definitions/732.html"
+    - source: CIS
+      benchmark: "CIS Red Hat Enterprise Linux 9 Benchmark"
+      version: "v1.0.0"
+      id: "5.3.2"
+    - source: NIST
+      id: "AC-3"
+      title: "Access Enforcement"
+      version: "SP 800-53 Rev 5.2.0"
+      verified: "2026-11-15"
 
 # Consumer: #142. No checker emits this definition yet.
 permissions.ssh_dir_permissions:
@@ -264,9 +319,15 @@ permissions.ssh_dir_permissions:
     ~/.ssh. Audit authorized_keys contents for unexpected entries.
     Enable SSH StrictModes in sshd_config if not already set.
   references:
-    - "CIS Red Hat Enterprise Linux 9 Benchmark v1.0.0 §5.2.19"
-    - "NIST SP 800-53 Rev 5 AC-3 (Access Enforcement)"
-    - "https://cwe.mitre.org/data/definitions/732.html"
+    - source: CIS
+      benchmark: "CIS Red Hat Enterprise Linux 9 Benchmark"
+      version: "v1.0.0"
+      id: "5.2.19"
+    - source: NIST
+      id: "AC-3"
+      title: "Access Enforcement"
+      version: "SP 800-53 Rev 5.2.0"
+      verified: "2026-11-15"
 
 # Consumer: #142. No checker emits this definition yet.
 permissions.selinux_disabled:
@@ -295,7 +356,17 @@ permissions.selinux_disabled:
     Resolve any AVC denials before switching to enforcing to avoid
     service disruption: ausearch -m avc | audit2allow.
   references:
-    - "CIS Red Hat Enterprise Linux 9 Benchmark v1.0.0 §1.6.1"
-    - "NIST SP 800-53 Rev 5 AC-3 (Access Enforcement)"
-    - "NIST SP 800-53 Rev 5 SI-16 (Memory Protection)"
-    - "https://cwe.mitre.org/data/definitions/284.html"
+    - source: CIS
+      benchmark: "CIS Red Hat Enterprise Linux 9 Benchmark"
+      version: "v1.0.0"
+      id: "1.6.1"
+    - source: NIST
+      id: "AC-3"
+      title: "Access Enforcement"
+      version: "SP 800-53 Rev 5.2.0"
+      verified: "2026-11-15"
+    - source: URL
+      title: "Red Hat Enterprise Linux 9, Using SELinux: Changing SELinux to enforcing mode"
+      url: "https://docs.redhat.com/en/documentation/red_hat_enterprise_linux/9/html/using_selinux/changing-selinux-states-and-modes_using-selinux#changing-to-enforcing-mode_changing-selinux-states-and-modes"
+      version: "Red Hat Enterprise Linux 9"
+      verified: "2026-11-15"

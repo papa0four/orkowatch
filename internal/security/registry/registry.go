@@ -16,9 +16,7 @@ import (
 	"io"
 	"math"
 	"os"
-	"regexp"
 	"runtime"
-	"sort"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -64,16 +62,16 @@ type (
 	// not apply to declares notapplicable instead, and only a definition
 	// that can fail must name the weakness it maps to in CWE.
 	FindingDefinition struct {
-		Title       string         `yaml:"title"`
-		Severity    string         `yaml:"severity"`
-		Result      finding.Result `yaml:"result"`
-		CVSSScore   float64        `yaml:"cvss_score"`
-		CVSSVector  string         `yaml:"cvss_vector"`
-		CWE         finding.CWE    `yaml:"cwe"`
-		Description string         `yaml:"description"`
-		Impact      string         `yaml:"impact"`
-		Resolution  string         `yaml:"resolution"`
-		References  []string       `yaml:"references"`
+		Title       string          `yaml:"title"`
+		Severity    string          `yaml:"severity"`
+		Result      finding.Result  `yaml:"result"`
+		CVSSScore   float64         `yaml:"cvss_score"`
+		CVSSVector  string          `yaml:"cvss_vector"`
+		CWE         finding.CWE     `yaml:"cwe"`
+		Description string          `yaml:"description"`
+		Impact      string          `yaml:"impact"`
+		Resolution  string          `yaml:"resolution"`
+		References  []ReferenceSpec `yaml:"references"`
 
 		// AttackTechniques lists the ATT&CK techniques an adversary can use
 		// because of the condition. Every identifier must be in the bundled
@@ -108,15 +106,6 @@ const (
 	// DistroUnknown is the resolution of an os-release identifier no family
 	// claims.
 	DistroUnknown Distro = "unknown"
-
-	// Reference type classifications produced by ToReferences.
-	RefTypeCVE   = "CVE"
-	RefTypeCWE   = "CWE"
-	RefTypeCIS   = "CIS"
-	RefTypeNIST  = "NIST"
-	RefTypeMITRE = "MITRE"
-	RefTypeURL   = "URL"
-	RefTypeOther = "OTHER"
 )
 
 var (
@@ -152,12 +141,6 @@ var (
 
 	//go:embed data/unix_openbsd.yaml
 	unixOpenBSDData []byte
-
-	// nistFamilyPattern matches a NIST SP 800-53 Rev 5 control-family citation
-	// and captures the two-letter family code. Enhancement suffixes such as
-	// "(1)" and the trailing parenthetical control name are not part of the
-	// capture and are not required to be present.
-	nistFamilyPattern = regexp.MustCompile(`^NIST SP 800-53 Rev 5 ([A-Z]{2})-\d+`)
 
 	// registry, linuxRegistry, and unixRegistry are the finding indexes built
 	// from the embedded definition files. Lookup consults them in that order
@@ -299,50 +282,6 @@ func (d FindingDefinition) ToTechniques() []finding.Technique {
 	return out
 }
 
-// ToReferences classifies flat YAML reference strings into
-// structured finding.Reference entries by kind.
-func (d FindingDefinition) ToReferences() []finding.Reference {
-	if len(d.References) == 0 {
-		return nil
-	}
-	out := make([]finding.Reference, 0, len(d.References))
-	for _, raw := range d.References {
-		out = append(out, classifyReference(raw))
-	}
-	return out
-}
-
-// ToCategories extracts deduplicated NIST SP 800-53 Rev 5 control-family
-// codes from d's NIST-classified references, in alphabetical order.
-// Every reference has already passed validateCategories at registry load
-// time, so a pattern mismatch here indicates the two functions have gone
-// out of sync with each other, not a data defect.
-func (d FindingDefinition) ToCategories() []string {
-	if len(d.References) == 0 {
-		return nil
-	}
-	var out []string
-	seen := make(map[string]struct{})
-	for _, raw := range d.References {
-		ref := classifyReference(raw)
-		if ref.Type != RefTypeNIST {
-			continue
-		}
-		match := nistFamilyPattern.FindStringSubmatch(ref.Title)
-		if match == nil {
-			panic("registry: NIST reference passed validateCategories but failed extraction: " + ref.Title)
-		}
-		family := match[1]
-		if _, dup := seen[family]; dup {
-			continue
-		}
-		seen[family] = struct{}{}
-		out = append(out, family)
-	}
-	sort.Strings(out)
-	return out
-}
-
 // loadRegistries parses the embedded definition files into the platform and
 // family indexes. It panix on malformed YAML, halting startup rather than
 // leaving the checker to look up a finding that silently does not exist.
@@ -409,7 +348,7 @@ func mustLoad(name string, data []byte) map[FindingKey]FindingDefinition {
 // because that identifier is the key enrichment looks weaknesses up by; one
 // that cannot fail needs none.
 func (d FindingDefinition) validated() (FindingDefinition, error) {
-	if err := d.validateCategories(); err != nil {
+	if err := d.validateReferences(); err != nil {
 		return d, err
 	}
 	if err := checkTechniques(d.AttackTechniques); err != nil {
@@ -466,25 +405,6 @@ func (d FindingDefinition) validateCVSS() error {
 	}
 	if band := cvss.Band(d.CVSSScore); band != d.Severity {
 		return fmt.Errorf("severity %s is not the %s band of cvss_score %.1f", d.Severity, band, d.CVSSScore)
-	}
-	return nil
-}
-
-// validateCategories confirms every NIST-classified reference in d resolves
-// to a control-family code. Called once per finding at registry load time
-// so ToCategories can extract categories at finding-construction sites
-// without an error return: a malformed citation is a registry data defect
-// and must halt startup, not silently produce a finding with no category
-// or a wrong one.
-func (d FindingDefinition) validateCategories() error {
-	for _, raw := range d.References {
-		ref := classifyReference(raw)
-		if ref.Type != RefTypeNIST {
-			continue
-		}
-		if !nistFamilyPattern.MatchString(ref.Title) {
-			return fmt.Errorf("malformed NIST control-family reference: %q", ref.Title)
-		}
 	}
 	return nil
 }
@@ -592,47 +512,4 @@ func containsDistro(families []Distro, d Distro) bool {
 		}
 	}
 	return false
-}
-
-func classifyReference(raw string) finding.Reference {
-	trimmed := strings.TrimSpace(raw)
-
-	switch {
-	case isCWEReference(trimmed):
-		return finding.Reference{Title: trimmed, URL: cweURL(trimmed), Type: RefTypeCWE}
-	case isCVEReference(trimmed):
-		return finding.Reference{Title: trimmed, URL: cveURL(trimmed), Type: RefTypeCVE}
-	case strings.HasPrefix(trimmed, "CIS "):
-		return finding.Reference{Title: trimmed, Type: RefTypeCIS}
-	case strings.HasPrefix(trimmed, "NIST "):
-		return finding.Reference{Title: trimmed, Type: RefTypeNIST}
-	case strings.HasPrefix(trimmed, "MITRE "):
-		return finding.Reference{Title: trimmed, Type: RefTypeMITRE}
-	case strings.HasPrefix(trimmed, "https://") || strings.HasPrefix(trimmed, "http://"):
-		return finding.Reference{Title: trimmed, URL: trimmed, Type: RefTypeURL}
-	default:
-		return finding.Reference{Title: trimmed, Type: RefTypeOther}
-	}
-}
-
-func isCWEReference(s string) bool {
-	return strings.HasPrefix(s, "CWE-") || strings.HasPrefix(s, "https://cwe.mitre.org/")
-}
-
-func isCVEReference(s string) bool {
-	return strings.HasPrefix(s, "CVE-") || strings.HasPrefix(s, "https://nvd.nist.gov/vuln/detail/CVE-")
-}
-
-func cweURL(s string) string {
-	if strings.HasPrefix(s, "https://") {
-		return s
-	}
-	return "https://cwe.mitre.org/data/definitions/" + strings.TrimPrefix(s, "CWE-") + ".html"
-}
-
-func cveURL(s string) string {
-	if strings.HasPrefix(s, "https://") {
-		return s
-	}
-	return "https://nvd.nist.gov/vuln/detail/" + s
 }

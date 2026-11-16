@@ -227,9 +227,9 @@ func writeReference(ew *render.ErrWriter, ref finding.Reference) {
 }
 
 // ReferenceText renders a reference as "Type: Title", appending the URL in
-// parentheses when it differs from Title. registry.classifyReference always
-// sets Title to the human- or ID-readable form and sets URL only when a
-// distinct link exists, so the two are never printed twice. It is shared so
+// parentheses when it differs from Title. The registry sets Title to the
+// human- or ID-readable form and URL only when a distinct link exists, so the
+// two are never printed twice. It is shared so
 // every view of a finding cites its references the same way.
 func ReferenceText(ref finding.Reference) string {
 	if ref.URL != "" && ref.URL != ref.Title {
