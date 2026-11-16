@@ -224,12 +224,32 @@ func TestMappedTechniquesReachFindings(t *testing.T) {
 	}
 }
 
+var (
+	nistBasis = regexp.MustCompile(`^NIST ([A-Z]{2}-\d+(?:\(\d+\))?) maps to `)
+	cweBasis  = regexp.MustCompile(`^(CWE-\d+) relates to CAPEC-`)
+)
+
+// checkBasis reports what is wrong with one line of a link's basis: it must name
+// a NIST control the definition cites, or the weakness its cwe field names.
+func checkBasis(d FindingDefinition, cited map[string]bool, basis string) string {
+	switch {
+	case nistBasis.MatchString(basis):
+		if id := nistBasis.FindStringSubmatch(basis)[1]; !cited[id] {
+			return "rests on NIST " + id + ", which the definition does not cite"
+		}
+	case cweBasis.MatchString(basis):
+		if id := cweBasis.FindStringSubmatch(basis)[1]; id != string(d.CWE) {
+			return "rests on " + id + ", but the definition's weakness is " + string(d.CWE)
+		}
+	default:
+		return "names neither a cited NIST control nor the weakness: " + basis
+	}
+	return ""
+}
+
 // Every technique link says what supports it, and what it names is on the
-// definition: a NIST control it cites, or the weakness its cwe field names, so
-// the basis cannot drift from the data it describes.
+// definition, so the basis cannot drift from the data it describes.
 func TestAttackLinksStateTheirBasis(t *testing.T) {
-	nistBasis := regexp.MustCompile(`^NIST ([A-Z]{2}-\d+(?:\(\d+\))?) maps to `)
-	cweBasis := regexp.MustCompile(`^(CWE-\d+) relates to CAPEC-`)
 	for label, d := range allDefinitions() {
 		cited := map[string]bool{}
 		for _, spec := range d.References {
@@ -242,17 +262,8 @@ func TestAttackLinksStateTheirBasis(t *testing.T) {
 				t.Errorf("%s: %s has no basis", label, link.ID)
 			}
 			for _, b := range link.Basis {
-				switch {
-				case nistBasis.MatchString(b):
-					if id := nistBasis.FindStringSubmatch(b)[1]; !cited[id] {
-						t.Errorf("%s: %s rests on NIST %s, which the definition does not cite", label, link.ID, id)
-					}
-				case cweBasis.MatchString(b):
-					if id := cweBasis.FindStringSubmatch(b)[1]; id != string(d.CWE) {
-						t.Errorf("%s: %s rests on %s, but the definition's weakness is %s", label, link.ID, id, d.CWE)
-					}
-				default:
-					t.Errorf("%s: %s has a basis that names neither a cited NIST control nor the weakness: %q", label, link.ID, b)
+				if problem := checkBasis(d, cited, b); problem != "" {
+					t.Errorf("%s: %s %s", label, link.ID, problem)
 				}
 			}
 		}
