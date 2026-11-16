@@ -802,17 +802,23 @@ func (b browser) help() []hint {
 	pan := keyHint("pan", "left/right")
 	quit := keyHint("quit", "q")
 	report := keyHint("full report", "t")
-	pane := keyHint("pane", "tab")
+	pane := keyHint("switch pane", "tab")
 	search := keyHint("search", "/")
 
 	var tabs []hint
 	if len(b.tabs) > 1 {
-		tabs = []hint{keyHint("tab", "letter", "or", "[ ]")}
+		tabs = []hint{keyHint("prev/next source", "[ ]")}
 	}
-	common := func(before ...hint) []hint {
+	// common lists the hints of a pane in the order they are dropped from the end
+	// when the window is narrow: movement first and kept longest, then the way to
+	// the full report, the sources and the panes, and last the toggles that only
+	// the findings have, then search.
+	common := func(before []hint, toggles ...hint) []hint {
 		out := append(before, report)
 		out = append(out, tabs...)
-		return append(out, pane, search, quit)
+		out = append(out, pane)
+		out = append(out, toggles...)
+		return append(out, search, quit)
 	}
 	findings := []hint{keyHint("all rules", "a")}
 	if b.evidenceCut() > 0 {
@@ -828,19 +834,19 @@ func (b browser) help() []hint {
 	case b.searching:
 		return []hint{label("type to search"), keyHint("keep", "enter"), keyHint("clear", "esc")}
 	case b.focus == focusFilters && pn != nil:
-		return common(keyHint("move", "up/down"), keyHint("open source", "enter"))
+		return common([]hint{keyHint("move", "up/down"), keyHint("open source", "enter")})
 	case pn != nil && pn.listless():
 		return append([]hint{scroll, pan}, append(tabs, report, quit)...)
 	case pn != nil && b.focus == focusDetail:
-		return common(scroll, pan, keyHint("list", "esc"))
+		return common([]hint{scroll, pan, keyHint("list", "esc")})
 	case pn != nil:
-		return common(move, keyHint("detail", "enter"))
+		return common([]hint{move, keyHint("detail", "enter")})
 	case b.focus == focusFilters:
-		return common(append([]hint{keyHint("move", "up/down"), keyHint("apply", "enter")}, findings...)...)
+		return common([]hint{keyHint("move", "up/down"), keyHint("apply", "enter")}, findings...)
 	case b.focus == focusDetail:
-		return common(append([]hint{scroll, pan, keyHint("list", "esc")}, findings...)...)
+		return common([]hint{scroll, pan, keyHint("list", "esc")}, findings...)
 	default:
-		return common(append([]hint{move, keyHint("detail", "enter")}, findings...)...)
+		return common([]hint{move, keyHint("detail", "enter")}, findings...)
 	}
 }
 
@@ -969,13 +975,16 @@ func (b browser) sidebarLines() (lines []string, cursorLine int) {
 		lines = append(lines, style.Render(fmt.Sprintf("%-*s", filterWidth-1, line)))
 	}
 
-	lines = append(lines, b.paneTitle("source", focusFilters))
+	// The sources are a table: the key that opens each, then its name, under
+	// headings, with the key column as wide as the longest key or its heading so
+	// the rows line up however many sources there are.
+	keyWidth := len(keyHeading)
+	for _, t := range b.tabs {
+		keyWidth = max(keyWidth, len(t.letter))
+	}
+	lines = append(lines, b.paneTitle(fmt.Sprintf("  %-*s%s%s", keyWidth, keyHeading, sourceGap, sourceHeading), focusFilters))
 	for i, t := range b.tabs {
-		label := t.name
-		if t.letter != "" {
-			label = t.letter + " " + t.name
-		}
-		option(i, label, b.active == i)
+		option(i, fmt.Sprintf("%-*s%s%s", keyWidth, t.letter, sourceGap, t.name), b.active == i)
 	}
 
 	sources := len(b.tabs)
