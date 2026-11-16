@@ -314,7 +314,7 @@ The summary counts checks and conditions by result and findings by severity.
 generates the filename automatically:
 
 ```text
-owatch-<hostname>-m.<module_codes>-c.<check_codes>-e.<enrichment_codes>-<flag_codes>-<timestamp>.<ext>
+owatch-<hostname>-m.<module_codes>-c.<check_codes>-e.<enrichment_codes>-<timestamp>.<ext>
 ```
 
 - Segments are omitted entirely when empty — there are never double hyphens.
@@ -359,16 +359,7 @@ segment below — a module code would be redundant with that.
 
 No `e.` segment appears in any filename yet, since no adapter is wired.
 
-### Composing flags
-
-| Letter | Flag | Status |
-|---|---|---|
-| `m` | `--mitre` (MITRE ATT&CK mapping) | reserved and unused: the mapping is always shown and needs no flag |
-
-This segment is unprefixed and always terminal when present. No filename
-carries it today.
-
-Note: c.s (SSH check) and m.s (software module) share the same letter — that's intentional and safe, since each category is its own namespace (the registry only enforces uniqueness within a category, not across all four). This distinction is worth stating explicitly so it doesn't read as a typo when someone's staring at `m.os-c.fpsu` for the first time.
+Note: c.s (SSH check) and m.s (software module) share the same letter — that's intentional and safe, since each category is its own namespace (the registry only enforces uniqueness within a category, not across all three). This distinction is worth stating explicitly so it doesn't read as a typo when someone's staring at `m.os-c.fpsu` for the first time.
 
 ## Shell Completion
 
