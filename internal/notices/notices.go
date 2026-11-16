@@ -4,7 +4,8 @@
 // bundles. MITRE's terms for ATT&CK and CWE grant a royalty-free license on
 // the condition that any copy reproduces MITRE's copyright designation and the
 // license, so the notices are embedded in the binary: a bare copy of the
-// binary carries them, and owatch notices prints them.
+// binary carries them, and owatch notices prints them. NIST's catalog is in the
+// public domain and is credited alongside.
 package notices
 
 import _ "embed"

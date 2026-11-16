@@ -5,9 +5,12 @@
 # one its cvss_vector computes. The registry refuses to load a definition where
 # the severity, the score and the vector disagree:
 #   CRITICAL 9.0-10.0 | HIGH 7.0-8.9 | MEDIUM 4.0-6.9 | LOW 0.1-3.9
-# All entries sourced from Arch Linux Security wiki, CIS Distribution
-# Independent Linux Benchmark v2.0.0, NIST SP 800-53 Rev 5, and
-# CVSS v3.1 scoring methodology.
+# A NIST reference names only the control: its title and release come from the
+# bundled catalog (nist.yaml), which load checks it against. Any other reference
+# states its source, the edition checked and the date it was verified (see
+# registry.ReferenceSpec); one with no verified date has not been checked and is
+# withheld from every report. The weakness a definition maps to is its cwe field,
+# and its reference is built from that.
 # Note: Arch Linux has no official CIS benchmark. Entries reference
 # the Arch Security wiki and CIS Distribution Independent where applicable.
 
@@ -22,7 +25,11 @@ firewall.no_firewall_installed:
   cvss_score: 9.1
   cvss_vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N"
   cwe: "CWE-284"
-  attack_techniques: ["T1686"]
+  attack_techniques:
+    - id: "T1686"
+      basis:
+        - "NIST CM-6 maps to this technique, listed there as T1562.004 (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
+        - "CWE-284 relates to CAPEC-578, which CAPEC 3.9 maps to this technique"
   description: >
     Arch Linux does not install a firewall manager by default. Neither
     iptables, nftables, ufw, nor firewalld was detected as active on
@@ -42,10 +49,19 @@ firewall.no_firewall_installed:
     base ruleset in /etc/nftables.conf with a default drop policy and
     explicit allow rules for required services.
   references:
-    - "Arch Linux Security Wiki: https://wiki.archlinux.org/title/Security#Firewalls"
-    - "CIS Distribution Independent Linux Benchmark v2.0.0 §3.5"
-    - "NIST SP 800-53 Rev 5 SC-7 (Boundary Protection)"
-    - "https://cwe.mitre.org/data/definitions/284.html"
+    - source: URL
+      title: "ArchWiki: Security, Firewalls"
+      url: "https://wiki.archlinux.org/title/Security#Firewalls"
+      version: "page revision 888759"
+      verified: "2026-11-15"
+    - source: CIS
+      benchmark: "CIS Distribution Independent Linux Benchmark"
+      version: "v2.0.0"
+      id: "3.5"
+    - source: NIST
+      id: "SC-7"
+    - source: NIST
+      id: "CM-6"
 
 # Consumer: #142. No checker emits this definition yet. nftables is not
 # queried separately today, on the reasoning that iptables on a modern host
@@ -57,7 +73,11 @@ firewall.nftables_no_rules:
   cvss_score: 8.6
   cvss_vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:L/A:H"
   cwe: "CWE-284"
-  attack_techniques: ["T1686"]
+  attack_techniques:
+    - id: "T1686"
+      basis:
+        - "NIST CM-6 maps to this technique, listed there as T1562.004 (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
+        - "CWE-284 relates to CAPEC-578, which CAPEC 3.9 maps to this technique"
   description: >
     nftables is the active firewall manager but no rules are loaded.
     An nftables instance with no ruleset provides no packet filtering —
@@ -74,9 +94,15 @@ firewall.nftables_no_rules:
     services. Load the ruleset: nft -f /etc/nftables.conf. Enable
     the service to persist across reboots: systemctl enable nftables.
   references:
-    - "Arch Linux Wiki nftables: https://wiki.archlinux.org/title/nftables"
-    - "NIST SP 800-53 Rev 5 SC-7 (Boundary Protection)"
-    - "https://cwe.mitre.org/data/definitions/284.html"
+    - source: URL
+      title: "ArchWiki: nftables"
+      url: "https://wiki.archlinux.org/title/nftables"
+      version: "page revision 884428"
+      verified: "2026-11-15"
+    - source: NIST
+      id: "SC-7"
+    - source: NIST
+      id: "CM-6"
 
 firewall.iptables_default_accept:
   title: "iptables default policy is ACCEPT on INPUT chain"
@@ -84,7 +110,11 @@ firewall.iptables_default_accept:
   cvss_score: 9.9
   cvss_vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:L/I:L/A:H"
   cwe: "CWE-284"
-  attack_techniques: ["T1686"]
+  attack_techniques:
+    - id: "T1686"
+      basis:
+        - "NIST CM-6 maps to this technique, listed there as T1562.004 (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
+        - "CWE-284 relates to CAPEC-578, which CAPEC 3.9 maps to this technique"
   description: >
     The iptables INPUT chain has a default policy of ACCEPT, meaning
     any traffic not matched by an explicit rule is permitted through.
@@ -102,10 +132,19 @@ firewall.iptables_default_accept:
     iptables-save > /etc/iptables/iptables.rules and enable the
     iptables systemd service.
   references:
-    - "Arch Linux Wiki iptables: https://wiki.archlinux.org/title/iptables"
-    - "CIS Distribution Independent Linux Benchmark v2.0.0 §3.5.3"
-    - "NIST SP 800-53 Rev 5 SC-7 (Boundary Protection)"
-    - "https://cwe.mitre.org/data/definitions/284.html"
+    - source: URL
+      title: "ArchWiki: iptables"
+      url: "https://wiki.archlinux.org/title/iptables"
+      version: "page revision 883016"
+      verified: "2026-11-15"
+    - source: CIS
+      benchmark: "CIS Distribution Independent Linux Benchmark"
+      version: "v2.0.0"
+      id: "3.5.3"
+    - source: NIST
+      id: "SC-7"
+    - source: NIST
+      id: "CM-6"
 
 # -------------------------
 # User checker findings
@@ -118,7 +157,11 @@ users.sudo_nopasswd:
   cvss_score: 8.8
   cvss_vector: "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H"
   cwe: "CWE-269"
-  attack_techniques: ["T1548.003"]
+  attack_techniques:
+    - id: "T1548.003"
+      basis:
+        - "NIST AC-6 maps to this technique (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
+        - "CWE-269 relates to CAPEC-122, CAPEC-233, which CAPEC 3.9 maps to its parent technique T1548"
   description: >
     A sudoers rule contains the NOPASSWD tag, allowing one or more users
     to execute commands with elevated privileges without providing a
@@ -136,10 +179,22 @@ users.sudo_nopasswd:
     minimum required commands rather than ALL. Require password
     confirmation for interactive administrative work.
   references:
-    - "Arch Linux Security Wiki: https://wiki.archlinux.org/title/Security#sudo"
-    - "CIS Distribution Independent Linux Benchmark v2.0.0 §5.3.7"
-    - "NIST SP 800-53 Rev 5 AC-6 (Least Privilege)"
-    - "https://cwe.mitre.org/data/definitions/269.html"
+    - source: URL
+      title: "ArchWiki: Security, Use sudo instead of su"
+      url: "https://wiki.archlinux.org/title/Security#Use_sudo_instead_of_su"
+      version: "page revision 888759"
+      verified: "2026-11-15"
+    - source: CIS
+      benchmark: "CIS Distribution Independent Linux Benchmark"
+      version: "v2.0.0"
+      id: "5.3.7"
+    - source: NIST
+      id: "AC-6"
+    - source: URL
+      title: "ArchWiki: Sudo, Example entries"
+      url: "https://wiki.archlinux.org/title/Sudo#Example_entries"
+      version: "page revision 876067"
+      verified: "2026-11-15"
 
 # Consumer: #142. No checker emits this definition yet.
 users.wheel_group_unrestricted:
@@ -148,6 +203,11 @@ users.wheel_group_unrestricted:
   cvss_score: 7.1
   cvss_vector: "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:N"
   cwe: "CWE-269"
+  attack_techniques:
+    - id: "T1548.003"
+      basis:
+        - "NIST AC-6 maps to this technique (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
+        - "CWE-269 relates to CAPEC-122, CAPEC-233, which CAPEC 3.9 maps to its parent technique T1548"
   description: >
     The wheel group is configured with unrestricted sudo access to all
     commands. On Arch Linux this is the default sudoers configuration
@@ -164,9 +224,18 @@ users.wheel_group_unrestricted:
     sudo access to specific commands for accounts that only need
     limited elevation rather than full wheel membership.
   references:
-    - "Arch Linux Security Wiki: https://wiki.archlinux.org/title/Security#sudo"
-    - "NIST SP 800-53 Rev 5 AC-6 (Least Privilege)"
-    - "https://cwe.mitre.org/data/definitions/269.html"
+    - source: URL
+      title: "ArchWiki: Security, Use sudo instead of su"
+      url: "https://wiki.archlinux.org/title/Security#Use_sudo_instead_of_su"
+      version: "page revision 888759"
+      verified: "2026-11-15"
+    - source: NIST
+      id: "AC-6"
+    - source: URL
+      title: "ArchWiki: Sudo, Example entries"
+      url: "https://wiki.archlinux.org/title/Sudo#Example_entries"
+      version: "page revision 876067"
+      verified: "2026-11-15"
 
 # Consumer: #142. No checker emits this definition yet.
 users.aur_helper_installed:
@@ -193,9 +262,13 @@ users.aur_helper_installed:
     read PKGBUILDs before installing AUR packages. Consider using
     an isolated build environment for AUR package compilation.
   references:
-    - "Arch Linux AUR Security: https://wiki.archlinux.org/title/AUR#Safety"
-    - "NIST SP 800-53 Rev 5 CM-7 (Least Functionality)"
-    - "https://cwe.mitre.org/data/definitions/829.html"
+    - source: URL
+      title: "ArchWiki: Arch User Repository, Verify the PKGBUILD"
+      url: "https://wiki.archlinux.org/title/Arch_User_Repository#Verify_the_PKGBUILD"
+      version: "page revision 889993"
+      verified: "2026-11-15"
+    - source: NIST
+      id: "CM-7"
 
 # -------------------------
 # Permissions checker findings
@@ -208,7 +281,10 @@ permissions.shadow_world_readable:
   cvss_score: 8.4
   cvss_vector: "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:N"
   cwe: "CWE-732"
-  attack_techniques: ["T1003.008"]
+  attack_techniques:
+    - id: "T1003.008"
+      basis:
+        - "NIST AC-3 maps to this technique (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
   description: >
     /etc/shadow has permissions that allow non-root users to read its
     contents. On Arch Linux the expected permission is 640 with ownership
@@ -225,10 +301,17 @@ permissions.shadow_world_readable:
     passwords for all accounts as a precaution if the file was
     readable for an unknown period.
   references:
-    - "Arch Linux Security Wiki: https://wiki.archlinux.org/title/Security"
-    - "CIS Distribution Independent Linux Benchmark v2.0.0 §6.1.3"
-    - "NIST SP 800-53 Rev 5 AC-3 (Access Enforcement)"
-    - "https://cwe.mitre.org/data/definitions/732.html"
+    - source: URL
+      title: "ArchWiki: Security"
+      url: "https://wiki.archlinux.org/title/Security"
+      version: "page revision 888759"
+      verified: "2026-11-15"
+    - source: CIS
+      benchmark: "CIS Distribution Independent Linux Benchmark"
+      version: "v2.0.0"
+      id: "6.1.3"
+    - source: NIST
+      id: "AC-3"
 
 # Consumer: #142. No checker emits this definition yet.
 permissions.pacman_cache_world_writable:
@@ -255,9 +338,13 @@ permissions.pacman_cache_world_writable:
     are present in the cache. Clear and repopulate the cache if
     tampering is suspected: pacman -Scc.
   references:
-    - "Arch Linux Wiki pacman: https://wiki.archlinux.org/title/pacman"
-    - "NIST SP 800-53 Rev 5 AC-3 (Access Enforcement)"
-    - "https://cwe.mitre.org/data/definitions/732.html"
+    - source: URL
+      title: "ArchWiki: pacman"
+      url: "https://wiki.archlinux.org/title/pacman"
+      version: "page revision 888786"
+      verified: "2026-11-15"
+    - source: NIST
+      id: "AC-3"
 
 # Consumer: #142. No checker emits this definition yet.
 permissions.ssh_dir_permissions:
@@ -266,7 +353,15 @@ permissions.ssh_dir_permissions:
   cvss_score: 7.8
   cvss_vector: "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H"
   cwe: "CWE-732"
-  attack_techniques: ["T1098.004", "T1552.004"]
+  attack_techniques:
+    - id: "T1098.004"
+      basis:
+        - "NIST AC-3 maps to this technique (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
+        - "NIST IA-5 maps to this technique (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
+    - id: "T1552.004"
+      basis:
+        - "NIST AC-3 maps to its parent technique T1552 (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
+        - "NIST IA-5 maps to this technique (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
   description: >
     A user's ~/.ssh directory or ~/.ssh/authorized_keys file has
     permissions that exceed the expected mode. On Arch Linux, OpenSSH
@@ -286,7 +381,16 @@ permissions.ssh_dir_permissions:
     ~/.ssh. Audit authorized_keys for unexpected entries. Verify
     StrictModes yes is set or absent (default) in sshd_config.
   references:
-    - "Arch Linux Security Wiki: https://wiki.archlinux.org/title/Security"
-    - "CIS Distribution Independent Linux Benchmark v2.0.0 §5.2.19"
-    - "NIST SP 800-53 Rev 5 AC-3 (Access Enforcement)"
-    - "https://cwe.mitre.org/data/definitions/732.html"
+    - source: URL
+      title: "ArchWiki: Security"
+      url: "https://wiki.archlinux.org/title/Security"
+      version: "page revision 888759"
+      verified: "2026-11-15"
+    - source: CIS
+      benchmark: "CIS Distribution Independent Linux Benchmark"
+      version: "v2.0.0"
+      id: "5.2.19"
+    - source: NIST
+      id: "AC-3"
+    - source: NIST
+      id: "IA-5"

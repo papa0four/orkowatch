@@ -4,8 +4,12 @@
 # one its cvss_vector computes. The registry refuses to load a definition where
 # the severity, the score and the vector disagree:
 #   CRITICAL 9.0-10.0 | HIGH 7.0-8.9 | MEDIUM 4.0-6.9 | LOW 0.1-3.9
-# All entries sourced from CIS Distribution Independent Linux Benchmark v2.0.0,
-# NIST SP 800-53 Rev 5, and CVSS v3.1 scoring methodology.
+# A NIST reference names only the control: its title and release come from the
+# bundled catalog (nist.yaml), which load checks it against. Any other reference
+# states its source, the edition checked and the date it was verified (see
+# registry.ReferenceSpec); one with no verified date has not been checked and is
+# withheld from every report. The weakness a definition maps to is its cwe field,
+# and its reference is built from that.
 
 # -------------------------
 # SSH checker findings
@@ -32,9 +36,12 @@ ssh.config_not_found:
     PasswordAuthentication, PermitRootLogin, AllowUsers, and cipher
     suites. Restart sshd after making changes: systemctl restart sshd.
   references:
-    - "CIS Distribution Independent Linux Benchmark v2.0.0 §5.2"
-    - "NIST SP 800-53 Rev 5 CM-6 (Configuration Settings)"
-    - "https://cwe.mitre.org/data/definitions/16.html"
+    - source: CIS
+      benchmark: "CIS Distribution Independent Linux Benchmark"
+      version: "v2.0.0"
+      id: "5.2"
+    - source: NIST
+      id: "CM-6"
 
 ssh.root_login_permitted:
   title: "SSH PermitRootLogin is not explicitly disabled"
@@ -42,7 +49,11 @@ ssh.root_login_permitted:
   cvss_score: 9.8
   cvss_vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"
   cwe: "CWE-250"
-  attack_techniques: ["T1021.004"]
+  attack_techniques:
+    - id: "T1021.004"
+      basis:
+        - "NIST AC-6 maps to this technique (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
+        - "NIST IA-2 maps to this technique (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
   description: >
     PermitRootLogin is not set to no in sshd_config. Direct root login
     over SSH gives an attacker full system control upon credential compromise
@@ -60,10 +71,14 @@ ssh.root_login_permitted:
     non-privileged account followed by explicit privilege escalation
     via sudo.
   references:
-    - "CIS Distribution Independent Linux Benchmark v2.0.0 §5.2.8"
-    - "NIST SP 800-53 Rev 5 AC-6 (Least Privilege)"
-    - "NIST SP 800-53 Rev 5 IA-2 (Identification and Authentication)"
-    - "https://cwe.mitre.org/data/definitions/250.html"
+    - source: CIS
+      benchmark: "CIS Distribution Independent Linux Benchmark"
+      version: "v2.0.0"
+      id: "5.2.8"
+    - source: NIST
+      id: "AC-6"
+    - source: NIST
+      id: "IA-2"
 
 ssh.password_auth_enabled:
   title: "SSH password authentication is enabled"
@@ -71,7 +86,15 @@ ssh.password_auth_enabled:
   cvss_score: 7.5
   cvss_vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N"
   cwe: "CWE-521"
-  attack_techniques: ["T1021.004", "T1110.001"]
+  attack_techniques:
+    - id: "T1021.004"
+      basis:
+        - "NIST IA-5(1) maps to this technique (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
+        - "CWE-521 relates to CAPEC-555, which CAPEC 3.9 maps to its parent technique T1021"
+    - id: "T1110.001"
+      basis:
+        - "NIST IA-5(1) maps to this technique (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
+        - "CWE-521 relates to CAPEC-49, which CAPEC 3.9 maps to this technique"
   description: >
     PasswordAuthentication is set to yes in sshd_config. Password-based
     SSH authentication is susceptible to brute-force and credential stuffing
@@ -88,9 +111,12 @@ ssh.password_auth_enabled:
     required users before disabling password auth to avoid lockout.
     Restart sshd after changes.
   references:
-    - "CIS Distribution Independent Linux Benchmark v2.0.0 §5.2.11"
-    - "NIST SP 800-53 Rev 5 IA-5(1) (Authenticator Management)"
-    - "https://cwe.mitre.org/data/definitions/521.html"
+    - source: CIS
+      benchmark: "CIS Distribution Independent Linux Benchmark"
+      version: "v2.0.0"
+      id: "5.2.11"
+    - source: NIST
+      id: "IA-5(1)"
 
 ssh.permit_root_login_not_set:
   title: "PermitRootLogin directive is absent from SSH configuration"
@@ -114,9 +140,12 @@ ssh.permit_root_login_not_set:
     of the assumed default. Explicit configuration is always safer than
     relying on compiled-in defaults.
   references:
-    - "CIS Distribution Independent Linux Benchmark v2.0.0 §5.2.8"
-    - "NIST SP 800-53 Rev 5 CM-6 (Configuration Settings)"
-    - "https://cwe.mitre.org/data/definitions/16.html"
+    - source: CIS
+      benchmark: "CIS Distribution Independent Linux Benchmark"
+      version: "v2.0.0"
+      id: "5.2.8"
+    - source: NIST
+      id: "CM-6"
 
 ssh.password_auth_not_set:
   title: "PasswordAuthentication directive is absent from SSH configuration"
@@ -124,6 +153,10 @@ ssh.password_auth_not_set:
   cvss_score: 5.9
   cvss_vector: "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:N/A:N"
   cwe: "CWE-16"
+  attack_techniques:
+    - id: "T1021.004"
+      basis:
+        - "NIST CM-6 maps to this technique (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
   description: >
     The PasswordAuthentication directive was not found in sshd_config.
     OpenSSH defaults to permitting password authentication when this
@@ -138,9 +171,12 @@ ssh.password_auth_not_set:
     Configure key-based authentication before disabling password auth
     to prevent lockout. Restart sshd after changes.
   references:
-    - "CIS Distribution Independent Linux Benchmark v2.0.0 §5.2.11"
-    - "NIST SP 800-53 Rev 5 CM-6 (Configuration Settings)"
-    - "https://cwe.mitre.org/data/definitions/16.html"
+    - source: CIS
+      benchmark: "CIS Distribution Independent Linux Benchmark"
+      version: "v2.0.0"
+      id: "5.2.11"
+    - source: NIST
+      id: "CM-6"
 
 # -------------------------
 # Firewall checker findings
@@ -152,7 +188,11 @@ firewall.no_active_manager:
   cvss_score: 9.1
   cvss_vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N"
   cwe: "CWE-284"
-  attack_techniques: ["T1686"]
+  attack_techniques:
+    - id: "T1686"
+      basis:
+        - "NIST CM-6 maps to this technique, listed there as T1562.004 (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
+        - "CWE-284 relates to CAPEC-578, which CAPEC 3.9 maps to this technique"
   description: >
     None of the recognized firewall managers (iptables, ufw, firewalld,
     pfctl) are active on this system. The host has no detected host-based
@@ -169,9 +209,14 @@ firewall.no_active_manager:
     firewalld. Configure rules to permit only required traffic and deny
     all else by default.
   references:
-    - "CIS Distribution Independent Linux Benchmark v2.0.0 §3.5"
-    - "NIST SP 800-53 Rev 5 SC-7 (Boundary Protection)"
-    - "https://cwe.mitre.org/data/definitions/284.html"
+    - source: CIS
+      benchmark: "CIS Distribution Independent Linux Benchmark"
+      version: "v2.0.0"
+      id: "3.5"
+    - source: NIST
+      id: "SC-7"
+    - source: NIST
+      id: "CM-6"
 
 firewall.ufw_inactive:
   title: "UFW firewall is installed but not enforcing"
@@ -179,7 +224,11 @@ firewall.ufw_inactive:
   cvss_score: 8.6
   cvss_vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:L/A:H"
   cwe: "CWE-284"
-  attack_techniques: ["T1686"]
+  attack_techniques:
+    - id: "T1686"
+      basis:
+        - "NIST CM-6 maps to this technique, listed there as T1562.004 (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
+        - "CWE-284 relates to CAPEC-578, which CAPEC 3.9 maps to this technique"
   description: >
     Uncomplicated Firewall (UFW) is installed and reports its status as
     inactive, so no host-based packet filtering is enforced on any network
@@ -197,9 +246,14 @@ firewall.ufw_inactive:
     allow rules for required services before enabling to avoid lockout:
     ufw allow ssh.
   references:
-    - "CIS Distribution Independent Linux Benchmark v2.0.0 §3.5"
-    - "NIST SP 800-53 Rev 5 SC-7 (Boundary Protection)"
-    - "https://cwe.mitre.org/data/definitions/284.html"
+    - source: CIS
+      benchmark: "CIS Distribution Independent Linux Benchmark"
+      version: "v2.0.0"
+      id: "3.5"
+    - source: NIST
+      id: "SC-7"
+    - source: NIST
+      id: "CM-6"
 
 firewall.firewalld_not_running:
   title: "firewalld is installed but not running"
@@ -207,7 +261,11 @@ firewall.firewalld_not_running:
   cvss_score: 8.6
   cvss_vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:L/A:H"
   cwe: "CWE-284"
-  attack_techniques: ["T1686"]
+  attack_techniques:
+    - id: "T1686"
+      basis:
+        - "NIST CM-6 maps to this technique, listed there as T1562.004 (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
+        - "CWE-284 relates to CAPEC-578, which CAPEC 3.9 maps to this technique"
   description: >
     The firewalld daemon is installed but is not running, so the zone
     policy it manages is not being enforced. No host-based packet
@@ -225,9 +283,14 @@ firewall.firewalld_not_running:
     firewall-cmd --list-all, and narrow the zone to the services the host
     actually offers.
   references:
-    - "CIS Distribution Independent Linux Benchmark v2.0.0 §3.5"
-    - "NIST SP 800-53 Rev 5 SC-7 (Boundary Protection)"
-    - "https://cwe.mitre.org/data/definitions/284.html"
+    - source: CIS
+      benchmark: "CIS Distribution Independent Linux Benchmark"
+      version: "v2.0.0"
+      id: "3.5"
+    - source: NIST
+      id: "SC-7"
+    - source: NIST
+      id: "CM-6"
 
 firewall.iptables_default_accept:
   title: "iptables INPUT chain accepts by default with no ingress rules"
@@ -235,7 +298,11 @@ firewall.iptables_default_accept:
   cvss_score: 9.9
   cvss_vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:L/I:L/A:H"
   cwe: "CWE-284"
-  attack_techniques: ["T1686"]
+  attack_techniques:
+    - id: "T1686"
+      basis:
+        - "NIST CM-6 maps to this technique, listed there as T1562.004 (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
+        - "CWE-284 relates to CAPEC-578, which CAPEC 3.9 maps to this technique"
   description: >
     The iptables INPUT chain has a default policy of ACCEPT and holds no
     rules, so every packet arriving at the host is permitted. A secure
@@ -253,9 +320,14 @@ firewall.iptables_default_accept:
     default drop to avoid lockout, and persist the result through the
     distribution's iptables restore mechanism so it survives reboot.
   references:
-    - "CIS Distribution Independent Linux Benchmark v2.0.0 §3.5"
-    - "NIST SP 800-53 Rev 5 SC-7 (Boundary Protection)"
-    - "https://cwe.mitre.org/data/definitions/284.html"
+    - source: CIS
+      benchmark: "CIS Distribution Independent Linux Benchmark"
+      version: "v2.0.0"
+      id: "3.5"
+    - source: NIST
+      id: "SC-7"
+    - source: NIST
+      id: "CM-6"
 
 # -------------------------
 # User checker findings
@@ -267,7 +339,11 @@ users.empty_password_hash:
   cvss_score: 9.8
   cvss_vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"
   cwe: "CWE-258"
-  attack_techniques: ["T1078.003"]
+  attack_techniques:
+    - id: "T1078.003"
+      basis:
+        - "NIST IA-5 maps to its parent technique T1078 (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
+        - "NIST IA-2 maps to this technique (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
   description: >
     One or more user accounts have an empty password hash field in
     /etc/shadow. An empty hash means the account has no password and
@@ -284,9 +360,14 @@ users.empty_password_hash:
     passwd -l <username> and set the shell to /usr/sbin/nologin in
     /etc/passwd.
   references:
-    - "CIS Distribution Independent Linux Benchmark v2.0.0 §6.2.1"
-    - "NIST SP 800-53 Rev 5 IA-5 (Authenticator Management)"
-    - "https://cwe.mitre.org/data/definitions/258.html"
+    - source: CIS
+      benchmark: "CIS Distribution Independent Linux Benchmark"
+      version: "v2.0.0"
+      id: "6.2.1"
+    - source: NIST
+      id: "IA-5"
+    - source: NIST
+      id: "IA-2"
 
 users.uid_zero_non_root:
   title: "Non-root account has UID 0"
@@ -310,9 +391,12 @@ users.uid_zero_non_root:
     Investigate how UID 0 was assigned and whether unauthorized access
     occurred. Only the root account should have UID 0.
   references:
-    - "CIS Distribution Independent Linux Benchmark v2.0.0 §6.2.5"
-    - "NIST SP 800-53 Rev 5 AC-6 (Least Privilege)"
-    - "https://cwe.mitre.org/data/definitions/250.html"
+    - source: CIS
+      benchmark: "CIS Distribution Independent Linux Benchmark"
+      version: "v2.0.0"
+      id: "6.2.5"
+    - source: NIST
+      id: "AC-6"
 
 users.root_account_unlocked:
   title: "Root account is not locked"
@@ -335,9 +419,12 @@ users.root_account_unlocked:
     configured to provide necessary administrative access before locking.
     Verify PermitRootLogin no is set in sshd_config independently.
   references:
-    - "CIS Distribution Independent Linux Benchmark v2.0.0 §5.4.1"
-    - "NIST SP 800-53 Rev 5 AC-6 (Least Privilege)"
-    - "https://cwe.mitre.org/data/definitions/284.html"
+    - source: CIS
+      benchmark: "CIS Distribution Independent Linux Benchmark"
+      version: "v2.0.0"
+      id: "5.4.1"
+    - source: NIST
+      id: "AC-6"
 
 users.ldap_configured:
   title: "LDAP authentication is configured"
@@ -360,8 +447,8 @@ users.ldap_configured:
     Ensure a local fallback authentication method exists for system
     recovery. Review /etc/ldap.conf for cleartext bind credentials.
   references:
-    - "NIST SP 800-53 Rev 5 IA-3 (Device Identification and Authentication)"
-    - "https://cwe.mitre.org/data/definitions/287.html"
+    - source: NIST
+      id: "IA-2"
 
 users.kerberos_configured:
   title: "Kerberos authentication is configured"
@@ -369,6 +456,10 @@ users.kerberos_configured:
   cvss_score: 2.3
   cvss_vector: "CVSS:3.1/AV:L/AC:L/PR:H/UI:N/S:U/C:L/I:N/A:N"
   cwe: "CWE-287"
+  attack_techniques:
+    - id: "T1558.005"
+      basis:
+        - "NIST IA-2 maps to this technique (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
   description: >
     /etc/krb5.conf is present, indicating Kerberos authentication is
     configured. Kerberos introduces a KDC dependency for authentication
@@ -384,8 +475,8 @@ users.kerberos_configured:
     DES and RC4 entries. Ensure time synchronization is configured.
     Verify KDC redundancy for availability.
   references:
-    - "NIST SP 800-53 Rev 5 IA-3 (Device Identification and Authentication)"
-    - "https://cwe.mitre.org/data/definitions/287.html"
+    - source: NIST
+      id: "IA-2"
 
 users.sssd_configured:
   title: "SSSD authentication is configured"
@@ -393,6 +484,10 @@ users.sssd_configured:
   cvss_score: 2.3
   cvss_vector: "CVSS:3.1/AV:L/AC:L/PR:H/UI:N/S:U/C:L/I:N/A:N"
   cwe: "CWE-287"
+  attack_techniques:
+    - id: "T1003.005"
+      basis:
+        - "NIST IA-2 maps to this technique (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
   description: >
     /etc/sssd/sssd.conf is present, indicating the System Security
     Services Daemon is configured for centralized identity management.
@@ -409,8 +504,8 @@ users.sssd_configured:
     offline authentication behavior to verify local fallback functions
     correctly.
   references:
-    - "NIST SP 800-53 Rev 5 IA-3 (Device Identification and Authentication)"
-    - "https://cwe.mitre.org/data/definitions/287.html"
+    - source: NIST
+      id: "IA-2"
 
 users.regular_user_admin_privileges:
   title: "Regular user account has administrative group membership"
@@ -418,6 +513,10 @@ users.regular_user_admin_privileges:
   cvss_score: 7.1
   cvss_vector: "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:N"
   cwe: "CWE-250"
+  attack_techniques:
+    - id: "T1548.003"
+      basis:
+        - "NIST AC-6 maps to this technique (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
   description: >
     A non-system user account is a member of a privileged group (sudo or
     wheel). Administrative group membership grants the ability to execute
@@ -434,9 +533,12 @@ users.regular_user_admin_privileges:
     elevated access. Scope sudo rules to specific commands where full
     root access is not required.
   references:
-    - "CIS Distribution Independent Linux Benchmark v2.0.0 §5.4.1"
-    - "NIST SP 800-53 Rev 5 AC-6 (Least Privilege)"
-    - "https://cwe.mitre.org/data/definitions/250.html"
+    - source: CIS
+      benchmark: "CIS Distribution Independent Linux Benchmark"
+      version: "v2.0.0"
+      id: "5.4.1"
+    - source: NIST
+      id: "AC-6"
 
 users.login_shell_present:
   title: "User account has an interactive login shell"
@@ -462,9 +564,12 @@ users.login_shell_present:
     <username>. Review all accounts with interactive shells and confirm
     each is operationally justified.
   references:
-    - "CIS Distribution Independent Linux Benchmark v2.0.0 §5.4.2"
-    - "NIST SP 800-53 Rev 5 AC-2 (Account Management)"
-    - "https://cwe.mitre.org/data/definitions/272.html"
+    - source: CIS
+      benchmark: "CIS Distribution Independent Linux Benchmark"
+      version: "v2.0.0"
+      id: "5.4.2"
+    - source: NIST
+      id: "AC-2"
 
 users.no_password_login_shell:
   title: "Account with no password set has a valid login shell"
@@ -472,7 +577,11 @@ users.no_password_login_shell:
   cvss_score: 9.1
   cvss_vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N"
   cwe: "CWE-287"
-  attack_techniques: ["T1078.003"]
+  attack_techniques:
+    - id: "T1078.003"
+      basis:
+        - "NIST IA-5 maps to its parent technique T1078 (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
+        - "NIST IA-2 maps to this technique (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
   description: >
     A user account has no password set in /etc/shadow and is assigned
     an interactive login shell. An account with no password hash and a
@@ -491,9 +600,14 @@ users.no_password_login_shell:
     <username> or userdel <username>. Audit all accounts with empty
     password fields: awk -F: '$2 == "" ' /etc/shadow.
   references:
-    - "CIS Distribution Independent Linux Benchmark v2.0.0 §5.4.1"
-    - "NIST SP 800-53 Rev 5 IA-5 (Authenticator Management)"
-    - "https://cwe.mitre.org/data/definitions/287.html"
+    - source: CIS
+      benchmark: "CIS Distribution Independent Linux Benchmark"
+      version: "v2.0.0"
+      id: "5.4.1"
+    - source: NIST
+      id: "IA-5"
+    - source: NIST
+      id: "IA-2"
 
 # -------------------------
 # Permissions checker findings
@@ -524,9 +638,12 @@ permissions.critical_path_not_root_owned:
     changed before restoring it, because the change itself indicates
     either a misapplied administrative action or unauthorized access.
   references:
-    - "CIS Distribution Independent Linux Benchmark v2.0.0 §6.1"
-    - "NIST SP 800-53 Rev 5 AC-3 (Access Enforcement)"
-    - "https://cwe.mitre.org/data/definitions/282.html"
+    - source: CIS
+      benchmark: "CIS Distribution Independent Linux Benchmark"
+      version: "v2.0.0"
+      id: "6.1"
+    - source: NIST
+      id: "AC-3"
 
 permissions.path_exceeds_expected_mode:
   title: "File or directory permissions exceed expected mode"
@@ -554,9 +671,12 @@ permissions.path_exceeds_expected_mode:
     safe. Consult the CIS benchmark for the specific distribution before
     relaxing any path.
   references:
-    - "CIS Distribution Independent Linux Benchmark v2.0.0 §6.1"
-    - "NIST SP 800-53 Rev 5 AC-3 (Access Enforcement)"
-    - "https://cwe.mitre.org/data/definitions/732.html"
+    - source: CIS
+      benchmark: "CIS Distribution Independent Linux Benchmark"
+      version: "v2.0.0"
+      id: "6.1"
+    - source: NIST
+      id: "AC-3"
 
 permissions.world_writable_file:
   title: "World-writable file found on the scanned filesystem"
@@ -580,9 +700,12 @@ permissions.world_writable_file:
     modified. Audit cron jobs, service scripts, and init files that
     reference the affected path.
   references:
-    - "CIS Distribution Independent Linux Benchmark v2.0.0 §6.1.10"
-    - "NIST SP 800-53 Rev 5 AC-3 (Access Enforcement)"
-    - "https://cwe.mitre.org/data/definitions/732.html"
+    - source: CIS
+      benchmark: "CIS Distribution Independent Linux Benchmark"
+      version: "v2.0.0"
+      id: "6.1.10"
+    - source: NIST
+      id: "AC-3"
 
 permissions.suid_sgid_binary:
   title: "SUID or SGID binary found"
@@ -590,7 +713,11 @@ permissions.suid_sgid_binary:
   cvss_score: 7.0
   cvss_vector: "CVSS:3.1/AV:L/AC:H/PR:L/UI:N/S:U/C:H/I:H/A:H"
   cwe: "CWE-250"
-  attack_techniques: ["T1548.001"]
+  attack_techniques:
+    - id: "T1548.001"
+      basis:
+        - "NIST AC-6 maps to its parent technique T1548 (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
+        - "NIST CM-7 maps to this technique (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
   description: >
     A binary with the SUID or SGID bit set was found. SUID binaries
     execute with the file owner's privileges rather than the calling
@@ -608,9 +735,14 @@ permissions.suid_sgid_binary:
     <path>. Compare against a known-good baseline for the distribution
     to identify unexpected additions.
   references:
-    - "CIS Distribution Independent Linux Benchmark v2.0.0 §6.1.11, §6.1.12"
-    - "NIST SP 800-53 Rev 5 AC-6 (Least Privilege)"
-    - "https://cwe.mitre.org/data/definitions/250.html"
+    - source: CIS
+      benchmark: "CIS Distribution Independent Linux Benchmark"
+      version: "v2.0.0"
+      id: "6.1.11, §6.1.12"
+    - source: NIST
+      id: "AC-6"
+    - source: NIST
+      id: "CM-7"
 
 permissions.unowned_file:
   title: "File with no valid owner or group found"
@@ -633,6 +765,9 @@ permissions.unowned_file:
     file is not needed, remove it. Audit recently deleted accounts to
     identify the source of orphaned files.
   references:
-    - "CIS Distribution Independent Linux Benchmark v2.0.0 §6.1.13, §6.1.14"
-    - "NIST SP 800-53 Rev 5 AC-3 (Access Enforcement)"
-    - "https://cwe.mitre.org/data/definitions/732.html"
+    - source: CIS
+      benchmark: "CIS Distribution Independent Linux Benchmark"
+      version: "v2.0.0"
+      id: "6.1.13, §6.1.14"
+    - source: NIST
+      id: "AC-3"

@@ -285,18 +285,42 @@ appear under the finding in the text report, in the finding's detail in the
 browser, as an `attack` list on the finding in JSON and YAML, and as the MITRE
 ATT&CK tab. The mapping is static data bundled in the binary, read
 from the ATT&CK site, so it needs no flag and no network. It says what an adversary
-can do because of the condition, not that anyone has done it. A finding with no
-sound mapping carries none.
+can do because of the condition, not that anyone has done it. A technique is
+attached to a finding only when three things hold: the Center for Threat-Informed
+Defense's published mapping of NIST SP 800-53 to ATT&CK links a control the finding
+cites to the technique, the technique applies to the platform the finding is for,
+and the technique's ATT&CK description states the condition the finding reports.
+Each technique on a finding states its basis, so the association can be checked:
+the NIST control the finding cites that the mapping links to the technique, or the
+finding's weakness through a CAPEC attack pattern that CAPEC maps to it. A finding
+with no sound mapping carries none.
+
+## References
+
+Each finding cites its sources: the weakness it maps to (CWE), the NIST SP 800-53
+controls it bears on, and, where one applies, a vendor or distribution document.
+A citation is shown only after it has been checked against its source. NIST
+controls are checked when owatch starts against the bundled SP 800-53 Rev 5.2.0
+catalog, which supplies the title shown, so a citation cannot name a control that
+does not exist. Pages record the edition they were checked against and the date. A
+citation that has not been checked is kept in the data and withheld from every
+report, JSON and YAML output and the results browser. The CIS Benchmark
+citations are withheld in this way until each is checked against the benchmark.
 
 ## Third-Party Notices
 
-owatch carries MITRE ATT&CK® data, and references the Common Weakness Enumeration
-(CWE™). MITRE's terms for each grant a royalty-free license for commercial use on
-the condition that any copy reproduces MITRE's copyright designation and the
-license. `owatch notices` prints that notice; it is embedded in the binary, so a
-bare copy of owatch carries it, and it is kept in
+owatch carries MITRE ATT&CK® data, references the Common Weakness Enumeration
+(CWE™), and cites identifiers from the Common Attack Pattern Enumeration and
+Classification (CAPEC™). MITRE's terms for each grant a royalty-free license for
+commercial use on the condition that any copy reproduces MITRE's copyright
+designation and the license. owatch also names the Center for Threat-Informed
+Defense's mapping of NIST SP 800-53 to ATT&CK (Apache License 2.0, copyright
+MITRE) as the basis for technique links, and bundles NIST SP 800-53 control titles
+(public domain). `owatch notices` prints every notice and license; it is embedded
+in the binary, so a bare copy of owatch carries it, and it is kept in
 [`internal/notices/THIRD_PARTY_NOTICES.md`](internal/notices/THIRD_PARTY_NOTICES.md).
-MITRE ATT&CK and ATT&CK are registered trademarks of The MITRE Corporation.
+MITRE ATT&CK and ATT&CK are registered trademarks, and CWE and CAPEC are trademarks,
+of The MITRE Corporation.
 
 ## Skips and Partial Runs
 

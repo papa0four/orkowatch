@@ -122,13 +122,15 @@ type (
 
 	// Technique is a MITRE ATT&CK technique an adversary can use because of
 	// the condition a finding reports. Tactics are as the ATT&CK site lists
-	// them for the technique.
+	// them for the technique. Basis states what in MITRE's published data ties
+	// the technique to this finding, so the association can be checked.
 	Technique struct {
 		ID          string       `json:"id" yaml:"id"`
 		Name        string       `json:"name" yaml:"name"`
 		Tactics     []string     `json:"tactics" yaml:"tactics"`
 		URL         string       `json:"url" yaml:"url"`
 		Mitigations []Mitigation `json:"mitigations,omitempty" yaml:"mitigations,omitempty"`
+		Basis       []string     `json:"basis,omitempty" yaml:"basis,omitempty"`
 	}
 
 	// Mitigation is a MITRE ATT&CK mitigation the technique's page lists as
