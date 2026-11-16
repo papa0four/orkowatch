@@ -142,7 +142,7 @@ func writeFinding(ew *render.ErrWriter, condition ConditionView) error {
 		}
 	}
 	if len(def.Attack) > 0 {
-		ew.Printf("  ATT&CK:\n")
+		ew.Printf("  MITRE ATT&CK:\n")
 		for _, technique := range def.Attack {
 			ew.Printf("    %s\n", TechniqueText(technique))
 			if len(technique.Mitigations) > 0 {

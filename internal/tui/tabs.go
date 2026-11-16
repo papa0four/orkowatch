@@ -32,8 +32,13 @@ type (
 	// with no records shows Note instead, which is how a module that was
 	// skipped or failed says so.
 	Tab struct {
-		ID      string
-		Name    string
+		ID   string
+		Name string
+
+		// Noun is what the tab's records are called in its status line, in
+		// lower case. Empty, the lower-cased Name is used, which would write
+		// a trademarked name in lower case.
+		Noun    string
 		Note    string
 		Records []Record
 	}
@@ -340,7 +345,11 @@ func (b browser) recordBody(p *recordPane) string {
 	if p.listless() {
 		return fitPane(p.detail.View(), b.mainWidth(), b.bodyHeight())
 	}
-	status := fmt.Sprintf("%d of %d %s", len(p.visible), len(p.tab.Records), strings.ToLower(p.tab.Name))
+	noun := p.tab.Noun
+	if noun == "" {
+		noun = strings.ToLower(p.tab.Name)
+	}
+	status := fmt.Sprintf("%d of %d %s", len(p.visible), len(p.tab.Records), noun)
 	main := lipgloss.JoinVertical(lipgloss.Left,
 		b.queryLine(status),
 		p.listView(b.listHeight(), b.mainWidth(), true),

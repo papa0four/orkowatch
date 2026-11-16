@@ -906,7 +906,7 @@ func (b browser) detailText(item Item) string {
 	section("impact", item.Impact)
 	section("resolution", item.Resolution)
 	section("references", strings.Join(item.References, "\n"))
-	section("att&ck", strings.Join(item.Techniques, "\n"))
+	section("MITRE ATT&CK", strings.Join(item.Techniques, "\n"))
 	section("mitigations", strings.Join(item.Mitigations, "\n"))
 
 	if len(item.Evidence) > 0 {

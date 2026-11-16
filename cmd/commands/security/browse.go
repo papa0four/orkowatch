@@ -146,7 +146,7 @@ func attackTab(view *audit.View) (tui.Tab, bool) {
 			},
 		})
 	}
-	return tui.Tab{ID: tui.TabAttack, Name: "ATT&CK", Records: records}, true
+	return tui.Tab{ID: tui.TabAttack, Name: "MITRE ATT&CK", Noun: "techniques", Records: records}, true
 }
 
 // moduleNote says why a module has no data: its result and reason as the run
