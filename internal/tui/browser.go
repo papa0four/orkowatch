@@ -22,7 +22,7 @@ const (
 	// rest.
 	filterWidth   = 26
 	paneRule      = 1
-	headerLines   = 1
+	headerLines   = 2
 	footerLines   = 1
 	defaultHeight = 24
 	minListHeight = 4
@@ -699,7 +699,7 @@ func (b browser) render() string {
 	header := styleTitle.Render("owatch") + styleMuted.Render(truncate(about, max(b.width-len("owatch"), 1)))
 	footer := b.helpView()
 
-	top := header
+	top := header + "\n" + b.headerRule()
 	if b.tabBarHeight() > 0 {
 		top += "\n" + b.tabBar()
 	}
@@ -731,6 +731,17 @@ func (b browser) render() string {
 		)
 	}
 	return top + "\n" + body + "\n" + footer
+}
+
+// headerRule is the line under the banner. It separates the banner, which
+// names the run, from the panes below it, and where the left pane is shown it
+// joins the rule between that pane and the main one.
+func (b browser) headerRule() string {
+	width := max(b.width, 1)
+	if b.showText || !b.sidebarShown() {
+		return styleMuted.Render(strings.Repeat("─", width))
+	}
+	return styleMuted.Render(strings.Repeat("─", filterWidth) + "┬" + strings.Repeat("─", max(width-filterWidth-paneRule, 0)))
 }
 
 // fitPane pads or clips text to exactly width columns and height lines.

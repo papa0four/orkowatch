@@ -60,3 +60,25 @@ func TestFooterDoesNotNameSourceKeys(t *testing.T) {
 		}
 	}
 }
+
+// A rule under the banner separates it from the panes, and where the left pane
+// is shown it joins the rule between that pane and the main one, so the banner
+// is never read as part of the sources table.
+func TestHeaderRuleSeparatesBanner(t *testing.T) {
+	lines := strings.Split(plain(sized(newBrowser(sidebarReport(1)), 120, 30).render()), "\n")
+	if !strings.HasPrefix(lines[0], "owatch") {
+		t.Fatalf("the first line is not the banner: %q", lines[0])
+	}
+	rule := []rune(lines[1])
+	if len(rule) < filterWidth+1 || rule[filterWidth] != '┬' || strings.Trim(lines[1], "─┬") != "" {
+		t.Errorf("the line under the banner is not a rule joined to the pane divider: %q", lines[1])
+	}
+	if !strings.Contains(lines[2], "key") || !strings.Contains(lines[2], "source") {
+		t.Errorf("the sources headings do not follow the rule: %q", lines[2])
+	}
+
+	narrow := strings.Split(plain(sized(newBrowser(sidebarReport(1)), 40, 20).render()), "\n")
+	if strings.Trim(narrow[1], "─") != "" {
+		t.Errorf("a window with no left pane has no plain rule under the banner: %q", narrow[1])
+	}
+}
