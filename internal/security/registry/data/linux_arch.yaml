@@ -25,6 +25,7 @@ firewall.no_firewall_installed:
   severity: "CRITICAL"
   cvss_score: 9.3
   cvss_vector: "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:N/SC:N/SI:N/SA:N"
+  records: {}
   cwe: "CWE-923"
   attack_techniques:
     - id: "T1686"
@@ -72,6 +73,7 @@ firewall.nftables_no_rules:
   severity: "HIGH"
   cvss_score: 8.8
   cvss_vector: "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:L/VI:L/VA:H/SC:N/SI:N/SA:N"
+  records: {}
   cwe: "CWE-923"
   attack_techniques:
     - id: "T1686"
@@ -108,6 +110,18 @@ firewall.iptables_default_accept:
   severity: "HIGH"
   cvss_score: 8.8
   cvss_vector: "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:L/VI:L/VA:H/SC:N/SI:N/SA:N"
+  records:
+    firewall-manager: [state]
+    listening: [listening, addresses]
+  environment:
+    - metric: MAV
+      kind: listening
+      fact: listening
+      cases:
+        - value: loopback-only
+          set: L
+          guide: mav-exposed-on-localhost-only
+          because: "no socket on the host listens beyond loopback addresses, so without a firewall the host is still reached only from itself"
   cwe: "CWE-1188"
   attack_techniques:
     - id: "T1686"
@@ -154,6 +168,7 @@ users.sudo_nopasswd:
   severity: "HIGH"
   cvss_score: 8.5
   cvss_vector: "CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N"
+  records: {}
   cwe: "CWE-306"
   attack_techniques:
     - id: "T1548.003"
@@ -199,6 +214,7 @@ users.wheel_group_unrestricted:
   severity: "HIGH"
   cvss_score: 8.4
   cvss_vector: "CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:H/VI:H/VA:N/SC:N/SI:N/SA:N"
+  records: {}
   cwe: "CWE-266"
   attack_techniques:
     - id: "T1548.003"
@@ -239,6 +255,7 @@ users.aur_helper_installed:
   severity: "MEDIUM"
   cvss_score: 4.8
   cvss_vector: "CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:L/VI:N/VA:N/SC:N/SI:N/SA:N"
+  records: {}
   cwe: "CWE-829"
   description: >
     An AUR (Arch User Repository) helper such as yay, paru, or trizen
@@ -276,6 +293,7 @@ permissions.shadow_world_readable:
   severity: "HIGH"
   cvss_score: 8.4
   cvss_vector: "CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:H/VI:H/VA:N/SC:N/SI:N/SA:N"
+  records: {}
   cwe: "CWE-732"
   attack_techniques:
     - id: "T1003.008"
@@ -315,6 +333,7 @@ permissions.pacman_cache_world_writable:
   severity: "HIGH"
   cvss_score: 8.5
   cvss_vector: "CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N"
+  records: {}
   cwe: "CWE-732"
   description: >
     The pacman package cache directory (/var/cache/pacman/pkg) is
@@ -348,6 +367,7 @@ permissions.ssh_dir_permissions:
   severity: "HIGH"
   cvss_score: 8.5
   cvss_vector: "CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N"
+  records: {}
   cwe: "CWE-732"
   attack_techniques:
     - id: "T1098.004"

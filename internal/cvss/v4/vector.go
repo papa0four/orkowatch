@@ -139,6 +139,27 @@ func CalculatorURL(vector string) string {
 // String returns the vector as it was given.
 func (v Vector) String() string { return v.text }
 
+// ModifiedBase returns, for a Modified Base metric, the Base metric it replaces
+// and the values the specification gives it, Not Defined first. ok is false for
+// any other name. The registry checks its environmental rules against this, so
+// the specification's values stay declared once, in metrics.
+func ModifiedBase(name string) (base string, values []string, ok bool) {
+	base, modified := strings.CutPrefix(name, "M")
+	if !modified {
+		return "", nil, false
+	}
+	for _, spec := range metrics[threatCount:environmentalCount] {
+		if spec.name == name {
+			return base, slices.Clone(spec.values), true
+		}
+	}
+	return "", nil, false
+}
+
+// Value returns the value v gives a metric, Not Defined for an optional metric
+// the vector omitted, and empty for a name the specification does not define.
+func (v Vector) Value(name string) string { return v.values[name] }
+
 // Nomenclature is the label FIRST requires on a displayed score so that it says
 // which metrics it was made from: CVSS-B for Base metrics, CVSS-BT with a Threat
 // metric, CVSS-BE with an Environmental one and CVSS-BTE with both.

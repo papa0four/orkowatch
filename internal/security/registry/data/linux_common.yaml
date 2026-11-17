@@ -21,6 +21,8 @@ ssh.config_not_found:
   severity: "MEDIUM"
   cvss_score: 4.8
   cvss_vector: "CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:L/VI:L/VA:L/SC:N/SI:N/SA:N"
+  records:
+    file: []
   no_weakness: "CWE-16 is an obsolete grouping that MITRE prohibits for mapping, and no entry describes a missing configuration file."
   description: >
     No sshd_config file was found at any expected path. Without an explicit
@@ -49,6 +51,18 @@ ssh.root_login_permitted:
   severity: "CRITICAL"
   cvss_score: 9.3
   cvss_vector: "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N"
+  records:
+    sshd-directive: [value, match]
+    listening: [listening, addresses]
+  environment:
+    - metric: MAV
+      kind: listening
+      fact: listening
+      cases:
+        - value: loopback-only
+          set: L
+          guide: mav-exposed-on-localhost-only
+          because: "sshd listens only on loopback addresses, so the server is reached only from the host itself"
   cwe: "CWE-250"
   attack_techniques:
     - id: "T1021.004"
@@ -86,6 +100,18 @@ ssh.password_auth_enabled:
   severity: "HIGH"
   cvss_score: 8.7
   cvss_vector: "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:N/VA:N/SC:N/SI:N/SA:N"
+  records:
+    sshd-directive: [value, match]
+    listening: [listening, addresses]
+  environment:
+    - metric: MAV
+      kind: listening
+      fact: listening
+      cases:
+        - value: loopback-only
+          set: L
+          guide: mav-exposed-on-localhost-only
+          because: "sshd listens only on loopback addresses, so the server is reached only from the host itself"
   cwe: "CWE-521"
   attack_techniques:
     - id: "T1021.004"
@@ -124,6 +150,18 @@ ssh.permit_root_login_not_set:
   severity: "HIGH"
   cvss_score: 8.7
   cvss_vector: "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:N/VA:N/SC:N/SI:N/SA:N"
+  records:
+    sshd-directive: [state]
+    listening: [listening, addresses]
+  environment:
+    - metric: MAV
+      kind: listening
+      fact: listening
+      cases:
+        - value: loopback-only
+          set: L
+          guide: mav-exposed-on-localhost-only
+          because: "sshd listens only on loopback addresses, so the server is reached only from the host itself"
   no_weakness: "CWE-16 is an obsolete grouping that MITRE prohibits for mapping. The directive is absent, so the daemon's default applies and the check does not read it; CWE-1188 would apply only if that default were shown to be insecure."
   description: >
     The PermitRootLogin directive was not found in sshd_config. OpenSSH
@@ -153,6 +191,18 @@ ssh.password_auth_not_set:
   severity: "HIGH"
   cvss_score: 8.7
   cvss_vector: "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:N/VA:N/SC:N/SI:N/SA:N"
+  records:
+    sshd-directive: [state]
+    listening: [listening, addresses]
+  environment:
+    - metric: MAV
+      kind: listening
+      fact: listening
+      cases:
+        - value: loopback-only
+          set: L
+          guide: mav-exposed-on-localhost-only
+          because: "sshd listens only on loopback addresses, so the server is reached only from the host itself"
   no_weakness: "CWE-16 is an obsolete grouping that MITRE prohibits for mapping. The directive is absent, so the daemon's default applies and the check does not read it; CWE-1188 would apply only if that default were shown to be insecure."
   attack_techniques:
     - id: "T1021.004"
@@ -188,6 +238,17 @@ firewall.no_active_manager:
   severity: "CRITICAL"
   cvss_score: 9.3
   cvss_vector: "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:N/SC:N/SI:N/SA:N"
+  records:
+    listening: [listening, addresses]
+  environment:
+    - metric: MAV
+      kind: listening
+      fact: listening
+      cases:
+        - value: loopback-only
+          set: L
+          guide: mav-exposed-on-localhost-only
+          because: "no socket on the host listens beyond loopback addresses, so without a firewall the host is still reached only from itself"
   cwe: "CWE-923"
   attack_techniques:
     - id: "T1686"
@@ -223,6 +284,18 @@ firewall.ufw_inactive:
   severity: "HIGH"
   cvss_score: 8.8
   cvss_vector: "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:L/VI:L/VA:H/SC:N/SI:N/SA:N"
+  records:
+    firewall-manager: [state]
+    listening: [listening, addresses]
+  environment:
+    - metric: MAV
+      kind: listening
+      fact: listening
+      cases:
+        - value: loopback-only
+          set: L
+          guide: mav-exposed-on-localhost-only
+          because: "no socket on the host listens beyond loopback addresses, so without a firewall the host is still reached only from itself"
   cwe: "CWE-923"
   attack_techniques:
     - id: "T1686"
@@ -259,6 +332,18 @@ firewall.firewalld_not_running:
   severity: "HIGH"
   cvss_score: 8.8
   cvss_vector: "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:L/VI:L/VA:H/SC:N/SI:N/SA:N"
+  records:
+    firewall-manager: [state]
+    listening: [listening, addresses]
+  environment:
+    - metric: MAV
+      kind: listening
+      fact: listening
+      cases:
+        - value: loopback-only
+          set: L
+          guide: mav-exposed-on-localhost-only
+          because: "no socket on the host listens beyond loopback addresses, so without a firewall the host is still reached only from itself"
   cwe: "CWE-923"
   attack_techniques:
     - id: "T1686"
@@ -295,6 +380,18 @@ firewall.iptables_default_accept:
   severity: "HIGH"
   cvss_score: 8.8
   cvss_vector: "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:L/VI:L/VA:H/SC:N/SI:N/SA:N"
+  records:
+    firewall-manager: [state]
+    listening: [listening, addresses]
+  environment:
+    - metric: MAV
+      kind: listening
+      fact: listening
+      cases:
+        - value: loopback-only
+          set: L
+          guide: mav-exposed-on-localhost-only
+          because: "no socket on the host listens beyond loopback addresses, so without a firewall the host is still reached only from itself"
   cwe: "CWE-1188"
   attack_techniques:
     - id: "T1686"
@@ -335,6 +432,8 @@ users.empty_password_hash:
   severity: "CRITICAL"
   cvss_score: 9.3
   cvss_vector: "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N"
+  records:
+    account: [uid, shell]
   cwe: "CWE-258"
   attack_techniques:
     - id: "T1078.003"
@@ -371,6 +470,8 @@ users.uid_zero_non_root:
   severity: "HIGH"
   cvss_score: 8.5
   cvss_vector: "CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N"
+  records:
+    account: [uid, shell]
   cwe: "CWE-266"
   description: >
     A user account other than root has been assigned UID 0. On Linux and
@@ -400,6 +501,8 @@ users.root_account_unlocked:
   severity: "HIGH"
   cvss_score: 8.5
   cvss_vector: "CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N"
+  records:
+    account: [uid, shell]
   no_weakness: "No CWE entry describes an unlocked root account; CWE-284, the nearest class, is discouraged by MITRE."
   description: >
     The root account is not in a locked state. On systems where
@@ -428,6 +531,8 @@ users.ldap_configured:
   severity: "MEDIUM"
   cvss_score: 4.6
   cvss_vector: "CVSS:4.0/AV:L/AC:L/AT:N/PR:H/UI:N/VC:L/VI:N/VA:N/SC:N/SI:N/SA:N"
+  records:
+    file: [source]
   no_weakness: "The finding reports where authentication is performed, not a weakness; CWE-287 is discouraged by MITRE."
   description: >
     /etc/ldap.conf is present, indicating LDAP-based authentication is
@@ -452,6 +557,8 @@ users.kerberos_configured:
   severity: "MEDIUM"
   cvss_score: 4.6
   cvss_vector: "CVSS:4.0/AV:L/AC:L/AT:N/PR:H/UI:N/VC:L/VI:N/VA:N/SC:N/SI:N/SA:N"
+  records:
+    file: [source]
   no_weakness: "The finding reports where authentication is performed, not a weakness; CWE-287 is discouraged by MITRE."
   attack_techniques:
     - id: "T1558.005"
@@ -480,6 +587,8 @@ users.sssd_configured:
   severity: "MEDIUM"
   cvss_score: 4.6
   cvss_vector: "CVSS:4.0/AV:L/AC:L/AT:N/PR:H/UI:N/VC:L/VI:N/VA:N/SC:N/SI:N/SA:N"
+  records:
+    file: [source]
   no_weakness: "The finding reports where authentication is performed, not a weakness; CWE-287 is discouraged by MITRE."
   attack_techniques:
     - id: "T1003.005"
@@ -509,6 +618,8 @@ users.regular_user_admin_privileges:
   severity: "HIGH"
   cvss_score: 8.4
   cvss_vector: "CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:H/VI:H/VA:N/SC:N/SI:N/SA:N"
+  records:
+    account: [uid, shell]
   cwe: "CWE-266"
   attack_techniques:
     - id: "T1548.003"
@@ -542,6 +653,8 @@ users.login_shell_present:
   severity: "MEDIUM"
   cvss_score: 4.8
   cvss_vector: "CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:L/VI:N/VA:N/SC:N/SI:N/SA:N"
+  records:
+    account: [uid, shell]
   no_weakness: "CWE-272 concerns dropping an elevated privilege after an operation such as chroot(), which an account with a login shell is not."
   description: >
     A user account has an interactive login shell assigned. For regular
@@ -573,6 +686,8 @@ users.no_password_login_shell:
   severity: "CRITICAL"
   cvss_score: 9.3
   cvss_vector: "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:N/SC:N/SI:N/SA:N"
+  records:
+    account: [uid, shell]
   cwe: "CWE-1390"
   attack_techniques:
     - id: "T1078.003"
@@ -615,6 +730,8 @@ permissions.critical_path_not_root_owned:
   severity: "HIGH"
   cvss_score: 8.5
   cvss_vector: "CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N"
+  records:
+    file: [description, uid, expected]
   cwe: "CWE-282"
   description: >
     A file or directory the system relies on for authentication, privilege
@@ -647,6 +764,8 @@ permissions.path_exceeds_expected_mode:
   severity: "MEDIUM"
   cvss_score: 6.8
   cvss_vector: "CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:H/VI:N/VA:N/SC:N/SI:N/SA:N"
+  records:
+    file: [description, mode, expected]
   cwe: "CWE-732"
   description: >
     A critical system file or directory has permissions that exceed the
@@ -680,6 +799,17 @@ permissions.world_writable_file:
   severity: "HIGH"
   cvss_score: 8.5
   cvss_vector: "CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N"
+  records:
+    file: [mode, uid, gid, unresolved, reach, location]
+  environment:
+    - metric: MPR
+      kind: file
+      fact: reach
+      cases:
+        - value: root-only
+          set: H
+          guide: mpr-restricting-access-to-administrative-users
+          because: "no principal other than root can traverse the directories leading to the file, so only root can reach it to write it"
   cwe: "CWE-732"
   description: >
     A file with world-writable permissions (mode includes 0002) was found
@@ -709,6 +839,17 @@ permissions.suid_sgid_binary:
   severity: "HIGH"
   cvss_score: 8.5
   cvss_vector: "CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N"
+  records:
+    file: [mode, uid, gid, unresolved, reach, location]
+  environment:
+    - metric: MPR
+      kind: file
+      fact: reach
+      cases:
+        - value: root-only
+          set: H
+          guide: mpr-low-privileged-user-cannot-execute
+          because: "no principal other than root can traverse the directories leading to the binary, so a low-privileged user cannot reach it to execute it"
   cwe: "CWE-267"
   attack_techniques:
     - id: "T1548.001"
@@ -746,6 +887,8 @@ permissions.unowned_file:
   severity: "MEDIUM"
   cvss_score: 4.8
   cvss_vector: "CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:L/VI:L/VA:N/SC:N/SI:N/SA:N"
+  records:
+    file: [mode, uid, gid, unresolved, reach, location]
   cwe: "CWE-732"
   description: >
     A file with no valid owning user or group was found. Unowned files

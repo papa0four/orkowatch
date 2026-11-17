@@ -160,13 +160,6 @@ const (
 	reachRootOnly
 )
 
-// The kinds of place a path can be recorded as lying in. A path in neither is
-// recorded with no location, so the common entry adds no fact.
-const (
-	locationTemporary = "temporary"
-	locationHome      = "home"
-)
-
 // pathLocations are the places a scanned entry is recorded as lying in. A
 // writable file means something different in a temporary directory every user
 // writes to than in a directory that belongs to the system. The common
@@ -175,10 +168,10 @@ const (
 // platformLocations, and where a platform's own have not been verified it
 // adds none, so an entry there is left unclassified rather than misclassified.
 var pathLocations = append([]pathLocation{
-	{"/tmp", locationTemporary},
-	{"/var/tmp", locationTemporary},
-	{"/home", locationHome},
-	{"/root", locationHome},
+	{"/tmp", finding.LocationTemporary},
+	{"/var/tmp", finding.LocationTemporary},
+	{"/home", finding.LocationHome},
+	{"/root", finding.LocationHome},
 }, platformLocations()...)
 
 // locationOf returns the kind of place path lies in, or empty when it lies in
@@ -402,10 +395,10 @@ func checkCriticalPath(cp criticalPath, r *report) {
 	mode := info.Mode()
 	modeOK := mode.Perm()&^cp.expected == 0
 	if !modeOK {
-		r.observed(ruleExcessMode, evidence(kindFile, cp.path,
-			fact(factDescription, cp.description),
-			fact(factMode, formatMode(mode)),
-			fact(factExpected, formatMode(cp.expected))))
+		r.observed(ruleExcessMode, evidence(finding.KindFile, cp.path,
+			fact(finding.FactDescription, cp.description),
+			fact(finding.FactMode, formatMode(mode)),
+			fact(finding.FactExpected, formatMode(cp.expected))))
 	}
 
 	uid, _, _, ok := fileIdentity(info)
@@ -413,10 +406,10 @@ func checkCriticalPath(cp criticalPath, r *report) {
 	case !ok:
 		r.inconclusive(finding.ResultError, cp.path+" ownership could not be determined", ruleNotRootOwned)
 	case uid != rootUID:
-		r.observed(ruleNotRootOwned, evidence(kindFile, cp.path,
-			fact(factDescription, cp.description),
-			fact(factUID, strconv.FormatUint(uint64(uid), decimalBase)),
-			fact(factExpected, "root")))
+		r.observed(ruleNotRootOwned, evidence(finding.KindFile, cp.path,
+			fact(finding.FactDescription, cp.description),
+			fact(finding.FactUID, strconv.FormatUint(uint64(uid), decimalBase)),
+			fact(finding.FactExpected, "root")))
 	case modeOK:
 		r.note(finding.SymbolOK, "%s has correct permissions and ownership: %s root", cp.path, formatMode(mode))
 	}
@@ -606,11 +599,11 @@ func traversableByNonRoot(mode fs.FileMode, uid, gid uint32) bool {
 func (r reachability) label() string {
 	switch r {
 	case reachRootOnly:
-		return "root-only"
+		return finding.ReachRootOnly
 	case reachUndetermined:
-		return "undetermined"
+		return finding.ReachUndetermined
 	case reachUnsupported:
-		return "not evaluated on this platform"
+		return finding.ReachUnsupported
 	default:
 		return ""
 	}
@@ -630,13 +623,13 @@ func fileIdentity(info fs.FileInfo) (uid, gid uint32, dev uint64, ok bool) {
 // stay numeric deliberately: when one of them failed to resolve it is the
 // value that failed, and a name would be misleading.
 func (e scanEntry) evidence() finding.Evidence {
-	return evidence(kindFile, e.path,
-		fact(factMode, formatMode(e.mode)),
-		fact(factUID, strconv.FormatUint(uint64(e.uid), decimalBase)),
-		fact(factGID, strconv.FormatUint(uint64(e.gid), decimalBase)),
-		fact(factUnresolved, e.unresolved()),
-		fact(factReach, e.reach.label()),
-		fact(factLocation, locationOf(e.path)))
+	return evidence(finding.KindFile, e.path,
+		fact(finding.FactMode, formatMode(e.mode)),
+		fact(finding.FactUID, strconv.FormatUint(uint64(e.uid), decimalBase)),
+		fact(finding.FactGID, strconv.FormatUint(uint64(e.gid), decimalBase)),
+		fact(finding.FactUnresolved, e.unresolved()),
+		fact(finding.FactReach, e.reach.label()),
+		fact(finding.FactLocation, locationOf(e.path)))
 }
 
 // unresolved names which identifiers the name service could not account for,

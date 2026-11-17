@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"math"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -253,6 +254,30 @@ func TestNomenclature(t *testing.T) {
 		if got := mustParse(t, b+suffix).Nomenclature(); got != want {
 			t.Errorf("%s: label %s, want %s", suffix, got, want)
 		}
+	}
+}
+
+// Each of the eleven Modified Base metrics names the Base metric it replaces and
+// takes Not Defined and every value of that metric, and nothing else is one.
+func TestModifiedBase(t *testing.T) {
+	v := mustParse(t, "CVSS:4.0/AV:N/AC:L/AT:N/PR:L/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N/MPR:H")
+	for _, name := range []string{"MAV", "MAC", "MAT", "MPR", "MUI", "MVC", "MVI", "MVA", "MSC", "MSI", "MSA"} {
+		base, values, ok := ModifiedBase(name)
+		if !ok || "M"+base != name || values[0] != "X" {
+			t.Errorf("%s: base %q, values %v, ok %v", name, base, values, ok)
+			continue
+		}
+		if !slices.Contains(values, v.Value(base)) {
+			t.Errorf("%s does not take the value %s of its Base metric", name, v.Value(base))
+		}
+	}
+	for _, name := range []string{"AV", "PR", "CR", "E", "S", "MX", ""} {
+		if _, _, ok := ModifiedBase(name); ok {
+			t.Errorf("%q is taken for a Modified Base metric", name)
+		}
+	}
+	if v.Value("MPR") != "H" || v.Value("MAV") != "X" || v.Value("PR") != "L" {
+		t.Errorf("values MPR %q, MAV %q, PR %q", v.Value("MPR"), v.Value("MAV"), v.Value("PR"))
 	}
 }
 

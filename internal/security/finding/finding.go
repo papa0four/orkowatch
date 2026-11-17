@@ -154,6 +154,19 @@ type (
 		CalculatorURL string `json:"calculator_url,omitempty" yaml:"calculator_url,omitempty"`
 	}
 
+	// ModifiedMetric is a Modified Base metric a registry rule derived from one
+	// fact a checker recorded on the host, with the passage of FIRST's
+	// Implementation Guide the rule rests on. The per-run environmental score
+	// (#174) is computed from these.
+	ModifiedMetric struct {
+		Metric  string `json:"metric" yaml:"metric"`
+		Value   string `json:"value" yaml:"value"`
+		Fact    Fact   `json:"fact" yaml:"fact"`
+		Because string `json:"because" yaml:"because"`
+		Section string `json:"guide_section" yaml:"guide_section"`
+		Quote   string `json:"guide_quote" yaml:"guide_quote"`
+	}
+
 	// Technique is a MITRE ATT&CK technique an adversary can use because of
 	// the condition a finding reports. Tactics are as the ATT&CK site lists
 	// them for the technique. Basis states what in MITRE's published data ties

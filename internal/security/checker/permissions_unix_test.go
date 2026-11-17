@@ -16,11 +16,11 @@ import (
 // not taken for a child.
 func TestLocationOf(t *testing.T) {
 	for path, want := range map[string]string{
-		"/tmp":                locationTemporary,
-		"/tmp/a/b":            locationTemporary,
-		"/var/tmp/x":          locationTemporary,
-		"/home/alice/.bashrc": locationHome,
-		"/root/.profile":      locationHome,
+		"/tmp":                finding.LocationTemporary,
+		"/tmp/a/b":            finding.LocationTemporary,
+		"/var/tmp/x":          finding.LocationTemporary,
+		"/home/alice/.bashrc": finding.LocationHome,
+		"/root/.profile":      finding.LocationHome,
 		"/tmpfiles/x":         "",
 		"/homes/alice":        "",
 		"/usr/bin/su":         "",
@@ -44,12 +44,12 @@ func TestScanEntryEvidenceLocation(t *testing.T) {
 	}
 
 	temp := names(scanEntry{path: "/tmp/dropper", mode: 0o4755}.evidence())
-	if temp[string(factLocation)] != locationTemporary || temp[string(factMode)] == "" {
+	if temp[string(finding.FactLocation)] != finding.LocationTemporary || temp[string(finding.FactMode)] == "" {
 		t.Errorf("a setuid file in /tmp lacks its location or mode: %v", temp)
 	}
 
 	system := names(scanEntry{path: "/usr/bin/su", mode: fs.FileMode(0o4755)}.evidence())
-	if _, ok := system[string(factLocation)]; ok {
+	if _, ok := system[string(finding.FactLocation)]; ok {
 		t.Errorf("an entry in neither place has a location fact: %v", system)
 	}
 }

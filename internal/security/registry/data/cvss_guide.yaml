@@ -1,0 +1,29 @@
+# Passages of FIRST's CVSS v4.0 Consumer Implementation Guide that the registry's
+# environmental rules cite. Each passage is quoted verbatim, with the section of the
+# guide it is in, the Modified Base metric it concerns and the value it supports. The
+# registry refuses a rule that cites a passage not listed here, or one for another
+# metric or value, so a rule cannot claim a basis the guide does not state.
+#
+# The guide is published by FIRST.Org, Inc.; these are short quotations of it, with
+# their source, for the purpose of citing it.
+
+source: "https://www.first.org/cvss/v4.0/implementation-guide"
+title: "Common Vulnerability Scoring System version 4.0 Consumer Implementation Guide"
+verified: "2026-11-16"
+
+passages:
+  mav-exposed-on-localhost-only:
+    section: "CVSS Environmental Metrics, Modified Exploitability Metrics, Modified Attack Vector (MAV), the example following Table 2 - Modifying the Attack Vector Example, whose row \"System accessible only from console\" modifies Network to Local"
+    text: "Although the web server is bound to a network protocol stack (TCP), the service is exposed locally on “localhost” or 127.0.0.1 only."
+    metric: "MAV"
+    value: "L"
+  mpr-restricting-access-to-administrative-users:
+    section: "CVSS Environmental Metrics, Modified Exploitability Metrics, Modified Privileges Required (MPR), Table 5 - Modified Privileges Required Example, modification justification for Low to High"
+    text: "Restricting access to administrative users"
+    metric: "MPR"
+    value: "H"
+  mpr-low-privileged-user-cannot-execute:
+    section: "CVSS Environmental Metrics, Modified Exploitability Metrics, Modified Privileges Required (MPR)"
+    text: "If the low-privileged user could not execute PowerShell through Group Policy, you can update the Modified Privileges Required (MPR) to High (H)."
+    metric: "MPR"
+    value: "H"

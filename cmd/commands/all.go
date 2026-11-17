@@ -351,7 +351,7 @@ func (c *allCmd) runModules(ctx context.Context, mask selection.CheckMask, resul
 		result.Modules = append(result.Modules, skippedModule("audit"))
 		return
 	}
-	securityResult, err := c.runSecurityAuditModule(ctx, mask, result.OSInfo, reporter)
+	securityResult, err := c.runSecurityAuditModule(ctx, mask, result.OSInfo, result.Sockets, reporter)
 	if err != nil {
 		result.Errors = append(result.Errors, fmt.Sprintf("Security audit error: %v", err))
 		result.Modules = append(result.Modules, erroredModule("audit", err))
@@ -465,13 +465,16 @@ func incompleteDetail(result *ScanResult) string {
 	return "results shown are incomplete; rerun with a longer --timeout or " + strings.Join(parts, " ")
 }
 
-func (c *allCmd) runSecurityAuditModule(ctx context.Context, mask selection.CheckMask, hostInfo *osfingerprint.OSInfo, reporter tui.Reporter) (*audit.Result, error) {
+// runSecurityAuditModule runs the audit with what the modules before it read,
+// so the host is fingerprinted and its sockets read once for the whole run.
+func (c *allCmd) runSecurityAuditModule(ctx context.Context, mask selection.CheckMask, hostInfo *osfingerprint.OSInfo, hostSockets *sockets.View, reporter tui.Reporter) (*audit.Result, error) {
 	auditor := audit.NewSecurityAuditor(audit.Options{
 		Observer:    security.Observe(reporter),
 		MinSeverity: c.audit.MinSeverity(),
 		Enrich:      c.audit.Enrich(),
 		Checks:      selection.EnabledChecks(mask),
 		HostInfo:    hostInfo,
+		Sockets:     hostSockets,
 	})
 	return auditor.RunAudit(ctx)
 }
