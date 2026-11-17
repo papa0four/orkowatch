@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
@@ -28,6 +29,16 @@ const (
 	minListHeight = 4
 	listShareNum  = 2
 	listShareDen  = 5
+
+	// The banner: the brand on its right, the separator between the run, the
+	// host and the time on its left, the least room kept between the two
+	// sides, and the form the time is written in.
+	projectName     = "Project Orko"
+	productName     = "Orko Watch"
+	toolCommand     = "owatch"
+	bannerSeparator = " · "
+	bannerGap       = "  "
+	bannerTime      = "2006-01-02 15:04:05 UTC"
 
 	// searchLines and ruleLines are what the main pane spends above and
 	// between its list and detail: the search line, and the rule that
@@ -690,13 +701,7 @@ func (b browser) View() tea.View {
 // the frame to its height, because a line the terminal wraps or a frame
 // taller than the window scrolls the alternate screen and tears the display.
 func (b browser) render() string {
-	var about string
-	for _, part := range []string{b.report.Title, b.report.Host, b.report.When} {
-		if part != "" {
-			about += "  " + part
-		}
-	}
-	header := styleTitle.Render("owatch") + styleMuted.Render(truncate(about, max(b.width-len("owatch"), 1)))
+	header := b.banner()
 	footer := b.helpView()
 
 	top := header + "\n" + b.headerRule()
@@ -726,11 +731,71 @@ func (b browser) render() string {
 	if b.sidebarShown() {
 		body = lipgloss.JoinHorizontal(lipgloss.Top,
 			fitPane(b.filterView(), filterWidth, b.bodyHeight()),
-			styleMuted.Render(strings.TrimRight(strings.Repeat("│\n", b.bodyHeight()), "\n")),
+			b.divider(),
 			body,
 		)
 	}
 	return top + "\n" + body + "\n" + footer
+}
+
+// banner is the top line: the run, the host and when it ran on the left, and
+// the brand on the right. The tool's name is in the brand, so the run is shown
+// without it. A window too narrow for both drops the brand first, because the
+// left side is what identifies the report.
+func (b browser) banner() string {
+	run := strings.TrimPrefix(b.report.Title, toolCommand+" ")
+	var details []string
+	for _, part := range []string{b.report.Host, readableTime(b.report.When)} {
+		if part != "" {
+			details = append(details, part)
+		}
+	}
+
+	width := max(b.width, 1)
+	plain := strings.Join(append([]string{run}, details...), bannerSeparator)
+	if lipgloss.Width(plain) > width {
+		return styleTitle.Render(truncate(plain, width))
+	}
+	left := styleTitle.Render(run)
+	for _, part := range details {
+		left += styleMuted.Render(bannerSeparator + part)
+	}
+
+	brand := styleProject.Render(projectName) + bannerGap + styleProduct.Render(productName) + " " + styleCommand.Render("("+toolCommand+")")
+	room := width - lipgloss.Width(left) - lipgloss.Width(brand)
+	if room < len(bannerGap) {
+		return left
+	}
+	return left + strings.Repeat(" ", room) + brand
+}
+
+// readableTime writes a report's RFC 3339 timestamp as a date and a time in
+// UTC, and returns any other text as it is.
+func readableTime(stamp string) string {
+	t, err := time.Parse(time.RFC3339, stamp)
+	if err != nil {
+		return stamp
+	}
+	return t.UTC().Format(bannerTime)
+}
+
+// sourcesRule closes the left pane's table of sources, so the part of the
+// pane that switches sources is set apart from the filters and summary below.
+func sourcesRule() string { return styleMuted.Render(strings.Repeat("─", filterWidth)) }
+
+// divider is the rule between the left pane and the main one, joined to the
+// sources rule where that is on screen.
+func (b browser) divider() string {
+	window, _ := b.sidebarWindow()
+	rule := sourcesRule()
+	rows := make([]string, b.bodyHeight())
+	for i := range rows {
+		rows[i] = "│"
+		if i < len(window) && window[i] == rule {
+			rows[i] = "┤"
+		}
+	}
+	return styleMuted.Render(strings.Join(rows, "\n"))
 }
 
 // headerRule is the line under the banner. It separates the banner, which
@@ -932,18 +997,25 @@ func (b browser) total() int {
 // scrolled to keep the cursor in view when its contents are taller than the
 // body, and says so at the edge that has more.
 func (b browser) filterView() string {
+	window, _ := b.sidebarWindow()
+	return strings.Join(window, "\n")
+}
+
+// sidebarWindow returns the lines of the left pane that fit the body and the
+// index of the first of them, marking where more lies above or below.
+func (b browser) sidebarWindow() (window []string, top int) {
 	lines, cursorLine := b.sidebarLines()
 	height := b.bodyHeight()
-	top := min(b.sideTop, max(len(lines)-height, 0))
+	top = min(b.sideTop, max(len(lines)-height, 0))
 	end := min(top+height, len(lines))
-	window := slices.Clone(lines[top:end])
+	window = slices.Clone(lines[top:end])
 	if top > 0 && cursorLine != top {
 		window[0] = styleMuted.Render("  more above")
 	}
 	if end < len(lines) && cursorLine != end-1 {
 		window[len(window)-1] = styleMuted.Render("  more below")
 	}
-	return strings.Join(window, "\n")
+	return window, top
 }
 
 // keepCursorVisible scrolls the left pane just far enough that the line under
@@ -1001,7 +1073,7 @@ func (b browser) sidebarLines() (lines []string, cursorLine int) {
 	sources := len(b.tabs)
 	notApplicable := styleMuted.Render("  n/a")
 	if b.isFindings() {
-		lines = append(lines, "", b.paneTitle("severity", focusFilters))
+		lines = append(lines, sourcesRule(), b.paneTitle("severity", focusFilters))
 		for i, level := range b.severities {
 			option(sources+i, strings.ToLower(level), b.severity == i)
 		}
@@ -1010,7 +1082,7 @@ func (b browser) sidebarLines() (lines []string, cursorLine int) {
 			option(sources+len(b.severities)+i, check, b.check == i)
 		}
 	} else {
-		lines = append(lines, "", styleMuted.Render("severity"), notApplicable)
+		lines = append(lines, sourcesRule(), styleMuted.Render("severity"), notApplicable)
 		lines = append(lines, "", styleMuted.Render("check"), notApplicable)
 	}
 

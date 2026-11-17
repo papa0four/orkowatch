@@ -21,6 +21,13 @@ var (
 	colorCaution  = lipgloss.Color("#d29922")
 	colorWarning  = lipgloss.Color("#f0883e")
 	colorCritical = lipgloss.Color("#f85149")
+	colorBrand    = lipgloss.Color("#79c0ff")
+
+	// The brand in the browser's banner: the project, the tool's name and the
+	// command that runs it.
+	styleProject = lipgloss.NewStyle().Foreground(colorCritical).Bold(true)
+	styleProduct = lipgloss.NewStyle().Foreground(colorBrand).Bold(true)
+	styleCommand = lipgloss.NewStyle().Foreground(colorCaution)
 
 	styleTitle  = lipgloss.NewStyle().Foreground(colorAccent).Bold(true)
 	styleMuted  = lipgloss.NewStyle().Foreground(colorMuted)

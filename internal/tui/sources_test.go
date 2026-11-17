@@ -66,7 +66,7 @@ func TestFooterDoesNotNameSourceKeys(t *testing.T) {
 // is never read as part of the sources table.
 func TestHeaderRuleSeparatesBanner(t *testing.T) {
 	lines := strings.Split(plain(sized(newBrowser(sidebarReport(1)), 120, 30).render()), "\n")
-	if !strings.HasPrefix(lines[0], "owatch") {
+	if !strings.HasPrefix(lines[0], "all") {
 		t.Fatalf("the first line is not the banner: %q", lines[0])
 	}
 	rule := []rune(lines[1])
@@ -80,5 +80,42 @@ func TestHeaderRuleSeparatesBanner(t *testing.T) {
 	narrow := strings.Split(plain(sized(newBrowser(sidebarReport(1)), 40, 20).render()), "\n")
 	if strings.Trim(narrow[1], "─") != "" {
 		t.Errorf("a window with no left pane has no plain rule under the banner: %q", narrow[1])
+	}
+}
+
+// The banner names the run, the host and a readable time on the left, without
+// the tool's name, which the brand on the right carries; a window too narrow
+// for both keeps the left.
+func TestBannerPutsTheBrandOnTheRight(t *testing.T) {
+	r := sidebarReport(1)
+	r.Host, r.When = "defender", "2026-11-17T03:03:32Z"
+	banner := strings.Split(plain(sized(newBrowser(r), 120, 30).render()), "\n")[0]
+	if !strings.HasPrefix(banner, "all · defender · 2026-11-17 03:03:32 UTC") {
+		t.Errorf("the left of the banner: %q", banner)
+	}
+	if !strings.HasSuffix(banner, "Project Orko  Orko Watch (owatch)") || strings.Count(banner, "owatch") != 1 {
+		t.Errorf("the right of the banner: %q", banner)
+	}
+	if width := len([]rune(banner)); width != 120 {
+		t.Errorf("the banner is %d columns in a 120-column window", width)
+	}
+
+	narrow := strings.Split(plain(sized(newBrowser(r), 50, 20).render()), "\n")[0]
+	if strings.Contains(narrow, "Project Orko") || !strings.HasPrefix(narrow, "all · defender") {
+		t.Errorf("a narrow banner: %q", narrow)
+	}
+}
+
+// A rule closes the table of sources and joins the divider beside it, on
+// every source.
+func TestSourcesRuleJoinsTheDivider(t *testing.T) {
+	b := sized(newBrowser(sidebarReport(1)), 120, 30)
+	for _, key := range []string{"f", "s"} {
+		b = press(b, key)
+		lines := strings.Split(plain(b.render()), "\n")
+		row := []rune(lines[2+1+len(b.tabs)])
+		if len(row) <= filterWidth || row[filterWidth] != '┤' || strings.Trim(string(row[:filterWidth]), "─") != "" {
+			t.Errorf("after %q the line under the sources is not a rule joined to the divider: %q", key, string(row))
+		}
 	}
 }
