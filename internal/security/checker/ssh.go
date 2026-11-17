@@ -8,13 +8,16 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/papa0four/orkowatch/internal/security/finding"
 	"github.com/papa0four/orkowatch/internal/security/registry"
+	"github.com/papa0four/orkowatch/internal/sockets"
 )
 
 type (
@@ -32,9 +35,15 @@ type (
 	// blocks hold the keywords a Match block sets for the connections it
 	// matches. Keywords are lower case, because sshd matches them without
 	// regard to case.
+	//
+	// ports holds every Port, all of which apply, and listenPorts the port of
+	// each ListenAddress, empty for one that names none and so takes every
+	// Port.
 	sshConfig struct {
-		global map[string]sshSetting
-		blocks []sshMatchBlock
+		global      map[string]sshSetting
+		blocks      []sshMatchBlock
+		ports       []string
+		listenPorts []string
 	}
 
 	// sshMatchBlock is one Match block: its criteria as written and the first
@@ -85,11 +94,20 @@ type (
 
 // The keywords the parser acts on, in the lower case it compares them in.
 const (
-	keywordInclude      = "include"
-	keywordMatch        = "match"
-	keywordRootLogin    = "permitrootlogin"
-	keywordPasswordAuth = "passwordauthentication"
+	keywordInclude       = "include"
+	keywordMatch         = "match"
+	keywordRootLogin     = "permitrootlogin"
+	keywordPasswordAuth  = "passwordauthentication"
+	keywordPort          = "port"
+	keywordListenAddress = "listenaddress"
 )
+
+// sshdDefaultPort is the port sshd listens on when the configuration names
+// none, as sshd -T reports it.
+const sshdDefaultPort = "22"
+
+// sshdSubject names the OpenSSH server in the evidence of where it listens.
+const sshdSubject = "sshd"
 
 // sshdValues lists, for each directive the audit judges, the values sshd
 // accepts for it, as sshd -T reports them accepted. sshd reads values without
@@ -140,6 +158,13 @@ func (p *sshdParser) read(file io.Reader, path string, block int) error {
 			if err := p.include(args, block); err != nil {
 				return fmt.Errorf("%s line %d: %w", path, line, err)
 			}
+		case keywordPort, keywordListenAddress:
+			if block >= 0 {
+				return fmt.Errorf("%s line %d: %s is not allowed within a Match block", path, line, keyword)
+			}
+			if err := p.listen(keyword, args); err != nil {
+				return fmt.Errorf("%s line %d: %w", path, line, err)
+			}
 		default:
 			if _, judged := sshdValues[keyword]; judged {
 				p.set(block, keyword, directiveSetting(keyword, args))
@@ -159,6 +184,64 @@ func (p *sshdParser) set(block int, keyword string, setting sshSetting) {
 	if _, ok := settings[keyword]; !ok {
 		settings[keyword] = setting
 	}
+}
+
+// listen records a Port or a ListenAddress. Every one applies, unlike the
+// directives the audit judges. A port may be a number or a service name, as
+// sshd accepts either; a ListenAddress may be followed by a routing domain.
+func (p *sshdParser) listen(keyword string, args []string) error {
+	const rdomainArgs = 3
+	switch {
+	case keyword == keywordPort && len(args) != 1:
+		return errors.New("port takes exactly one value")
+	case keyword == keywordPort:
+		port, err := net.LookupPort("tcp", args[0])
+		if err != nil {
+			return fmt.Errorf("port %q is not a port: %w", args[0], err)
+		}
+		p.config.ports = append(p.config.ports, strconv.Itoa(port))
+	case len(args) == 1 || len(args) == rdomainArgs && strings.EqualFold(args[1], "rdomain"):
+		p.config.listenPorts = append(p.config.listenPorts, addressPort(args[0]))
+	default:
+		return errors.New("listen address takes an address and an optional routing domain")
+	}
+	return nil
+}
+
+// addressPort returns the port a ListenAddress names, or empty when it names
+// only an address: a bracketed IPv6 address or a host with one colon carries a
+// port, and a bare IPv6 address does not.
+func addressPort(address string) string {
+	if !strings.HasPrefix(address, "[") && strings.Count(address, ":") != 1 {
+		return ""
+	}
+	_, port, err := net.SplitHostPort(address)
+	if err != nil {
+		return ""
+	}
+	return port
+}
+
+// listeningPorts returns the ports sshd listens on: those its ListenAddress
+// entries name, every Port for an entry that names none, and every Port, or
+// the default, when there is no ListenAddress.
+func (c sshConfig) listeningPorts() []string {
+	ports := c.ports
+	if len(ports) == 0 {
+		ports = []string{sshdDefaultPort}
+	}
+	if len(c.listenPorts) == 0 {
+		return ports
+	}
+	var out []string
+	for _, port := range c.listenPorts {
+		if port == "" {
+			out = append(out, ports...)
+		} else {
+			out = append(out, port)
+		}
+	}
+	return out
 }
 
 // include reads every file an Include names, in place. A pattern is expanded
@@ -275,8 +358,9 @@ func splitSSHDLine(line string) (keyword string, args []string, err error) {
 // window in which the file can change between the check and the use, and one
 // error already distinguishes absent from unreadable. An absent file fails its
 // own rule and leaves the directive rules unchecked; an unreadable one is an
-// error on all of them.
-func checkSSHDConfig(r *report, path string, absent sshdAbsentKeys) {
+// error on all of them. Each directive finding carries where sshd listens,
+// which decides how far it can be exploited from.
+func checkSSHDConfig(r *report, path string, absent sshdAbsentKeys, listeners Listeners) {
 	directives := []registry.FindingKey{
 		"ssh.root_login_permitted", "ssh.password_auth_enabled",
 		absent.rootLogin, absent.passwordAuth,
@@ -299,19 +383,36 @@ func checkSSHDConfig(r *report, path string, absent sshdAbsentKeys) {
 	r.note(finding.SymbolInfo, "Configuration file: %s", path)
 
 	config, readErr := parseSSHDConfig(file, path, filepath.Dir(path))
+	reach := sshdListening(r, config, readErr, listeners)
 
-	reportSSHDirective(r, config, readErr, keywordRootLogin, sshRule{
+	reportSSHDirective(r, config, readErr, keywordRootLogin, reach, sshRule{
 		name:      "PermitRootLogin",
 		unsafe:    func(value string) bool { return !strings.EqualFold(value, "no") },
 		unsafeKey: "ssh.root_login_permitted",
 		absentKey: absent.rootLogin,
 	})
 
-	reportSSHDirective(r, config, readErr, keywordPasswordAuth, sshRule{
+	reportSSHDirective(r, config, readErr, keywordPasswordAuth, reach, sshRule{
 		name:      "PasswordAuthentication",
 		unsafe:    func(value string) bool { return strings.EqualFold(value, "yes") },
 		unsafeKey: "ssh.password_auth_enabled",
 		absentKey: absent.passwordAuth,
+	})
+}
+
+// sshdListening records where sshd listens: the TCP sockets listening on the
+// ports its configuration names, whichever process holds them, because a
+// socket-activated sshd is listened for by the service manager. A
+// configuration not read to the end may name ports that were not read, so
+// where sshd listens is then undetermined.
+func sshdListening(r *report, config sshConfig, readErr error, listeners Listeners) finding.Evidence {
+	if readErr != nil {
+		return undeterminedListening(r, sshdSubject, "the OpenSSH configuration was not read in full, so the ports it names are not known")
+	}
+	ports := config.listeningPorts()
+	return listeningEvidence(r, sshdSubject, listeners, func(s sockets.Socket) bool {
+		port, ok := s.Port()
+		return ok && (s.Protocol == sockets.TCP || s.Protocol == sockets.TCP6) && slices.Contains(ports, port)
 	})
 }
 
@@ -324,8 +425,19 @@ func checkSSHDConfig(r *report, path string, absent sshdAbsentKeys) {
 // absence: the part that was not read may have set it. A value sshd refuses
 // is not judged, because the server does not start with it. A Match block that
 // sets an unsafe value fails the rule for the connections it matches, whatever
-// the global setting, and its criteria are recorded with the value.
-func reportSSHDirective(r *report, config sshConfig, readErr error, keyword string, rule sshRule) {
+// the global setting, and its criteria are recorded with the value. Where sshd
+// listens, reach, is recorded once on each finding the directive raises.
+func reportSSHDirective(r *report, config sshConfig, readErr error, keyword string, reach finding.Evidence, rule sshRule) {
+	reached := map[registry.FindingKey]bool{}
+	observe := func(key registry.FindingKey, subject finding.Evidence) {
+		if reached[key] {
+			r.observed(key, subject)
+			return
+		}
+		reached[key] = true
+		r.observed(key, subject, reach)
+	}
+
 	global := config.global[keyword]
 	switch {
 	case !global.found && readErr != nil:
@@ -336,13 +448,13 @@ func reportSSHDirective(r *report, config sshConfig, readErr error, keyword stri
 		r.inconclusive(finding.ResultNotChecked,
 			rule.name+" is not set; the sshd default applies and is not read", rule.unsafeKey)
 		if rule.absentKey != "" {
-			r.observed(rule.absentKey, evidence(finding.KindDirective, rule.name, fact(finding.FactState, "not set")))
+			observe(rule.absentKey, evidence(finding.KindDirective, rule.name, fact(finding.FactState, "not set")))
 		}
 	case global.rejected != "":
 		r.inconclusive(finding.ResultUnknown, rejectedReason(rule.name, global), rule.unsafeKey)
 		r.pass(rule.absentKey)
 	case rule.unsafe(global.value):
-		r.observed(rule.unsafeKey, evidence(finding.KindDirective, rule.name, fact(finding.FactValue, global.value)))
+		observe(rule.unsafeKey, evidence(finding.KindDirective, rule.name, fact(finding.FactValue, global.value)))
 		r.pass(rule.absentKey)
 	default:
 		r.pass(rule.unsafeKey, rule.absentKey)
@@ -355,7 +467,7 @@ func reportSSHDirective(r *report, config sshConfig, readErr error, keyword stri
 		case setting.rejected != "":
 			r.inconclusive(finding.ResultUnknown, rejectedReason(rule.name, setting)+" (Match "+block.criteria+")", rule.unsafeKey)
 		case rule.unsafe(setting.value):
-			r.observed(rule.unsafeKey, evidence(finding.KindDirective, rule.name,
+			observe(rule.unsafeKey, evidence(finding.KindDirective, rule.name,
 				fact(finding.FactValue, setting.value), fact(finding.FactMatch, block.criteria)))
 		}
 	}

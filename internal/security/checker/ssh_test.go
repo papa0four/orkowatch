@@ -3,6 +3,7 @@
 package checker
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/papa0four/orkowatch/internal/security/finding"
 	"github.com/papa0four/orkowatch/internal/security/registry"
+	"github.com/papa0four/orkowatch/internal/sockets"
 )
 
 // writeConfig writes files, keyed by name, into a new directory and returns it.
@@ -195,6 +197,7 @@ func TestCheckSSHDConfigJudgesTheAssembledConfiguration(t *testing.T) {
 		wantMatch string
 	}{
 		"a Match block permits root":        {"PermitRootLogin no\nPasswordAuthentication no\nMatch User alice\n PermitRootLogin yes\n", "ssh.root_login_permitted", finding.ResultFail, "User alice"},
+		"global and Match both permit root": {"PermitRootLogin yes\nPasswordAuthentication no\nMatch User alice\n PermitRootLogin yes\n", "ssh.root_login_permitted", finding.ResultFail, "User alice"},
 		"a refused value is not judged":     {"PermitRootLogin maybe\nPasswordAuthentication no\n", "ssh.root_login_permitted", finding.ResultUnknown, ""},
 		"NO in upper case disables root":    {"PermitRootLogin NO\nPasswordAuthentication no\n", "ssh.root_login_permitted", finding.ResultPass, ""},
 		"Yes enables passwords":             {"PermitRootLogin no\nPasswordAuthentication Yes\n", "ssh.password_auth_enabled", finding.ResultFail, ""},
@@ -210,25 +213,157 @@ func TestCheckSSHDConfigJudgesTheAssembledConfiguration(t *testing.T) {
 		checkSSHDConfig(r, filepath.Join(dir, "sshd_config"), sshdAbsentKeys{
 			rootLogin:    "ssh.permit_root_login_not_set",
 			passwordAuth: "ssh.password_auth_not_set",
-		})
+		}, Listeners{View: loopbackSSHD()})
 		condition := r.result.Conditions[r.index[registry.FindingKey(c.key)]]
 		if condition.Result != c.result {
 			t.Errorf("%s: %s is %s (%s), want %s", name, c.key, condition.Result, condition.Reason, c.result)
 			continue
 		}
+		reach := evidenceOfKind(condition, finding.KindListening)
+		if condition.Result == finding.ResultFail && (len(reach) != 1 || factValue(reach[0], finding.FactListening) != finding.ListeningLoopbackOnly) {
+			t.Errorf("%s: where sshd listens is recorded as %+v, want once, loopback-only", name, reach)
+		}
 		if c.wantMatch == "" {
 			continue
 		}
 		var match string
-		for _, e := range condition.Evidence {
-			for _, f := range e.Facts {
-				if f.Name == string(finding.FactMatch) {
-					match = f.Value
-				}
+		for _, e := range evidenceOfKind(condition, finding.KindDirective) {
+			if criteria := factValue(e, finding.FactMatch); criteria != "" {
+				match = criteria
 			}
 		}
 		if match != c.wantMatch {
 			t.Errorf("%s: evidence %+v, want the Match criteria %q", name, condition.Evidence, c.wantMatch)
+		}
+	}
+}
+
+// loopbackSSHD is a host whose port 22 is held on loopback only, by systemd
+// rather than sshd, as a socket-activated sshd is, with sockets on port 22
+// that are not listening and a UDP socket on 22 that sshd does not use.
+func loopbackSSHD() *sockets.View {
+	v := sockets.NewView([]sockets.Socket{
+		{Protocol: sockets.TCP, State: sockets.StateListen, Local: "127.0.0.1:22", Scope: sockets.ScopeLoopback, Processes: []sockets.Process{{PID: 1, Name: "systemd"}}},
+		{Protocol: sockets.TCP6, State: sockets.StateListen, Local: "[::1]:22", Scope: sockets.ScopeLoopback},
+		{Protocol: sockets.TCP, State: sockets.StateEstablished, Local: "10.0.0.5:22", Remote: "10.0.0.9:50000", Scope: sockets.ScopeSpecific},
+		{Protocol: sockets.UDP, State: sockets.StateUnconnected, Local: "0.0.0.0:22", Scope: sockets.ScopeWildcard},
+		{Protocol: sockets.TCP, State: sockets.StateListen, Local: "0.0.0.0:2222", Scope: sockets.ScopeWildcard},
+	})
+	return &v
+}
+
+// evidenceOfKind returns the evidence of one kind a condition carries.
+func evidenceOfKind(condition finding.Condition, kind finding.EvidenceKind) []finding.Evidence {
+	var out []finding.Evidence
+	for _, e := range condition.Evidence {
+		if e.Kind == string(kind) {
+			out = append(out, e)
+		}
+	}
+	return out
+}
+
+// factValue returns the value e records for name, or empty.
+func factValue(e finding.Evidence, name finding.FactName) string {
+	for _, f := range e.Facts {
+		if f.Name == string(name) {
+			return f.Value
+		}
+	}
+	return ""
+}
+
+// The ports sshd listens on follow sshd: every Port, the default when there is
+// none, a service name as its port, and a ListenAddress replacing the set with
+// its own port or every Port. Each expectation is what sshd -T printed.
+func TestListeningPortsMatchSSHD(t *testing.T) {
+	for config, want := range map[string]string{
+		"":                                         "22",
+		"Port 2200\n":                              "2200",
+		"Port 2222\nPort 22\n":                     "2222 22",
+		"Port ssh\n":                               "22",
+		"ListenAddress 127.0.0.1:2222\n":           "2222",
+		"Port 2200\nListenAddress 127.0.0.1\n":     "2200",
+		"ListenAddress 127.0.0.1\nPort 2200\n":     "2200",
+		"ListenAddress [::1]:2223\n":               "2223",
+		"ListenAddress ::1\n":                      "22",
+		"ListenAddress 127.0.0.1:2224 rdomain x\n": "2224",
+	} {
+		dir := writeConfig(t, map[string]string{"sshd_config": config})
+		parsed, err := parseIn(t, dir)
+		if err != nil {
+			t.Errorf("%q: %v", config, err)
+			continue
+		}
+		if got := strings.Join(parsed.listeningPorts(), " "); got != want {
+			t.Errorf("%q: ports %q, want %q", config, got, want)
+		}
+	}
+	dir := writeConfig(t, map[string]string{"sshd_config": "Include p.conf\n", "p.conf": "Port 2201\n"})
+	if parsed, err := parseIn(t, dir); err != nil || strings.Join(parsed.listeningPorts(), " ") != "2201" {
+		t.Errorf("a Port in an included file: %v, %v", parsed.listeningPorts(), err)
+	}
+	for _, config := range []string{"Port 22 2222\n", "Match User bob\n Port 2222\n", "Match User bob\n ListenAddress 127.0.0.1\n", "Port\n", "ListenAddress 127.0.0.1 extra\n"} {
+		dir := writeConfig(t, map[string]string{"sshd_config": config})
+		if _, err := parseIn(t, dir); err == nil {
+			t.Errorf("%q: sshd refuses this configuration and the parser accepted it", config)
+		}
+	}
+}
+
+// Where sshd listens is the TCP sockets listening on its ports whoever holds
+// them, loopback-only when every one is on loopback; unread sockets or an
+// unread configuration leave it undetermined; a server with nothing listening
+// on its ports is none.
+func TestSSHDListening(t *testing.T) {
+	r := &report{index: make(map[registry.FindingKey]int)}
+	parse := func(config string) sshConfig {
+		parsed, err := parseIn(t, writeConfig(t, map[string]string{"sshd_config": config}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return parsed
+	}
+	network := sockets.NewView(append(loopbackSSHD().Internet,
+		sockets.Socket{Protocol: sockets.TCP6, State: sockets.StateListen, Local: "[::]:22", Scope: sockets.ScopeWildcard}))
+
+	for name, c := range map[string]struct {
+		config  sshConfig
+		readErr error
+		view    *sockets.View
+		want    string
+	}{
+		"loopback only, held by systemd": {parse(""), nil, loopbackSSHD(), finding.ListeningLoopbackOnly},
+		"also on the wildcard":           {parse(""), nil, &network, finding.ListeningNetwork},
+		"on a port it names":             {parse("Port 2222\n"), nil, loopbackSSHD(), finding.ListeningNetwork},
+		"nothing on its port":            {parse("Port 2022\n"), nil, loopbackSSHD(), finding.ListeningNone},
+		"sockets not read":               {parse(""), nil, nil, finding.ListeningUndetermined},
+		"configuration not read in full": {parse(""), errors.New("partial"), loopbackSSHD(), finding.ListeningUndetermined},
+	} {
+		got := sshdListening(r, c.config, c.readErr, Listeners{View: c.view, Unread: "not read"})
+		if v := factValue(got, finding.FactListening); v != c.want || got.Kind != string(finding.KindListening) {
+			t.Errorf("%s: %+v, want %s", name, got, c.want)
+		}
+	}
+	got := sshdListening(r, parse(""), nil, Listeners{View: loopbackSSHD()})
+	if addresses := factValue(got, finding.FactAddresses); addresses != "tcp 127.0.0.1:22, tcp6 [::1]:22" {
+		t.Errorf("addresses %q", addresses)
+	}
+}
+
+// The host listens on the network when any TCP socket listens or UDP socket is
+// bound beyond loopback, and on loopback only when none is.
+func TestHostListening(t *testing.T) {
+	r := &report{index: make(map[registry.FindingKey]int)}
+	loopback := sockets.NewView([]sockets.Socket{
+		{Protocol: sockets.TCP, State: sockets.StateListen, Local: "127.0.0.1:631", Scope: sockets.ScopeLoopback},
+		{Protocol: sockets.TCP, State: sockets.StateEstablished, Local: "10.0.0.5:51000", Remote: "1.1.1.1:443", Scope: sockets.ScopeSpecific},
+	})
+	dhcp := sockets.NewView(append(loopback.Internet,
+		sockets.Socket{Protocol: sockets.UDP, State: sockets.StateUnconnected, Local: "0.0.0.0:68", Scope: sockets.ScopeWildcard}))
+	for view, want := range map[*sockets.View]string{&loopback: finding.ListeningLoopbackOnly, &dhcp: finding.ListeningNetwork, {}: finding.ListeningNone} {
+		if got := factValue(hostListening(r, Listeners{View: view}), finding.FactListening); got != want {
+			t.Errorf("host listening %s, want %s", got, want)
 		}
 	}
 }

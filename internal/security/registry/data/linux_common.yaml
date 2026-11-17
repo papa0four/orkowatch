@@ -53,6 +53,16 @@ ssh.root_login_permitted:
   cvss_vector: "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N"
   records:
     sshd-directive: [value, match]
+    listening: [listening, addresses]
+  environment:
+    - metric: MAV
+      kind: listening
+      fact: listening
+      cases:
+        - value: loopback-only
+          set: L
+          guide: mav-exposed-on-localhost-only
+          because: "sshd listens only on loopback addresses, so the server is reached only from the host itself"
   cwe: "CWE-250"
   attack_techniques:
     - id: "T1021.004"
@@ -92,6 +102,16 @@ ssh.password_auth_enabled:
   cvss_vector: "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:N/VA:N/SC:N/SI:N/SA:N"
   records:
     sshd-directive: [value, match]
+    listening: [listening, addresses]
+  environment:
+    - metric: MAV
+      kind: listening
+      fact: listening
+      cases:
+        - value: loopback-only
+          set: L
+          guide: mav-exposed-on-localhost-only
+          because: "sshd listens only on loopback addresses, so the server is reached only from the host itself"
   cwe: "CWE-521"
   attack_techniques:
     - id: "T1021.004"
@@ -132,6 +152,16 @@ ssh.permit_root_login_not_set:
   cvss_vector: "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:N/VA:N/SC:N/SI:N/SA:N"
   records:
     sshd-directive: [state]
+    listening: [listening, addresses]
+  environment:
+    - metric: MAV
+      kind: listening
+      fact: listening
+      cases:
+        - value: loopback-only
+          set: L
+          guide: mav-exposed-on-localhost-only
+          because: "sshd listens only on loopback addresses, so the server is reached only from the host itself"
   no_weakness: "CWE-16 is an obsolete grouping that MITRE prohibits for mapping. The directive is absent, so the daemon's default applies and the check does not read it; CWE-1188 would apply only if that default were shown to be insecure."
   description: >
     The PermitRootLogin directive was not found in sshd_config. OpenSSH
@@ -163,6 +193,16 @@ ssh.password_auth_not_set:
   cvss_vector: "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:N/VA:N/SC:N/SI:N/SA:N"
   records:
     sshd-directive: [state]
+    listening: [listening, addresses]
+  environment:
+    - metric: MAV
+      kind: listening
+      fact: listening
+      cases:
+        - value: loopback-only
+          set: L
+          guide: mav-exposed-on-localhost-only
+          because: "sshd listens only on loopback addresses, so the server is reached only from the host itself"
   no_weakness: "CWE-16 is an obsolete grouping that MITRE prohibits for mapping. The directive is absent, so the daemon's default applies and the check does not read it; CWE-1188 would apply only if that default were shown to be insecure."
   attack_techniques:
     - id: "T1021.004"
@@ -198,7 +238,17 @@ firewall.no_active_manager:
   severity: "CRITICAL"
   cvss_score: 9.3
   cvss_vector: "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:N/SC:N/SI:N/SA:N"
-  records: {}
+  records:
+    listening: [listening, addresses]
+  environment:
+    - metric: MAV
+      kind: listening
+      fact: listening
+      cases:
+        - value: loopback-only
+          set: L
+          guide: mav-exposed-on-localhost-only
+          because: "no socket on the host listens beyond loopback addresses, so without a firewall the host is still reached only from itself"
   cwe: "CWE-923"
   attack_techniques:
     - id: "T1686"
@@ -236,6 +286,16 @@ firewall.ufw_inactive:
   cvss_vector: "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:L/VI:L/VA:H/SC:N/SI:N/SA:N"
   records:
     firewall-manager: [state]
+    listening: [listening, addresses]
+  environment:
+    - metric: MAV
+      kind: listening
+      fact: listening
+      cases:
+        - value: loopback-only
+          set: L
+          guide: mav-exposed-on-localhost-only
+          because: "no socket on the host listens beyond loopback addresses, so without a firewall the host is still reached only from itself"
   cwe: "CWE-923"
   attack_techniques:
     - id: "T1686"
@@ -274,6 +334,16 @@ firewall.firewalld_not_running:
   cvss_vector: "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:L/VI:L/VA:H/SC:N/SI:N/SA:N"
   records:
     firewall-manager: [state]
+    listening: [listening, addresses]
+  environment:
+    - metric: MAV
+      kind: listening
+      fact: listening
+      cases:
+        - value: loopback-only
+          set: L
+          guide: mav-exposed-on-localhost-only
+          because: "no socket on the host listens beyond loopback addresses, so without a firewall the host is still reached only from itself"
   cwe: "CWE-923"
   attack_techniques:
     - id: "T1686"
@@ -312,6 +382,16 @@ firewall.iptables_default_accept:
   cvss_vector: "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:L/VI:L/VA:H/SC:N/SI:N/SA:N"
   records:
     firewall-manager: [state]
+    listening: [listening, addresses]
+  environment:
+    - metric: MAV
+      kind: listening
+      fact: listening
+      cases:
+        - value: loopback-only
+          set: L
+          guide: mav-exposed-on-localhost-only
+          because: "no socket on the host listens beyond loopback addresses, so without a firewall the host is still reached only from itself"
   cwe: "CWE-1188"
   attack_techniques:
     - id: "T1686"

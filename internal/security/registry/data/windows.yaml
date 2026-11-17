@@ -86,6 +86,16 @@ ssh.root_login_permitted:
   cvss_vector: "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N"
   records:
     sshd-directive: [value, match]
+    listening: [listening, addresses]
+  environment:
+    - metric: MAV
+      kind: listening
+      fact: listening
+      cases:
+        - value: loopback-only
+          set: L
+          guide: mav-exposed-on-localhost-only
+          because: "sshd listens only on loopback addresses, so the server is reached only from the host itself"
   cwe: "CWE-250"
   attack_techniques:
     - id: "T1021.004"
@@ -127,6 +137,16 @@ ssh.password_auth_enabled:
   cvss_vector: "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:N/VA:N/SC:N/SI:N/SA:N"
   records:
     sshd-directive: [value, match]
+    listening: [listening, addresses]
+  environment:
+    - metric: MAV
+      kind: listening
+      fact: listening
+      cases:
+        - value: loopback-only
+          set: L
+          guide: mav-exposed-on-localhost-only
+          because: "sshd listens only on loopback addresses, so the server is reached only from the host itself"
   cwe: "CWE-521"
   attack_techniques:
     - id: "T1021.004"
@@ -169,6 +189,16 @@ firewall.profile_inactive:
   cvss_vector: "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:N/SC:N/SI:N/SA:N"
   records:
     firewall-profile: [state]
+    listening: [listening, addresses]
+  environment:
+    - metric: MAV
+      kind: listening
+      fact: listening
+      cases:
+        - value: loopback-only
+          set: L
+          guide: mav-exposed-on-localhost-only
+          because: "no socket on the host listens beyond loopback addresses, so without a firewall the host is still reached only from itself"
   cwe: "CWE-923"
   attack_techniques:
     - id: "T1686"
@@ -206,6 +236,16 @@ firewall.all_profiles_disabled:
   cvss_vector: "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N"
   records:
     firewall-profile: [state]
+    listening: [listening, addresses]
+  environment:
+    - metric: MAV
+      kind: listening
+      fact: listening
+      cases:
+        - value: loopback-only
+          set: L
+          guide: mav-exposed-on-localhost-only
+          because: "no socket on the host listens beyond loopback addresses, so without a firewall the host is still reached only from itself"
   cwe: "CWE-923"
   attack_techniques:
     - id: "T1686"

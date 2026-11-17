@@ -15,9 +15,12 @@ import (
 )
 
 type (
-	// WindowsFirewallChecker implements FirewallChecker for Windows systems
+	// WindowsFirewallChecker implements FirewallChecker for Windows systems.
+	// listeners returns the host's sockets, from which where the host
+	// listens is recorded.
 	WindowsFirewallChecker struct {
 		checkIdentity
+		listeners ListenersFunc
 	}
 
 	// firewallProfile is one Windows Firewall profile and whether it is on.
@@ -32,12 +35,15 @@ type (
 var firewallProfileNames = []string{"Domain", "Private", "Public"}
 
 // NewFirewallChecker returns the firewall checker for Windows hosts.
-func NewFirewallChecker(osCtx registry.OSContext) *WindowsFirewallChecker {
-	return &WindowsFirewallChecker{checkIdentity: checkIdentity{
-		domain:   "Firewall Configuration",
-		analyzes: "firewall configuration and rules",
-		osCtx:    osCtx,
-	}}
+func NewFirewallChecker(osCtx registry.OSContext, listeners ListenersFunc) *WindowsFirewallChecker {
+	return &WindowsFirewallChecker{
+		checkIdentity: checkIdentity{
+			domain:   "Firewall Configuration",
+			analyzes: "firewall configuration and rules",
+			osCtx:    osCtx,
+		},
+		listeners: listeners,
+	}
 }
 
 // Check implements FirewallChecker interface for Windows systems. Output in
@@ -79,11 +85,11 @@ func (f *WindowsFirewallChecker) Check(ctx context.Context) finding.AuditResult 
 	case len(inactive) == 0:
 		r.pass(partialRule, totalRule)
 	case len(inactive) == len(profiles):
-		r.observed(totalRule, inactive...)
+		r.observed(totalRule, append(inactive, hostListening(r, f.listeners(ctx)))...)
 		r.inconclusive(finding.ResultNotChecked, "superseded by "+string(totalRule), partialRule)
 		return r.finish()
 	default:
-		r.observed(partialRule, inactive...)
+		r.observed(partialRule, append(inactive, hostListening(r, f.listeners(ctx)))...)
 		r.pass(totalRule)
 	}
 

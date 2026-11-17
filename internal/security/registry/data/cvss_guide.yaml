@@ -12,6 +12,11 @@ title: "Common Vulnerability Scoring System version 4.0 Consumer Implementation 
 verified: "2026-11-16"
 
 passages:
+  mav-exposed-on-localhost-only:
+    section: "CVSS Environmental Metrics, Modified Exploitability Metrics, Modified Attack Vector (MAV), the example following Table 2 - Modifying the Attack Vector Example, whose row \"System accessible only from console\" modifies Network to Local"
+    text: "Although the web server is bound to a network protocol stack (TCP), the service is exposed locally on “localhost” or 127.0.0.1 only."
+    metric: "MAV"
+    value: "L"
   mpr-restricting-access-to-administrative-users:
     section: "CVSS Environmental Metrics, Modified Exploitability Metrics, Modified Privileges Required (MPR), Table 5 - Modified Privileges Required Example, modification justification for Low to High"
     text: "Restricting access to administrative users"

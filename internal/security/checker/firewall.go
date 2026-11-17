@@ -17,6 +17,16 @@ type FirewallChecker interface {
 	Check(ctx context.Context) finding.AuditResult
 }
 
+// hostSubject names the host as a whole in the evidence of where it listens.
+const hostSubject = "host"
+
+// hostListening records where the host listens: every TCP socket listening and
+// every UDP socket bound, on any address. A firewall's absence matters as far
+// as these can be reached.
+func hostListening(r *report, listeners Listeners) finding.Evidence {
+	return listeningEvidence(r, hostSubject, listeners, nil)
+}
+
 // filterLines returns the trimmed lines of output that keep accepts. Every
 // firewall tool's rule listing is reduced this way; only the predicate
 // differs between them.

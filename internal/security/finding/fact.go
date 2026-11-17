@@ -25,6 +25,7 @@ const (
 	KindACL       EvidenceKind = "acl-entry"
 	KindShare     EvidenceKind = "share"
 	KindSetting   EvidenceKind = "setting"
+	KindListening EvidenceKind = "listening"
 )
 
 // The fact names checkers record. The registry's rules read facts by these
@@ -51,6 +52,18 @@ const (
 	FactSID              FactName = "sid"
 	FactPasswordRequired FactName = "password_required"
 	FactInternetIdentity FactName = "internet_identity"
+	FactListening        FactName = "listening"
+	FactAddresses        FactName = "addresses"
+)
+
+// The values of FactListening: how far the listening sockets of a service, or
+// of the host, can be reached. A service with a socket on any address other
+// than loopback is reachable from the network.
+const (
+	ListeningNetwork      = "network"
+	ListeningLoopbackOnly = "loopback-only"
+	ListeningNone         = "none"
+	ListeningUndetermined = "undetermined"
 )
 
 // The values of FactReach: how far a file whose directory chain mode bits deny
@@ -72,7 +85,7 @@ var (
 	// evidenceKinds is every kind a checker records.
 	evidenceKinds = []EvidenceKind{
 		KindFile, KindAccount, KindDirective, KindManager, KindProfile,
-		KindService, KindACL, KindShare, KindSetting,
+		KindService, KindACL, KindShare, KindSetting, KindListening,
 	}
 
 	// factValues is every fact name a checker records, with the values it can
@@ -100,6 +113,8 @@ var (
 		FactSID:              nil,
 		FactPasswordRequired: nil,
 		FactInternetIdentity: nil,
+		FactListening:        {ListeningNetwork, ListeningLoopbackOnly, ListeningNone, ListeningUndetermined},
+		FactAddresses:        nil,
 	}
 )
 

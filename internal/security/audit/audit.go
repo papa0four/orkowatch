@@ -19,6 +19,7 @@ import (
 	"github.com/papa0four/orkowatch/internal/security/enrichment"
 	"github.com/papa0four/orkowatch/internal/security/finding"
 	"github.com/papa0four/orkowatch/internal/security/registry"
+	"github.com/papa0four/orkowatch/internal/sockets"
 )
 
 type (
@@ -45,6 +46,19 @@ type (
 		MinSeverity   string
 		Enrich        bool
 		HostInfo      *osfingerprint.OSInfo
+
+		// Sockets are the host's sockets, from which the SSH and firewall
+		// checks record how far a service can be reached. Nil means the
+		// audit reads them itself, once, when a check first needs them.
+		Sockets *sockets.View
+	}
+
+	// listenerSource reads the host's sockets for the checks once, unless the
+	// caller supplied them.
+	listenerSource struct {
+		once     sync.Once
+		supplied *sockets.View
+		read     checker.Listeners
 	}
 
 	// Result represents the complete audit results. IncompleteChecks names,
@@ -133,14 +147,34 @@ func NewSecurityAuditor(opts Options) *SecurityAuditor {
 		auditor.observer = noObserver{}
 	}
 
-	auditor.sshChecker = checker.NewSSHChecker(osCtx)
-	auditor.firewallChecker = checker.NewFirewallChecker(osCtx)
+	listeners := &listenerSource{supplied: opts.Sockets}
+	auditor.sshChecker = checker.NewSSHChecker(osCtx, listeners.get)
+	auditor.firewallChecker = checker.NewFirewallChecker(osCtx, listeners.get)
 	auditor.userChecker = checker.NewUserChecker(osCtx)
 	auditor.permissionChecker = checker.NewPermissionChecker(osCtx, opts.FilePermsPath, func(scanned int) {
 		auditor.observer.CheckProgress(permissionsCheck, scanned)
 	})
 
 	return auditor
+}
+
+// get returns the sockets the caller supplied, or reads them on the first call
+// and returns what that read on every later one. A read that fails, including
+// on a platform whose sockets are not read, is returned as the reason.
+func (l *listenerSource) get(ctx context.Context) checker.Listeners {
+	l.once.Do(func() {
+		if l.supplied != nil {
+			l.read = checker.Listeners{View: l.supplied}
+			return
+		}
+		view, err := sockets.Read(ctx)
+		if err != nil {
+			l.read = checker.Listeners{Unread: err.Error()}
+			return
+		}
+		l.read = checker.Listeners{View: &view}
+	})
+	return l.read
 }
 
 func (noObserver) CheckStarted(string) {}

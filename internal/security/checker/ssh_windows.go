@@ -25,18 +25,23 @@ const (
 	ruleSSHPassword    registry.FindingKey = "ssh.password_auth_enabled"
 )
 
-// WindowsSSHChecker implements SSHChecker for Windows systems
+// WindowsSSHChecker implements SSHChecker for Windows systems. listeners
+// returns the host's sockets, from which where sshd listens is recorded.
 type WindowsSSHChecker struct {
 	checkIdentity
+	listeners ListenersFunc
 }
 
 // NewSSHChecker returns the SSH configuration checker for Windows hosts.
-func NewSSHChecker(osCtx registry.OSContext) *WindowsSSHChecker {
-	return &WindowsSSHChecker{checkIdentity: checkIdentity{
-		domain:   "SSH Configuration",
-		analyzes: "SSH configuration and security settings",
-		osCtx:    osCtx,
-	}}
+func NewSSHChecker(osCtx registry.OSContext, listeners ListenersFunc) *WindowsSSHChecker {
+	return &WindowsSSHChecker{
+		checkIdentity: checkIdentity{
+			domain:   "SSH Configuration",
+			analyzes: "SSH configuration and security settings",
+			osCtx:    osCtx,
+		},
+		listeners: listeners,
+	}
 }
 
 // Check implements SSHChecker interface for Windows systems. A host without
@@ -60,7 +65,7 @@ func (s *WindowsSSHChecker) Check(ctx context.Context) finding.AuditResult {
 			r.inconclusive(finding.ResultError, "OpenSSH configuration could not be located: "+err.Error(),
 				ruleSSHDNoConfig, ruleSSHRootLogin, ruleSSHPassword)
 		} else {
-			checkSSHDConfig(r, config, sshdAbsentKeys{})
+			checkSSHDConfig(r, config, sshdAbsentKeys{}, s.listeners(ctx))
 		}
 	}
 	s.checkPuTTY(ctx, r)
