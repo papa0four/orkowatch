@@ -7,8 +7,10 @@
 package sockets
 
 import (
+	"cmp"
 	"errors"
 	"net"
+	"strconv"
 	"strings"
 )
 
@@ -192,23 +194,30 @@ func NewView(sockets []Socket) View {
 	return v
 }
 
-// scopeOf says which of the host's addresses a socket bound to ip answers on.
-func scopeOf(ip net.IP) string {
-	switch {
-	case ip.IsUnspecified():
-		return ScopeWildcard
-	case ip.IsLoopback():
-		return ScopeLoopback
-	default:
-		return ScopeSpecific
-	}
-}
-
 // compareSockets orders sockets by protocol, then local and remote end, then
 // inode, so a report is the same from run to run whatever order the host
 // listed them in.
 func compareSockets(a, b Socket) int {
-	return strings.Compare(
-		a.Protocol+"\x00"+a.Local+"\x00"+a.Remote+"\x00"+a.Inode,
-		b.Protocol+"\x00"+b.Local+"\x00"+b.Remote+"\x00"+b.Inode)
+	return cmp.Or(
+		strings.Compare(a.Protocol, b.Protocol),
+		compareEnds(a.Local, b.Local),
+		compareEnds(a.Remote, b.Remote),
+		strings.Compare(a.Inode, b.Inode))
+}
+
+// compareEnds orders two ends by address and then by port as a number, so
+// port 22 is listed before port 135 as netstat lists them. An end that is not
+// an address and port, as a unix socket's path, is ordered as text.
+func compareEnds(a, b string) int {
+	aHost, aPort, aErr := net.SplitHostPort(a)
+	bHost, bPort, bErr := net.SplitHostPort(b)
+	if aErr != nil || bErr != nil {
+		return strings.Compare(a, b)
+	}
+	aNumber, aErr := strconv.Atoi(aPort)
+	bNumber, bErr := strconv.Atoi(bPort)
+	if aErr != nil || bErr != nil {
+		return strings.Compare(a, b)
+	}
+	return cmp.Or(strings.Compare(aHost, bHost), cmp.Compare(aNumber, bNumber))
 }

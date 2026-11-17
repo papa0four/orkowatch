@@ -97,7 +97,7 @@ type (
 // elevated. Unix-domain, raw and packet sockets are not in these tables and
 // are listed in NotRead.
 func Read(ctx context.Context) (View, error) {
-	r := reader{elevated: windows.GetCurrentProcessToken().IsElevated(), inspect: inspectProcess}
+	r := reader{elevated: administrator(), inspect: inspectProcess}
 	sockets, err := r.read(ctx)
 	if err != nil {
 		return View{}, err
@@ -105,6 +105,21 @@ func Read(ctx context.Context) (View, error) {
 	view := NewView(sockets)
 	view.NotRead = notRead()
 	return view, nil
+}
+
+// administrator reports whether the run holds the Administrators group in
+// effect, which is what an elevated run adds. The token's elevation flag is
+// not used: a token restricted from an elevated one, as runas /trustlevel
+// makes, still reports elevated while its Administrators group is deny-only.
+// When membership cannot be checked the run is taken as not administrator, so
+// a refusal advises elevating rather than claiming elevation would not help.
+func administrator() bool {
+	admins, err := windows.CreateWellKnownSid(windows.WinBuiltinAdministratorsSid)
+	if err != nil {
+		return false
+	}
+	member, err := windows.Token(0).IsMember(admins)
+	return err == nil && member
 }
 
 func (r reader) read(ctx context.Context) ([]Socket, error) {
@@ -171,12 +186,19 @@ type described struct {
 // fetchTable reads one table, sizing it first and trying again if it grew in
 // between, as a busy host's tables do.
 func fetchTable(proc *windows.LazyProc, af, class uintptr) ([]byte, error) {
-	// A call with no buffer answers with the size the table needs.
+	// A call with no buffer answers with the size the table needs, as
+	// ERROR_INSUFFICIENT_BUFFER; any other failure is the table's own.
 	var size uint32
-	proc.Call(0, uintptr(unsafe.Pointer(&size)), 0, af, class, 0) //nolint:errcheck // this call is made for the size it reports; it always reports ERROR_INSUFFICIENT_BUFFER
+	sizing, _, _ := proc.Call( //nolint:errcheck // the third result is GetLastError, which this API does not set; the status carries the outcome
+		0,
+		uintptr(unsafe.Pointer(&size)), // #nosec G103 -- out parameter receiving the size the table needs
+		0, af, class, 0)
+	if errno := windows.Errno(sizing); errno != 0 && errno != windows.ERROR_INSUFFICIENT_BUFFER {
+		return nil, fmt.Errorf("sockets: size socket table: %w", errno)
+	}
 	for range fetchAttempts {
-		buf := make([]byte, size+tableSlack)
-		got := uint32(len(buf))
+		got := size + tableSlack
+		buf := make([]byte, got)
 		status, _, _ := proc.Call( //nolint:errcheck // the third result is GetLastError, which this API does not set; status carries the outcome
 			uintptr(unsafe.Pointer(&buf[0])), // #nosec G103 -- out parameter receiving the table for the duration of the call
 			uintptr(unsafe.Pointer(&got)),    // #nosec G103 -- in and out parameter holding the buffer's size
@@ -367,7 +389,7 @@ func inspectProcess(pid uint32, elevated bool) (Process, string) {
 // imageName returns the path of the executable a process was started from.
 func imageName(handle windows.Handle) (string, error) {
 	buf := make([]uint16, imagePath)
-	size := uint32(len(buf))
+	size := uint32(imagePath)
 	if err := windows.QueryFullProcessImageName(handle, 0, &buf[0], &size); err != nil {
 		return "", err
 	}

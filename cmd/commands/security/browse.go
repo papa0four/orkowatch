@@ -13,12 +13,13 @@ import (
 	"github.com/papa0four/orkowatch/internal/render"
 	"github.com/papa0four/orkowatch/internal/security/audit"
 	"github.com/papa0four/orkowatch/internal/security/finding"
+	"github.com/papa0four/orkowatch/internal/sockets"
 	"github.com/papa0four/orkowatch/internal/softwarelist"
 	"github.com/papa0four/orkowatch/internal/tui"
 )
 
 // BrowserSource is what a finished run holds for the browser to show. Audit,
-// System and Software are the projections a saved report carries, so a live
+// System, Software and Sockets are the projections a saved report carries, so a live
 // run and a saved file are shown from the same data. Modules says how each
 // module of an all run ended, which is what a tab with no data explains
 // itself with; the audit command has none.
@@ -27,6 +28,7 @@ type BrowserSource struct {
 	Audit    *audit.View
 	System   *osfingerprint.SystemView
 	Software *softwarelist.SoftwareView
+	Sockets  *sockets.View
 	Modules  []ModuleNote
 	Text     string
 }
@@ -85,6 +87,12 @@ func BrowserReport(src BrowserSource) tui.Report {
 		report.Tabs = append(report.Tabs, softwareTab(*src.Software))
 	} else {
 		report.Tabs = append(report.Tabs, tui.Tab{ID: tui.TabSoftware, Name: "Software", Note: notRun(src.Modules, "software", "owatch software")})
+	}
+
+	if src.Sockets != nil {
+		report.Tabs = append(report.Tabs, socketsTab(*src.Sockets))
+	} else {
+		report.Tabs = append(report.Tabs, tui.Tab{ID: tui.TabSockets, Name: "Sockets", Note: notRun(src.Modules, "listeners", "owatch listeners")})
 	}
 
 	if src.Audit != nil {
@@ -172,6 +180,10 @@ func landingTab(modules []ModuleNote) string {
 			if first == tui.TabFindings {
 				first = tui.TabSoftware
 			}
+		case "listeners":
+			if first == tui.TabFindings {
+				first = tui.TabSockets
+			}
 		}
 	}
 	return first
@@ -254,6 +266,60 @@ func systemTab(system osfingerprint.SystemView) tui.Tab {
 		Subtitle: safeLines(system.OS + " " + system.PlatformVersion),
 		Fields:   fields,
 	}}}
+}
+
+// socketsTab is the host's sockets, one record each, in the categories and
+// order the text report lists them. A socket whose processes are missing or
+// incomplete says why in its own record.
+func socketsTab(v sockets.View) tui.Tab {
+	var records []tui.Record
+	for _, group := range [][]sockets.Socket{v.Internet, v.Raw, v.Unix, v.Packet} {
+		for _, s := range group {
+			records = append(records, socketRecord(s))
+		}
+	}
+	tab := tui.Tab{ID: tui.TabSockets, Name: "Sockets", Records: records}
+	if len(v.NotRead) > 0 {
+		tab.Note = "not read on this platform: " + strings.Join(v.NotRead, ", ") + " sockets"
+	}
+	return tab
+}
+
+// socketRecord is one socket: its local end as the title, its protocol and
+// state beside it, and every fact the reader recorded, in order.
+func socketRecord(s sockets.Socket) tui.Record {
+	fields := []tui.SummaryLine{{Label: "protocol", Value: safeLines(s.Protocol)}}
+	add := func(label, value string) {
+		if value != "" {
+			fields = append(fields, tui.SummaryLine{Label: label, Value: safeLines(value)})
+		}
+	}
+	add("type", s.Type)
+	add("state", s.State)
+	add("local", s.Local)
+	add("remote", s.Remote)
+	add("scope", s.Scope)
+	add("owner", s.Owner)
+	for _, p := range s.Processes {
+		line := strconv.Itoa(p.PID)
+		for _, part := range []string{p.Name, p.Path, p.User} {
+			if part != "" {
+				line += "  " + part
+			}
+		}
+		add("process", line)
+	}
+	add("not attributed", s.Gap)
+	add("inode", s.Inode)
+	title := s.Local
+	if title == "" {
+		title = "unnamed, inode " + s.Inode
+	}
+	return tui.Record{
+		Title:    safeLines(title),
+		Subtitle: safeLines(strings.TrimSpace(s.Protocol + " " + s.State)),
+		Fields:   fields,
+	}
 }
 
 // softwareTab is the installed packages, one record each.
