@@ -19,6 +19,7 @@ const (
 	TabFindings = "findings"
 	TabSystem   = "system"
 	TabSoftware = "software"
+	TabSockets  = "sockets"
 	TabAttack   = "attack"
 
 	// The headings of the source table in the left pane, and the gap between
@@ -84,6 +85,7 @@ var (
 		TabFindings: "f",
 		TabSystem:   "o",
 		TabSoftware: "s",
+		TabSockets:  "l",
 		TabAttack:   "m",
 		"nvd":       "n",
 		"kev":       "k",
