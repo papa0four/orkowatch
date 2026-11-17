@@ -22,6 +22,8 @@ firewall.ufw_inactive:
   severity: "HIGH"
   cvss_score: 8.8
   cvss_vector: "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:L/VI:L/VA:H/SC:N/SI:N/SA:N"
+  records:
+    firewall-manager: [state]
   cwe: "CWE-923"
   attack_techniques:
     - id: "T1686"
@@ -58,6 +60,7 @@ firewall.ufw_not_installed:
   severity: "CRITICAL"
   cvss_score: 9.3
   cvss_vector: "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:N/SC:N/SI:N/SA:N"
+  records: {}
   cwe: "CWE-923"
   attack_techniques:
     - id: "T1686"
@@ -96,6 +99,7 @@ users.sudo_nopasswd:
   severity: "HIGH"
   cvss_score: 8.5
   cvss_vector: "CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N"
+  records: {}
   cwe: "CWE-306"
   attack_techniques:
     - id: "T1548.003"
@@ -129,6 +133,7 @@ users.passwd_no_shadow:
   severity: "HIGH"
   cvss_score: 8.7
   cvss_vector: "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:N/VA:N/SC:N/SI:N/SA:N"
+  records: {}
   cwe: "CWE-522"
   attack_techniques:
     - id: "T1003.008"
@@ -165,6 +170,7 @@ permissions.shadow_world_readable:
   severity: "HIGH"
   cvss_score: 8.4
   cvss_vector: "CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:H/VI:H/VA:N/SC:N/SI:N/SA:N"
+  records: {}
   cwe: "CWE-732"
   attack_techniques:
     - id: "T1003.008"
@@ -199,6 +205,7 @@ permissions.sudoers_world_readable:
   severity: "HIGH"
   cvss_score: 8.4
   cvss_vector: "CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:H/VI:H/VA:N/SC:N/SI:N/SA:N"
+  records: {}
   cwe: "CWE-732"
   attack_techniques:
     - id: "T1548.003"
@@ -234,6 +241,7 @@ permissions.ssh_dir_permissions:
   severity: "HIGH"
   cvss_score: 8.5
   cvss_vector: "CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N"
+  records: {}
   cwe: "CWE-732"
   attack_techniques:
     - id: "T1098.004"

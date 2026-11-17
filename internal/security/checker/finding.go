@@ -9,51 +9,6 @@ import (
 	"github.com/papa0four/orkowatch/internal/security/registry"
 )
 
-// Evidence kinds: what sort of thing an evidence subject is. Not every kind
-// is produced on every platform, and a constant no build references compiles
-// away.
-const (
-	kindFile      = "file"
-	kindAccount   = "account"
-	kindDirective = "sshd-directive"
-	kindManager   = "firewall-manager"
-	kindProfile   = "firewall-profile"
-	kindService   = "service"
-	kindACL       = "acl-entry"
-	kindShare     = "share"
-	kindSetting   = "setting"
-)
-
-// factName is the name of one observation on an evidence subject. The names are
-// declared here, once, because the rules that read a fact and the checkers that
-// record it must agree on the spelling, and a literal at each end can drift
-// apart without a compiler or a test noticing. Not every name is recorded on
-// every platform.
-type factName string
-
-const (
-	factDescription      factName = "description"
-	factMode             factName = "mode"
-	factExpected         factName = "expected"
-	factUID              factName = "uid"
-	factGID              factName = "gid"
-	factUnresolved       factName = "unresolved"
-	factReach            factName = "reach"
-	factLocation         factName = "location"
-	factShell            factName = "shell"
-	factSource           factName = "source"
-	factState            factName = "state"
-	factValue            factName = "value"
-	factListing          factName = "listing"
-	factStatus           factName = "status"
-	factPrincipal        factName = "principal"
-	factAccess           factName = "access"
-	factScope            factName = "scope"
-	factSID              factName = "sid"
-	factPasswordRequired factName = "password_required"
-	factInternetIdentity factName = "internet_identity"
-)
-
 // report accumulates one check's outcome: a condition per rule the check
 // evaluated, and the narration that belongs to none of them. It is the single
 // path by which a checker records a result, so a rule is concluded once
@@ -97,16 +52,23 @@ func (r *report) lines(lines ...string) {
 // notapplicable for one describing a state the rule does not cover. A key
 // with no definition is a defect in the checker or the data file, not a host
 // condition, so it panics rather than letting a detected condition report
-// clean.
+// clean. Evidence carrying a kind or fact the definition does not declare
+// panics for the same reason: the rules that read the evidence would no longer
+// match what the checker records.
 func (r *report) observed(key registry.FindingKey, evidence ...finding.Evidence) {
-	if i, ok := r.index[key]; ok && r.result.Conditions[i].Finding != nil {
-		r.result.Conditions[i].Evidence = append(r.result.Conditions[i].Evidence, evidence...)
-		return
-	}
-
 	def, ok := registry.Lookup(r.osCtx, key)
 	if !ok {
 		panic("checker: no registry definition for finding key " + string(key) + " on platform " + string(r.osCtx.Platform))
+	}
+	for _, subject := range evidence {
+		if err := def.CheckEvidence(subject); err != nil {
+			panic("checker: finding key " + string(key) + ": " + err.Error())
+		}
+	}
+
+	if i, ok := r.index[key]; ok && r.result.Conditions[i].Finding != nil {
+		r.result.Conditions[i].Evidence = append(r.result.Conditions[i].Evidence, evidence...)
+		return
 	}
 
 	condition := finding.Condition{
@@ -174,14 +136,14 @@ func (r *report) finish() finding.AuditResult {
 
 // fact records one observation. An empty value records nothing, so a caller
 // can pass an observation that may not apply without branching.
-func fact(name factName, value string) finding.Fact {
+func fact(name finding.FactName, value string) finding.Fact {
 	return finding.Fact{Name: string(name), Value: value}
 }
 
 // evidence builds one evidence entry from a subject and the facts observed on
 // it, in the order given. A fact with an empty value is omitted.
-func evidence(kind, subject string, facts ...finding.Fact) finding.Evidence {
-	entry := finding.Evidence{Kind: kind, Subject: subject}
+func evidence(kind finding.EvidenceKind, subject string, facts ...finding.Fact) finding.Evidence {
+	entry := finding.Evidence{Kind: string(kind), Subject: subject}
 	for _, f := range facts {
 		if f.Value != "" {
 			entry.Facts = append(entry.Facts, f)

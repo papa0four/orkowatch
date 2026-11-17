@@ -236,8 +236,8 @@ func (w *aclWalk) inspect(reader *aclReader, path string, found *aclFound) {
 	case err != nil:
 		found.unreadable++
 	case open:
-		found.add(ruleEveryoneFull, evidence(kindACL, path,
-			fact(factPrincipal, "everyone"), fact(factAccess, accessFull), fact(factScope, "no access control list")))
+		found.add(ruleEveryoneFull, evidence(finding.KindACL, path,
+			fact(finding.FactPrincipal, "everyone"), fact(finding.FactAccess, accessFull), fact(finding.FactScope, "no access control list")))
 	default:
 		judgeGrants(reader, path, grants, w.named[strings.ToLower(path)], found)
 	}
@@ -258,9 +258,9 @@ func judgeGrants(reader *aclReader, path string, grants []aclGrant, inherited bo
 		group, broad := reader.broadGroup(grant.sid)
 		if broad {
 			who := reader.resolve(grant.sid)
-			subject := evidence(kindACL, path,
-				fact(factPrincipal, who.name), fact(factSID, grant.sid.String()),
-				fact(factAccess, level), fact(factScope, grantScope(grant.flags)))
+			subject := evidence(finding.KindACL, path,
+				fact(finding.FactPrincipal, who.name), fact(finding.FactSID, grant.sid.String()),
+				fact(finding.FactAccess, level), fact(finding.FactScope, grantScope(grant.flags)))
 			switch {
 			case level == accessFull && group == windows.WinWorldSid:
 				found.add(ruleEveryoneFull, subject)
@@ -279,8 +279,8 @@ func judgeGrants(reader *aclReader, path string, grants []aclGrant, inherited bo
 			continue
 		}
 		if who := reader.resolve(grant.sid); !who.resolved {
-			found.add(ruleUnresolvedSID, evidence(kindACL, path,
-				fact(factSID, sid), fact(factAccess, level), fact(factScope, grantScope(grant.flags))))
+			found.add(ruleUnresolvedSID, evidence(finding.KindACL, path,
+				fact(finding.FactSID, sid), fact(finding.FactAccess, level), fact(finding.FactScope, grantScope(grant.flags))))
 		}
 	}
 }
@@ -329,7 +329,7 @@ func (p *WindowsPermissionChecker) checkNetworkShares(ctx context.Context, r *re
 
 		switch name := strings.Fields(share)[0]; name {
 		case "ADMIN$", "C$", "IPC$":
-			r.observed(ruleAdminShare, evidence(kindShare, name, fact(factListing, share)))
+			r.observed(ruleAdminShare, evidence(finding.KindShare, name, fact(finding.FactListing, share)))
 		default:
 			r.note(finding.SymbolInfo, "%s", share)
 		}

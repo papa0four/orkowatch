@@ -79,6 +79,12 @@ type (
 		// because of the condition, each with what supports the link. Every
 		// identifier must be in the bundled dataset in data/attack.yaml.
 		AttackTechniques []AttackLink `yaml:"attack_techniques"`
+
+		// Records declares what the condition's evidence carries, and
+		// Environment the rules that derive Modified Base metrics from it.
+		// A definition with no rules is scored by its baseline alone.
+		Records     Records           `yaml:"records"`
+		Environment []EnvironmentRule `yaml:"environment"`
 	}
 )
 
@@ -369,6 +375,12 @@ func (d FindingDefinition) validated() (FindingDefinition, error) {
 	d.Severity = severity
 
 	if err := d.validateCVSS(); err != nil {
+		return d, err
+	}
+	if err := d.validateRecords(); err != nil {
+		return d, err
+	}
+	if err := d.validateEnvironment(); err != nil {
 		return d, err
 	}
 

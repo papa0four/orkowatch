@@ -107,7 +107,7 @@ func checkSSHDConfig(r *report, path string, absent sshdAbsentKeys) {
 	file, err := os.Open(path) // #nosec G304 -- path is a platform constant naming the sshd configuration
 	switch {
 	case errors.Is(err, os.ErrNotExist):
-		r.observed("ssh.config_not_found", evidence(kindFile, path))
+		r.observed("ssh.config_not_found", evidence(finding.KindFile, path))
 		r.inconclusive(finding.ResultNotChecked, "OpenSSH configuration file not found: "+path, directives...)
 		return
 	case err != nil:
@@ -155,10 +155,10 @@ func reportSSHDirective(r *report, readErr error, rule sshRule) {
 		r.inconclusive(finding.ResultNotChecked,
 			rule.name+" is not set; the sshd default applies and is not read", rule.unsafeKey)
 		if rule.absentKey != "" {
-			r.observed(rule.absentKey, evidence(kindDirective, rule.name, fact(factState, "not set")))
+			r.observed(rule.absentKey, evidence(finding.KindDirective, rule.name, fact(finding.FactState, "not set")))
 		}
 	case rule.unsafe(rule.setting.value):
-		r.observed(rule.unsafeKey, evidence(kindDirective, rule.name, fact(factValue, rule.setting.value)))
+		r.observed(rule.unsafeKey, evidence(finding.KindDirective, rule.name, fact(finding.FactValue, rule.setting.value)))
 		r.pass(rule.absentKey)
 	default:
 		r.pass(rule.unsafeKey, rule.absentKey)

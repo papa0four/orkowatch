@@ -67,7 +67,7 @@ func (s *WindowsSSHChecker) reportSSHDPresence(ctx context.Context, r *report) b
 		case "Running":
 			r.pass(serviceRule)
 		case "Stopped":
-			r.observed(serviceRule, evidence(kindService, "sshd", fact(factStatus, serviceStatus)))
+			r.observed(serviceRule, evidence(finding.KindService, "sshd", fact(finding.FactStatus, serviceStatus)))
 		default:
 			r.inconclusive(finding.ResultUnknown, "OpenSSH Server service state is "+serviceStatus, serviceRule)
 		}
