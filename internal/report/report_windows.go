@@ -13,15 +13,35 @@ import (
 	"unsafe"
 
 	"golang.org/x/sys/windows"
+
+	"github.com/papa0four/orkowatch/internal/winfolder"
 )
 
 // fileDeleteChild is the directory right to delete child objects
 const fileDeleteChild = 0x40
 
+// refusedFolders are the system locations a report is never written into:
+// the OS files and the installed programs.
+var refusedFolders = []winfolder.Folder{
+	winfolder.Windows,
+	winfolder.ProgramFiles,
+	winfolder.ProgramFilesX86,
+}
+
+// refusedReason names the refused location target lies in, or returns empty
+// when it lies in none. The locations are the system folders and every place
+// a Startup folder, for every user or for this one, may be, which an attacker
+// would use for persistence. None is read from an environment variable. A
+// location that cannot be resolved refuses the write: whether target lies in
+// it is unknown.
 func refusedReason(target string) string {
+	bases, err := refusedBases()
+	if err != nil {
+		return err.Error()
+	}
 	// Windows paths are case-insensitive, so fold both sides before comparing.
 	target = strings.ToLower(filepath.Clean(target))
-	for _, base := range refusedBases() {
+	for _, base := range bases {
 		if pathWithin(target, strings.ToLower(filepath.Clean(base))) {
 			return base
 		}
@@ -29,25 +49,20 @@ func refusedReason(target string) string {
 	return ""
 }
 
-// refusedBases resolves system and per-user persistence locations from the
-// environment, refused because they hold OS files, installed programs, and the
-// Startup folders an attacker would use for persistence.
-func refusedBases() []string {
-	startupRel := filepath.Join("Microsoft", "Windows", "Start Menu", "Programs", "Startup")
-
-	var bases []string
-	for _, env := range []string{"SystemRoot", "ProgramFiles", "ProgramFiles(x86)"} {
-		if v := os.Getenv(env); v != "" {
-			bases = append(bases, v)
+// refusedBases resolves every refused location.
+func refusedBases() ([]string, error) {
+	bases, err := winfolder.StartupFolders()
+	if err != nil {
+		return nil, err
+	}
+	for _, folder := range refusedFolders {
+		base, err := folder.Path()
+		if err != nil {
+			return nil, err
 		}
+		bases = append(bases, base)
 	}
-	if pd := os.Getenv("ProgramData"); pd != "" {
-		bases = append(bases, filepath.Join(pd, startupRel))
-	}
-	if ad := os.Getenv("APPDATA"); ad != "" {
-		bases = append(bases, filepath.Join(ad, startupRel))
-	}
-	return bases
+	return bases, nil
 }
 
 // canonicalParent returns the OS-resolved long-form path of parent so the
@@ -124,12 +139,15 @@ func withinAllowlist(target string) (bool, error) {
 	return false, nil
 }
 
+// allowlistRoots are the working directory and the operator's profile folder
+// as Windows records it for the account, not as USERPROFILE states it, so
+// the environment a run was started with cannot widen where it may write.
 func allowlistRoots() []string {
 	roots := make([]string, 0, maxOperatorHomes)
 	if cwd, err := os.Getwd(); err == nil {
 		roots = append(roots, cwd)
 	}
-	if home, err := os.UserHomeDir(); err == nil && home != "" {
+	if home, err := winfolder.Profile(); err == nil {
 		roots = append(roots, home)
 	}
 	return roots

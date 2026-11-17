@@ -20,6 +20,7 @@ import (
 	"github.com/papa0four/orkowatch/internal/security/finding"
 	"github.com/papa0four/orkowatch/internal/security/registry"
 	"github.com/papa0four/orkowatch/internal/treewalk"
+	"github.com/papa0four/orkowatch/internal/winfolder"
 )
 
 // The rules this check concludes: four judged on access control entries, one
@@ -34,11 +35,11 @@ const (
 
 type (
 	// WindowsPermissionChecker implements PermissionChecker for Windows
-	// systems. paths are the system locations judged in full wherever they
+	// systems. folders are the system locations judged in full wherever they
 	// fall inside the traversal.
 	WindowsPermissionChecker struct {
 		checkIdentity
-		paths    []string
+		folders  []winfolder.Folder
 		scanRoot string
 		progress ScanProgress
 	}
@@ -82,12 +83,12 @@ func NewPermissionChecker(osCtx registry.OSContext, scanRoot string, progress Sc
 			analyzes: "file and directory permissions",
 			osCtx:    osCtx,
 		},
-		paths: []string{
-			"C:\\Windows\\System32",
-			"C:\\Program Files",
-			"C:\\Program Files (x86)",
-			"C:\\ProgramData",
-			"C:\\Users",
+		folders: []winfolder.Folder{
+			winfolder.System,
+			winfolder.ProgramFiles,
+			winfolder.ProgramFilesX86,
+			winfolder.ProgramData,
+			winfolder.UserProfiles,
 		},
 		scanRoot: scanRoot,
 		progress: progress,
@@ -98,9 +99,12 @@ func NewPermissionChecker(osCtx registry.OSContext, scanRoot string, progress Sc
 func (p *WindowsPermissionChecker) Check(ctx context.Context) finding.AuditResult {
 	r := newReport(p.checkIdentity)
 
-	root := p.effectiveRoot()
-	r.note(finding.SymbolInfo, "Scanning %s", root)
-	p.scanACLs(ctx, root, r)
+	if root, err := p.effectiveRoot(); err != nil {
+		r.inconclusive(finding.ResultError, "the scan root could not be determined: "+err.Error(), aclRules...)
+	} else {
+		r.note(finding.SymbolInfo, "Scanning %s", root)
+		p.scanACLs(ctx, root, r)
+	}
 
 	// Shares are a host-wide condition rather than a property of the scanned
 	// tree, so they are enumerated whether or not a path narrowed the run.
@@ -110,20 +114,21 @@ func (p *WindowsPermissionChecker) Check(ctx context.Context) finding.AuditResul
 }
 
 // effectiveRoot returns the operator's scan root when one was supplied and
-// the root of the system volume otherwise, which is the Windows counterpart
-// of scanning from / on Unix.
-func (p *WindowsPermissionChecker) effectiveRoot() string {
+// otherwise the root of the volume Windows is installed on, which is the
+// Windows counterpart of scanning from / on Unix.
+func (p *WindowsPermissionChecker) effectiveRoot() (string, error) {
 	if p.scanRoot != "" {
-		return filepath.Clean(p.scanRoot)
+		return filepath.Clean(p.scanRoot), nil
 	}
-	if volume := filepath.VolumeName(os.Getenv("SystemRoot")); volume != "" {
-		return volume + `\`
+	windowsDir, err := winfolder.Windows.Path()
+	if err != nil {
+		return "", err
 	}
-	return `C:\`
+	return filepath.VolumeName(windowsDir) + `\`, nil
 }
 
 // scanACLs reads the tree under root once and concludes the access control
-// rules. The root and the named system paths are judged on every grant they
+// rules. The root and the named system folders are judged on every grant they
 // carry; every other entry only on grants set on it directly, because an
 // inherited grant is the parent's finding and repeating it on each descendant
 // is what buried the report in duplicates. A rule nothing failed passes only
@@ -147,7 +152,12 @@ func (p *WindowsPermissionChecker) scanACLs(ctx context.Context, root string, r 
 		}
 		w.readers <- reader
 	}
-	for _, path := range p.paths {
+	for _, folder := range p.folders {
+		path, err := folder.Path()
+		if err != nil {
+			r.note(finding.SymbolWarning, "%v; grants it inherits are not reported", err)
+			continue
+		}
 		w.named[strings.ToLower(path)] = true
 	}
 
