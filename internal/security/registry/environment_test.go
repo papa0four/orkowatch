@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	v4 "github.com/papa0four/orkowatch/internal/cvss/v4"
 	"github.com/papa0four/orkowatch/internal/security/finding"
 )
 
@@ -129,6 +130,144 @@ func TestShippedRulesDeriveEachCase(t *testing.T) {
 	}
 	if rules == 0 {
 		t.Fatal("no shipped definition has a rule, so nothing was exercised")
+	}
+}
+
+// fileSubject is file evidence recording reach.
+func fileSubject(path, reach string) finding.Evidence {
+	return finding.Evidence{Kind: string(finding.KindFile), Subject: path, Facts: []finding.Fact{{Name: string(finding.FactReach), Value: reach}}}
+}
+
+// The same condition scores differently on hosts whose evidence differs: every
+// file root-only sets MPR:H, and a file any user can reach, one whose reach was
+// not determined, or no file at all leaves the baseline with the reason.
+func TestEnvironmentalFollowsTheEvidence(t *testing.T) {
+	d := ruleDefinition()
+	baseline, err := v4.Parse(d.CVSSVector)
+	if err != nil {
+		t.Fatal(err)
+	}
+	modified, err := baseline.With("MPR", "H")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	all := d.Environmental([]finding.Evidence{fileSubject("/a", finding.ReachRootOnly), fileSubject("/b", finding.ReachRootOnly)})
+	switch {
+	case all == nil || all.CVSS == nil || len(all.Modified) != 1 || len(all.Unmodified) != 0:
+		t.Fatalf("every file root-only: %+v", all)
+	case all.CVSS.Vector != modified.String() || all.CVSS.Score != modified.Score() || all.CVSS.Severity != v4.Severity(modified.Score()):
+		t.Errorf("score %+v, want %s at %.1f", all.CVSS, modified, modified.Score())
+	case all.CVSS.Nomenclature != "CVSS-BE" || all.CVSS.Source != "host evidence" || all.CVSS.CalculatorURL != v4.CalculatorURL(modified.String()):
+		t.Errorf("score labelled %+v", all.CVSS)
+	case all.Modified[0].Metric != "MPR" || all.Modified[0].Value != "H" || all.Modified[0].Carried != 2 || all.Modified[0].Subjects != 2 || all.Modified[0].Fact.Value != finding.ReachRootOnly:
+		t.Errorf("modified %+v", all.Modified[0])
+	}
+
+	for name, c := range map[string]struct {
+		evidence []finding.Evidence
+		reason   []string
+	}{
+		"one file reachable by others": {
+			[]finding.Evidence{fileSubject("/a", finding.ReachRootOnly), {Kind: string(finding.KindFile), Subject: "/b"}},
+			[]string{"of the 2 file subjects, MPR:H on 1; the 1 that keep PR:L score higher, so PR:L stands"},
+		},
+		"reach not determined": {
+			[]finding.Evidence{fileSubject("/a", finding.ReachUndetermined), fileSubject("/b", finding.ReachUndetermined), {Kind: string(finding.KindFile), Subject: "/c"}},
+			[]string{"reach on the 3 file subjects is undetermined on 2, not recorded on 1, which no case of the rule modifies, so PR:L stands"},
+		},
+		"no file": {nil, []string{"no file evidence was recorded, so PR:L stands"}},
+	} {
+		got := d.Environmental(c.evidence)
+		if got == nil || got.CVSS != nil || len(got.Modified) != 0 || len(got.Unmodified) != 1 || got.Unmodified[0].Metric != "MPR" {
+			t.Errorf("%s: %+v", name, got)
+			continue
+		}
+		for _, want := range c.reason {
+			if got.Unmodified[0].Reason != want {
+				t.Errorf("%s: reason %q, want %q", name, got.Unmodified[0].Reason, want)
+			}
+		}
+	}
+
+	d.Environment = nil
+	if got := d.Environmental([]finding.Evidence{fileSubject("/a", finding.ReachRootOnly)}); got != nil {
+		t.Errorf("a definition with no rules scored %+v", got)
+	}
+}
+
+// For every shipped rule and case, subjects that all carry the case's value set
+// the metric, and subjects that disagree score no lower than either value alone
+// would: the score never falls below what one subject supports. At least one
+// shipped rule moves a finding to another severity, so the host score is not a
+// relabelled baseline.
+func TestShippedRulesScoreTheHost(t *testing.T) {
+	var cases, moved int
+	for label, d := range allDefinitions() {
+		baseline, err := v4.Parse(d.CVSSVector)
+		if err != nil {
+			t.Fatalf("%s: %v", label, err)
+		}
+		for _, rule := range d.Environment {
+			for _, c := range rule.Cases {
+				cases++
+				if scoreShippedCase(t, label, d, baseline, rule, c) {
+					moved++
+				}
+			}
+		}
+	}
+	if cases == 0 {
+		t.Fatal("no shipped rule was exercised")
+	}
+	if moved == 0 {
+		t.Error("no shipped rule changes a finding's severity")
+	}
+}
+
+// scoreShippedCase checks one case of a shipped rule on subjects that agree and
+// on subjects that disagree, and reports whether agreeing subjects moved the
+// finding to another severity.
+func scoreShippedCase(t *testing.T, label string, d FindingDefinition, baseline v4.Vector, rule EnvironmentRule, c RuleCase) bool {
+	t.Helper()
+	subject := func(value string) finding.Evidence {
+		return finding.Evidence{Kind: string(rule.Kind), Subject: "s", Facts: []finding.Fact{{Name: string(rule.Fact), Value: value}}}
+	}
+	want, err := baseline.With(rule.Metric, c.Set)
+	if err != nil {
+		t.Fatalf("%s: %v", label, err)
+	}
+
+	all := d.Environmental([]finding.Evidence{subject(c.Value), subject(c.Value)})
+	if all == nil || all.CVSS == nil || all.CVSS.Vector != want.String() {
+		t.Errorf("%s: %s=%s on every subject scored %+v, want %s", label, rule.Fact, c.Value, all, want)
+		return false
+	}
+
+	mixed := d.Environmental([]finding.Evidence{subject(c.Value), subject("no case has this value")})
+	score := baseline.Score()
+	if mixed.CVSS != nil {
+		score = mixed.CVSS.Score
+	}
+	if score < baseline.Score() || score < want.Score() {
+		t.Errorf("%s: disagreeing subjects scored %.1f, below %.1f or %.1f", label, score, baseline.Score(), want.Score())
+	}
+	return all.CVSS.Severity != d.Severity
+}
+
+// Where the values subjects support score the same, the baseline's is kept,
+// and a value every subject supports is taken whatever it scores.
+func TestHighestKeepsTheBaselineOnATie(t *testing.T) {
+	noImpact, err := v4.Parse("CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:N/VI:N/VA:N/SC:N/SI:N/SA:N")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rule := EnvironmentRule{Metric: "MPR"}
+	if choice, v := highest(noImpact, []ruleYield{{rule: rule, values: []string{"H", notDefined}}}); choice[0] != notDefined || v.String() != noImpact.String() {
+		t.Errorf("a tie chose %v, %s", choice, v)
+	}
+	if choice, v := highest(noImpact, []ruleYield{{rule: rule, values: []string{"H"}}}); choice[0] != "H" || v.Value("MPR") != "H" {
+		t.Errorf("a value every subject supports was not taken: %v, %s", choice, v)
 	}
 }
 

@@ -239,3 +239,188 @@ func (d FindingDefinition) Modified(e finding.Evidence) []finding.ModifiedMetric
 	}
 	return out
 }
+
+// notDefined is the value a Modified Base metric takes when it modifies
+// nothing, so its Base metric's value stands.
+const notDefined = "X"
+
+// ruleYield is what one rule's subjects support: each value of its metric some
+// subject supports, in the order first seen, with how many subjects support it
+// and what the rule derived for it. A subject no case matches supports Not
+// Defined.
+type ruleYield struct {
+	rule     EnvironmentRule
+	subjects int
+	values   []string
+	carried  map[string]int
+	derived  map[string]finding.ModifiedMetric
+	recorded []string
+	counts   map[string]int
+}
+
+// Environmental scores the condition d defines on this host, from every
+// evidence subject the checker recorded for it. Each rule is evaluated across
+// the subjects of its kind, and each subject supports the value its matching
+// case sets, or the baseline's when none matches. The Specification does not
+// say how one score follows from subjects that support different values, so
+// owatch takes the combination of supported values that scores highest, and
+// the baseline's value where two score the same: the score never falls below
+// what any one subject supports, which is the reasonable worst case the
+// Specification assumes where it has no explicit value. A metric no subject
+// supports changing is reported as unmodified with what was recorded. It is nil
+// for a definition with no rules, which is scored by its baseline alone.
+func (d FindingDefinition) Environmental(evidence []finding.Evidence) *finding.HostScore {
+	if len(d.Environment) == 0 {
+		return nil
+	}
+	baseline, err := v4.Parse(d.CVSSVector)
+	if err != nil {
+		panic("registry: a definition with rules has a baseline that does not parse, which load refuses: " + err.Error())
+	}
+
+	yields := make([]ruleYield, len(d.Environment))
+	for i, rule := range d.Environment {
+		yields[i] = d.yield(rule, evidence)
+	}
+	choice, vector := highest(baseline, yields)
+
+	host := &finding.HostScore{}
+	for i, y := range yields {
+		value := choice[i]
+		if value == notDefined {
+			host.Unmodified = append(host.Unmodified, finding.UnmodifiedMetric{Metric: y.rule.Metric, Reason: y.unmodifiedReason(baseline)})
+			continue
+		}
+		m := y.derived[value]
+		m.Carried, m.Subjects = y.carried[value], y.subjects
+		host.Modified = append(host.Modified, m)
+	}
+	if len(host.Modified) > 0 {
+		host.CVSS = labelledScore(vector, "host evidence", "Modified Base metrics derived from evidence recorded on this host")
+	}
+	return host
+}
+
+// yield collects what the subjects of rule's kind support.
+func (d FindingDefinition) yield(rule EnvironmentRule, evidence []finding.Evidence) ruleYield {
+	y := ruleYield{
+		rule:    rule,
+		carried: make(map[string]int),
+		derived: make(map[string]finding.ModifiedMetric),
+		counts:  make(map[string]int),
+	}
+	for _, e := range evidence {
+		if e.Kind != string(rule.Kind) {
+			continue
+		}
+		y.subjects++
+
+		value := notDefined
+		if m, ok := d.derives(rule, e); ok {
+			value = m.Value
+			if _, seen := y.derived[value]; !seen {
+				y.derived[value] = m
+			}
+		}
+		y.values = tally(y.values, y.carried, value)
+		y.recorded = tally(y.recorded, y.counts, recordedValue(e, rule.Fact))
+	}
+	if y.subjects == 0 {
+		y.values = []string{notDefined}
+	}
+	return y
+}
+
+// derives returns the metric rule derives from one subject, if a case matches.
+func (d FindingDefinition) derives(rule EnvironmentRule, e finding.Evidence) (finding.ModifiedMetric, bool) {
+	for _, m := range d.Modified(e) {
+		if m.Metric == rule.Metric {
+			return m, true
+		}
+	}
+	return finding.ModifiedMetric{}, false
+}
+
+// recordedValue is the value of fact on e, as the reason for an unmodified
+// metric reports it.
+func recordedValue(e finding.Evidence, fact finding.FactName) string {
+	for _, f := range e.Facts {
+		if f.Name == string(fact) {
+			return f.Value
+		}
+	}
+	return "not recorded"
+}
+
+// tally counts value, adding it to order the first time it is seen, so a
+// reason lists values in the order the checker recorded them.
+func tally(order []string, counts map[string]int, value string) []string {
+	if counts[value] == 0 {
+		order = append(order, value)
+	}
+	counts[value]++
+	return order
+}
+
+// highest returns, for each rule, the value its subjects support that gives the
+// highest score in combination with the others, and the vector that scores it.
+// Among combinations that score the same, the one modifying fewer metrics wins,
+// so a tie keeps the baseline's value.
+func highest(baseline v4.Vector, yields []ruleYield) ([]string, v4.Vector) {
+	choice := make([]string, len(yields))
+	var best []string
+	var bestVector v4.Vector
+	bestScore, bestModified := -1.0, 0
+
+	var walk func(i int, v v4.Vector, modified int)
+	walk = func(i int, v v4.Vector, modified int) {
+		if i == len(yields) {
+			score := v.Score()
+			if best == nil || score > bestScore || (score == bestScore && modified < bestModified) {
+				best, bestVector, bestScore, bestModified = slices.Clone(choice), v, score, modified
+			}
+			return
+		}
+		for _, value := range yields[i].values {
+			choice[i] = value
+			next, count := v, modified
+			if value != notDefined {
+				var err error
+				if next, err = v.With(yields[i].rule.Metric, value); err != nil {
+					panic("registry: a rule sets a value load validated and the scorer refuses: " + err.Error())
+				}
+				count++
+			}
+			walk(i+1, next, count)
+		}
+	}
+	walk(0, baseline, 0)
+	return best, bestVector
+}
+
+// unmodifiedReason says why the rule left its metric at the baseline's value:
+// nothing of its kind was recorded, nothing recorded matches a case, or the
+// subjects that do are outscored by those that keep the baseline.
+func (y ruleYield) unmodifiedReason(baseline v4.Vector) string {
+	base, _, _ := v4.ModifiedBase(y.rule.Metric)
+	kept := fmt.Sprintf("%s:%s", base, baseline.Value(base))
+	if y.subjects == 0 {
+		return fmt.Sprintf("no %s evidence was recorded, so %s stands", y.rule.Kind, kept)
+	}
+	if len(y.derived) == 0 {
+		recorded := make([]string, 0, len(y.recorded))
+		for _, value := range y.recorded {
+			recorded = append(recorded, fmt.Sprintf("%s on %d", value, y.counts[value]))
+		}
+		return fmt.Sprintf("%s on the %d %s subjects is %s, which no case of the rule modifies, so %s stands",
+			y.rule.Fact, y.subjects, y.rule.Kind, strings.Join(recorded, ", "), kept)
+	}
+	supported := make([]string, 0, len(y.values))
+	for _, value := range y.values {
+		if value != notDefined {
+			supported = append(supported, fmt.Sprintf("%s:%s on %d", y.rule.Metric, value, y.carried[value]))
+		}
+	}
+	return fmt.Sprintf("of the %d %s subjects, %s; the %d that keep %s score higher, so %s stands",
+		y.subjects, y.rule.Kind, strings.Join(supported, ", "), y.carried[notDefined], kept, kept)
+}

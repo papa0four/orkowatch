@@ -128,8 +128,19 @@ func (r *report) record(key registry.FindingKey, condition finding.Condition) {
 	}
 }
 
-// finish derives the check's result from its conditions and returns it.
+// finish scores each finding on this host and derives the check's result from
+// its conditions. Scoring waits until here because a condition's evidence is
+// complete only once the checker stops recording: a finding scored when first
+// observed would be scored on part of its subjects.
 func (r *report) finish() finding.AuditResult {
+	for i := range r.result.Conditions {
+		condition := &r.result.Conditions[i]
+		if condition.Finding == nil {
+			continue
+		}
+		def, _ := registry.Lookup(r.osCtx, registry.FindingKey(condition.Key))
+		condition.Finding.Host = def.Environmental(condition.Evidence)
+	}
 	r.result.Conclude()
 	return r.result
 }
