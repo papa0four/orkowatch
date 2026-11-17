@@ -1,13 +1,16 @@
 // internal/sockets/sockets.go
 
 // Package sockets reads the host's own sockets: every one the host reports, in
-// every state. It reads the host's table of them and connects to nothing.
-// It owns the serializable projection and its text rendering, so structured
-// and text output cannot drift apart, and the audit consumes the same
-// projection a saved report carries.
+// every state. It reads the host's table of them and connects to nothing. It
+// owns the serializable projection of what it read, so a live run and a saved
+// report carry the same data.
 package sockets
 
-import "errors"
+import (
+	"errors"
+	"net"
+	"strings"
+)
 
 // Protocols, named as the protocol column of netstat and ss names them.
 const (
@@ -36,27 +39,55 @@ const (
 	ScopeSpecific = "specific"
 )
 
-// Gaps: why a socket's owner or process is incomplete. A gap is stated rather
-// than left blank, so a reader can tell a socket nobody owns from one the run
-// could not see the owner of.
+// States, in the words netstat prints for a TCP socket. They are declared
+// once because every platform's reader and every rule that reads a state must
+// agree on the spelling. A socket with no connection state of its own, as a
+// bound UDP socket, is StateUnconnected, which is ss's word for it. A state a
+// reader has no name for is reported as the number the host gave.
 const (
-	// GapNotPermitted means the owner or its process exists and this run may
-	// not read it.
+	StateListen        = "LISTEN"
+	StateEstablished   = "ESTABLISHED"
+	StateSynSent       = "SYN_SENT"
+	StateSynRecv       = "SYN_RECV"
+	StateFinWait1      = "FIN_WAIT1"
+	StateFinWait2      = "FIN_WAIT2"
+	StateTimeWait      = "TIME_WAIT"
+	StateClose         = "CLOSE"
+	StateCloseWait     = "CLOSE_WAIT"
+	StateLastAck       = "LAST_ACK"
+	StateClosing       = "CLOSING"
+	StateNewSynRecv    = "NEW_SYN_RECV"
+	StateDeleteTCB     = "DELETE_TCB"
+	StateUnconnected   = "UNCONN"
+	StateConnecting    = "CONNECTING"
+	StateDisconnecting = "DISCONNECTING"
+)
+
+// Gaps: why the processes holding a socket are missing or incomplete. A gap
+// is stated rather than left blank, so a reader can tell a socket nobody owns
+// from one whose owner the run could not see.
+const (
+	// GapNotPermitted means a process is known to hold the socket and this
+	// run was refused when it tried to read that process.
 	GapNotPermitted = "not permitted (try an elevated run: sudo, or an administrator terminal)"
 
+	// GapUndetermined means this run could not tell whether a process holds
+	// the socket, because it may not see every process. Only a privileged
+	// run can conclude that nothing does.
+	GapUndetermined = "owner not determined (try an elevated run: sudo, or an administrator terminal)"
+
 	// GapUnreadable means the run already has the privilege an elevated run
-	// would add and the host still does not let it read the owner, as for
+	// would add and the host still does not let it read the process, as for
 	// the Windows System process. Advising an elevated run there would
 	// mislead.
 	GapUnreadable = "not readable, even from an elevated run"
 
-	// GapNoOwner means the host reports no owning process, as for a socket
-	// in TIME_WAIT.
-	GapNoOwner = "no owning process"
+	// GapExited means the process ended between the host listing the socket
+	// and this run reading the process.
+	GapExited = "process ended before it could be read"
 
-	// GapNotRead means the platform does not report an owner for this
-	// kind of socket.
-	GapNotRead = "not read on this platform"
+	// GapNoOwner means no process holds the socket, as for one in TIME_WAIT.
+	GapNoOwner = "no owning process"
 )
 
 // ErrUnsupported is returned by Read on a platform whose sockets are not
@@ -67,48 +98,61 @@ type (
 	// Socket is one socket as the host reports it. Local and Remote are an
 	// address and port, or for a unix socket the path it is bound to. Remote
 	// is empty for a socket with no peer. Type is the socket type of a unix
-	// or packet socket (stream, dgram, seqpacket, raw). Scope applies to internet sockets
-	// and is empty for the others. Owner is the account that owns the socket,
-	// and Process the process that does. Where either could not be read in
-	// full, Gap says why, and what was read is kept: Windows reports the pid
-	// without privilege, so a Process can hold the pid alone.
+	// or packet socket (stream, dgram, seqpacket, raw). Scope applies to
+	// internet sockets and is empty for the others.
+	//
+	// Owner is the account the host itself reports as the socket's owner.
+	// Linux reports one for internet and packet sockets and none for unix
+	// sockets, and Windows reports none; the account a holding process runs
+	// as is Process.User. Processes are the processes that hold the socket
+	// open, every one this run could read, in pid order. Where they are
+	// missing or incomplete, Gap says why, and what was read is kept:
+	// Windows reports the pid without privilege, so a Process can hold the
+	// pid alone.
 	Socket struct {
-		Protocol string   `json:"protocol" yaml:"protocol"`
-		Type     string   `json:"type,omitempty" yaml:"type,omitempty"`
-		State    string   `json:"state,omitempty" yaml:"state,omitempty"`
-		Local    string   `json:"local" yaml:"local"`
-		Remote   string   `json:"remote,omitempty" yaml:"remote,omitempty"`
-		Scope    string   `json:"scope,omitempty" yaml:"scope,omitempty"`
-		Owner    string   `json:"owner,omitempty" yaml:"owner,omitempty"`
-		Process  *Process `json:"process,omitempty" yaml:"process,omitempty"`
-		Gap      string   `json:"gap,omitempty" yaml:"gap,omitempty"`
+		Protocol  string    `json:"protocol" yaml:"protocol"`
+		Type      string    `json:"type,omitempty" yaml:"type,omitempty"`
+		State     string    `json:"state,omitempty" yaml:"state,omitempty"`
+		Local     string    `json:"local" yaml:"local"`
+		Remote    string    `json:"remote,omitempty" yaml:"remote,omitempty"`
+		Scope     string    `json:"scope,omitempty" yaml:"scope,omitempty"`
+		Owner     string    `json:"owner,omitempty" yaml:"owner,omitempty"`
+		Processes []Process `json:"processes,omitempty" yaml:"processes,omitempty"`
+		Gap       string    `json:"gap,omitempty" yaml:"gap,omitempty"`
 
-		// Inode joins a socket to its owning process on Linux and is kept in
-		// the report so the join can be checked.
+		// Inode joins a socket to the processes holding it on Linux and is
+		// kept in the report so the join can be checked.
 		Inode string `json:"inode,omitempty" yaml:"inode,omitempty"`
 	}
 
-	// Process is the process that owns a socket. Path is the executable,
+	// Process is a process that holds a socket. Path is the executable,
 	// which is what a later association with an installed package and its
-	// vulnerabilities joins on.
+	// vulnerabilities joins on. User is the account the process runs as, which
+	// is not necessarily the account that created the socket: a descriptor can
+	// be inherited or passed to another process.
 	Process struct {
 		PID  int    `json:"pid" yaml:"pid"`
-		Name string `json:"name" yaml:"name"`
+		Name string `json:"name,omitempty" yaml:"name,omitempty"`
 		Path string `json:"path,omitempty" yaml:"path,omitempty"`
+		User string `json:"user,omitempty" yaml:"user,omitempty"`
 	}
 
 	// View is the serializable projection of the host's sockets, grouped
-	// by category. Unattributed counts the sockets whose owner this run
-	// could not read, so a report states how much of it is unattributed and
-	// why. A socket the host reports no owner for is not counted. A saved
-	// report records the remote end of every connection and so discloses who
-	// the host was talking to.
+	// by category. Unattributed counts the sockets whose processes this run
+	// could not read, so a report states how much of it is unattributed. A
+	// socket no process holds is not counted. A saved report records the
+	// remote end of every connection and so discloses who the host was
+	// talking to.
 	View struct {
-		Internet     []Socket `json:"internet" yaml:"internet"`
-		Unix         []Socket `json:"unix" yaml:"unix"`
-		Raw          []Socket `json:"raw" yaml:"raw"`
-		Packet       []Socket `json:"packet" yaml:"packet"`
+		Internet     []Socket `json:"internet,omitempty" yaml:"internet,omitempty"`
+		Unix         []Socket `json:"unix,omitempty" yaml:"unix,omitempty"`
+		Raw          []Socket `json:"raw,omitempty" yaml:"raw,omitempty"`
+		Packet       []Socket `json:"packet,omitempty" yaml:"packet,omitempty"`
 		Unattributed int      `json:"unattributed" yaml:"unattributed"`
+
+		// NotRead names the categories this platform does not read, so an
+		// absent category is not mistaken for a host with no such sockets.
+		NotRead []string `json:"not_read,omitempty" yaml:"not_read,omitempty"`
 	}
 )
 
@@ -127,7 +171,7 @@ func (s Socket) Category() string {
 }
 
 // NewView groups sockets by category in the order given and counts those
-// whose owner could not be read.
+// whose processes could not be read.
 func NewView(sockets []Socket) View {
 	var v View
 	for _, s := range sockets {
@@ -146,4 +190,25 @@ func NewView(sockets []Socket) View {
 		}
 	}
 	return v
+}
+
+// scopeOf says which of the host's addresses a socket bound to ip answers on.
+func scopeOf(ip net.IP) string {
+	switch {
+	case ip.IsUnspecified():
+		return ScopeWildcard
+	case ip.IsLoopback():
+		return ScopeLoopback
+	default:
+		return ScopeSpecific
+	}
+}
+
+// compareSockets orders sockets by protocol, then local and remote end, then
+// inode, so a report is the same from run to run whatever order the host
+// listed them in.
+func compareSockets(a, b Socket) int {
+	return strings.Compare(
+		a.Protocol+"\x00"+a.Local+"\x00"+a.Remote+"\x00"+a.Inode,
+		b.Protocol+"\x00"+b.Local+"\x00"+b.Remote+"\x00"+b.Inode)
 }

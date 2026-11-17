@@ -5,6 +5,7 @@
 package sockets
 
 import (
+	"cmp"
 	"context"
 	"encoding/binary"
 	"errors"
@@ -53,30 +54,41 @@ const (
 	packetInodeField = 8
 	packetFields     = packetInodeField + 1
 
+	// tcpClose is TCP_CLOSE, the state a UDP or raw socket with no peer
+	// is in.
+	tcpClose = 7
+
 	// soAcceptConn is the flag the kernel sets on a unix socket that has
 	// called listen, __SO_ACCEPTCON in include/uapi/linux/net.h.
 	soAcceptConn = 1 << 16
 
-	hexBase  = 16
-	uidBits  = 32
-	portBits = 16
+	// The bases the kernel prints these tables in, and the widths of what it
+	// prints: states, flags, types and address words fit 32 bits, ports 16.
+	hexBase     = 16
+	decimalBase = 10
+	fieldBits   = 32
+	portBits    = 16
+
+	// statusEffectiveUID is the position of the effective uid among the four
+	// on the Uid line of /proc/<pid>/status.
+	statusEffectiveUID = 1
 
 	socketLinkPrefix = "socket:["
 	noInode          = "0"
 )
 
 // tcpStates names the kernel's TCP states by their number, from the enum in
-// include/net/tcp_states.h, in the vocabulary netstat prints.
+// include/net/tcp_states.h. UDP and raw sockets print the same numbers.
 var tcpStates = map[uint64]string{
-	1: "ESTABLISHED", 2: "SYN_SENT", 3: "SYN_RECV", 4: "FIN_WAIT1", 5: "FIN_WAIT2",
-	6: "TIME_WAIT", 7: "UNCONN", 8: "CLOSE_WAIT", 9: "LAST_ACK", 10: "LISTEN",
-	11: "CLOSING", 12: "NEW_SYN_RECV",
+	1: StateEstablished, 2: StateSynSent, 3: StateSynRecv, 4: StateFinWait1, 5: StateFinWait2,
+	6: StateTimeWait, tcpClose: StateClose, 8: StateCloseWait, 9: StateLastAck, 10: StateListen,
+	11: StateClosing, 12: StateNewSynRecv,
 }
 
 // unixStates names the state of a unix socket that is not listening, by the
 // socket_state value /proc/net/unix prints, from include/uapi/linux/net.h.
 var unixStates = map[uint64]string{
-	1: "UNCONN", 2: "CONNECTING", 3: "ESTABLISHED", 4: "DISCONNECTING",
+	1: StateUnconnected, 2: StateConnecting, 3: StateEstablished, 4: StateDisconnecting,
 }
 
 // unixTypes names the socket types /proc/net/unix prints.
@@ -96,26 +108,25 @@ type (
 		userName   func(uid string) string
 	}
 
-	// owners maps a socket's inode to the process that holds it open.
+	// holders maps a socket's inode to the processes that hold it open.
 	// refused counts the processes whose descriptors this run was not
-	// allowed to list, which is what makes an unmatched socket a socket
-	// this run could not attribute rather than one nobody owns.
-	owners struct {
-		byInode map[string]owner
+	// allowed to list.
+	holders struct {
+		byInode map[string][]holder
 		refused int
 	}
 
-	// owner is a process and, where reading its executable was refused, why.
-	owner struct {
+	// holder is a process and, where reading part of it was refused, why.
+	holder struct {
 		process Process
 		gap     string
 	}
 )
 
 // Read returns the host's sockets, every one /proc reports in every state.
-// Listing them needs no privilege. Naming the process that owns one needs the
-// right to read that process's descriptors, so the sockets of other users'
-// processes carry a stated gap unless the run is root.
+// Listing them needs no privilege. Naming the processes that hold one needs
+// the right to read their descriptors, so a run that is not root states a gap
+// for the sockets it could not attribute.
 func Read(ctx context.Context) (View, error) {
 	r := reader{proc: procRoot, privileged: os.Geteuid() == 0, userName: cachedAccountName()}
 	sockets, err := r.read(ctx)
@@ -130,7 +141,7 @@ func (r reader) read(ctx context.Context) ([]Socket, error) {
 	if err != nil {
 		return nil, err
 	}
-	found, err := r.scanOwners(ctx)
+	found, err := r.scanHolders(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -198,14 +209,14 @@ func (r reader) parseInet(protocol, line string) (Socket, bool) {
 	if err != nil {
 		return Socket{}, false
 	}
-	state, err := strconv.ParseUint(fields[inetStateField], hexBase, uidBits)
+	state, err := strconv.ParseUint(fields[inetStateField], hexBase, fieldBits)
 	if err != nil {
 		return Socket{}, false
 	}
 
 	s := Socket{
 		Protocol: protocol,
-		State:    tcpStates[state],
+		State:    inetState(protocol, state),
 		Local:    net.JoinHostPort(local.String(), strconv.Itoa(int(localPort))),
 		Scope:    scopeOf(local),
 		Owner:    r.userName(fields[inetUIDField]),
@@ -215,6 +226,23 @@ func (r reader) parseInet(protocol, line string) (Socket, bool) {
 		s.Remote = net.JoinHostPort(remote.String(), strconv.Itoa(int(remotePort)))
 	}
 	return s, true
+}
+
+// inetState names a state from an internet table. A UDP or raw socket with no
+// peer is in TCP_CLOSE, which for them means bound and unconnected.
+func inetState(protocol string, state uint64) string {
+	if state == tcpClose && protocol != TCP && protocol != TCP6 {
+		return StateUnconnected
+	}
+	return stateName(tcpStates, state)
+}
+
+// stateName names a state, or gives its number when it has no name.
+func stateName(names map[uint64]string, state uint64) string {
+	if name, ok := names[state]; ok {
+		return name
+	}
+	return strconv.FormatUint(state, decimalBase)
 }
 
 // parseAddress reads the address and port the kernel prints as hex: the
@@ -227,7 +255,7 @@ func parseAddress(field string) (net.IP, uint16, error) {
 	}
 	ip := make(net.IP, len(host)/wordHex*wordBytes)
 	for i := 0; i < len(host); i += wordHex {
-		word, err := strconv.ParseUint(host[i:i+wordHex], hexBase, uidBits)
+		word, err := strconv.ParseUint(host[i:i+wordHex], hexBase, fieldBits)
 		if err != nil {
 			return nil, 0, fmt.Errorf("sockets: malformed address %q: %w", field, err)
 		}
@@ -238,18 +266,6 @@ func parseAddress(field string) (net.IP, uint16, error) {
 		return nil, 0, fmt.Errorf("sockets: malformed port in %q: %w", field, err)
 	}
 	return ip, uint16(n), nil
-}
-
-// scopeOf says which of the host's addresses a socket bound to ip answers on.
-func scopeOf(ip net.IP) string {
-	switch {
-	case ip.IsUnspecified():
-		return ScopeWildcard
-	case ip.IsLoopback():
-		return ScopeLoopback
-	default:
-		return ScopeSpecific
-	}
 }
 
 // parseUnix reads /proc/net/unix. A socket that has called listen is
@@ -263,22 +279,22 @@ func (r reader) parseUnix(lines []string) []Socket {
 		if len(fields) < unixFields {
 			continue
 		}
-		flags, err := strconv.ParseUint(fields[unixFlagsField], hexBase, uidBits)
+		flags, err := strconv.ParseUint(fields[unixFlagsField], hexBase, fieldBits)
 		if err != nil {
 			continue
 		}
-		typ, err := strconv.ParseUint(fields[unixTypeField], hexBase, uidBits)
+		typ, err := strconv.ParseUint(fields[unixTypeField], hexBase, fieldBits)
 		if err != nil {
 			continue
 		}
-		state, err := strconv.ParseUint(fields[unixStateField], hexBase, uidBits)
+		state, err := strconv.ParseUint(fields[unixStateField], hexBase, fieldBits)
 		if err != nil {
 			continue
 		}
 
-		s := Socket{Protocol: Unix, Type: unixTypes[typ], State: unixStates[state], Inode: fields[unixInodeField]}
+		s := Socket{Protocol: Unix, Type: unixTypes[typ], State: stateName(unixStates, state), Inode: fields[unixInodeField]}
 		if flags&soAcceptConn != 0 {
-			s.State = "LISTEN"
+			s.State = StateListen
 		}
 		if len(fields) > unixPathField {
 			s.Local = strings.Join(fields[unixPathField:], " ")
@@ -297,7 +313,7 @@ func (r reader) parsePacket(lines []string) []Socket {
 		if len(fields) < packetFields {
 			continue
 		}
-		typ, err := strconv.ParseUint(fields[packetTypeField], 10, uidBits)
+		typ, err := strconv.ParseUint(fields[packetTypeField], decimalBase, fieldBits)
 		if err != nil {
 			continue
 		}
@@ -328,11 +344,11 @@ func interfaceName(index int) string {
 	return strconv.Itoa(index)
 }
 
-// scanOwners maps every socket inode a readable process holds to that
-// process. A process whose descriptors may not be listed is counted, not
-// skipped silently, because an unmatched socket then may belong to it.
-func (r reader) scanOwners(ctx context.Context) (owners, error) {
-	found := owners{byInode: make(map[string]owner)}
+// scanHolders maps every socket inode a readable process holds to the
+// processes that hold it. A process whose descriptors may not be listed is
+// counted, not skipped silently.
+func (r reader) scanHolders(ctx context.Context) (holders, error) {
+	found := holders{byInode: make(map[string][]holder)}
 	entries, err := os.ReadDir(r.proc)
 	if err != nil {
 		return found, fmt.Errorf("sockets: list processes: %w", err)
@@ -350,8 +366,9 @@ func (r reader) scanOwners(ctx context.Context) (owners, error) {
 	return found, nil
 }
 
-// scanProcess records the sockets one process holds open.
-func (r reader) scanProcess(pid int, found *owners) {
+// scanProcess records the sockets one process holds open, each once however
+// many of its descriptors refer to it.
+func (r reader) scanProcess(pid int, found *holders) {
 	dir := filepath.Join(r.proc, strconv.Itoa(pid), "fd")
 	fds, err := os.ReadDir(dir)
 	if err != nil {
@@ -360,42 +377,73 @@ func (r reader) scanProcess(pid int, found *owners) {
 		}
 		return
 	}
-	var held *owner
+	var described *holder
+	seen := make(map[string]bool)
 	for _, fd := range fds {
 		target, err := os.Readlink(filepath.Join(dir, fd.Name()))
 		if err != nil || !strings.HasPrefix(target, socketLinkPrefix) {
 			continue
 		}
-		if held == nil {
-			described := r.describe(pid)
-			held = &described
+		inode := strings.TrimSuffix(strings.TrimPrefix(target, socketLinkPrefix), "]")
+		if seen[inode] {
+			continue
 		}
-		found.byInode[strings.TrimSuffix(strings.TrimPrefix(target, socketLinkPrefix), "]")] = *held
+		seen[inode] = true
+		if described == nil {
+			d := r.describe(pid)
+			described = &d
+		}
+		found.byInode[inode] = append(found.byInode[inode], *described)
 	}
 }
 
-// describe reads a process's name and executable. A process without an
-// executable, as a kernel thread, has no path and no gap: nothing was
-// refused. A path this run may not read carries the gap.
-func (r reader) describe(pid int) owner {
+// describe reads a process's name, executable and account. The account is
+// the effective uid /proc/<pid>/status reports, read from the file's text
+// because the ownership of the process's directory is root for a process that
+// is not dumpable. A process without an executable, as a kernel thread, has no
+// path and no gap: nothing was refused. A path or account this run may not
+// read carries the gap.
+func (r reader) describe(pid int) holder {
 	base := filepath.Join(r.proc, strconv.Itoa(pid))
-	o := owner{process: Process{PID: pid}}
+	h := holder{process: Process{PID: pid}}
 	if name, err := os.ReadFile(filepath.Join(base, "comm")); err == nil { // #nosec G304 -- the path is built from a numeric pid under the /proc root
-		o.process.Name = strings.TrimSpace(string(name))
+		h.process.Name = strings.TrimSpace(string(name))
 	}
 	path, err := os.Readlink(filepath.Join(base, "exe"))
 	switch {
 	case err == nil:
-		o.process.Path = path
+		h.process.Path = path
 	case errors.Is(err, fs.ErrPermission):
-		o.gap = r.refusal()
+		h.gap = r.refusal()
 	}
-	return o
+	status, err := os.ReadFile(filepath.Join(base, "status")) // #nosec G304 -- the path is built from a numeric pid under the /proc root
+	switch {
+	case err == nil:
+		if uid, ok := effectiveUID(string(status)); ok {
+			h.process.User = r.userName(uid)
+		}
+	case errors.Is(err, fs.ErrPermission):
+		h.gap = r.refusal()
+	}
+	return h
 }
 
-// refusal is the gap for something this run was not allowed to read: advice
-// to elevate if the run is not, and a statement that elevating does not help
-// if it already is.
+// effectiveUID returns the effective uid from the Uid line of a process's
+// status text: the real, effective, saved and filesystem uids, in that order.
+func effectiveUID(status string) (string, bool) {
+	for _, line := range strings.Split(status, "\n") {
+		if rest, found := strings.CutPrefix(line, "Uid:"); found {
+			if fields := strings.Fields(rest); len(fields) > statusEffectiveUID {
+				return fields[statusEffectiveUID], true
+			}
+		}
+	}
+	return "", false
+}
+
+// refusal is the gap for part of a known process this run was not allowed to
+// read: advice to elevate if the run is not root, and a statement that
+// elevating does not help if it already is.
 func (r reader) refusal() string {
 	if r.privileged {
 		return GapUnreadable
@@ -403,26 +451,34 @@ func (r reader) refusal() string {
 	return GapNotPermitted
 }
 
-// attribute fills in the process that owns s, or states why it cannot. A
-// socket with no inode has no owner, as one in TIME_WAIT. One whose inode no
-// readable process holds is unattributed only if this run was refused a
-// process's descriptors, because then its owner may be one of those.
-func (r reader) attribute(s *Socket, found owners) {
+// attribute fills in the processes that hold s, or states why it cannot. A
+// socket with no inode has no holder, as one in TIME_WAIT. One whose inode no
+// readable process holds is concluded to have none only by a root run that
+// was refused nothing: a run that is not root may not see every process, as
+// under hidepid, so for it the owner is undetermined.
+func (r reader) attribute(s *Socket, found holders) {
 	if s.Inode == noInode {
 		s.Gap = GapNoOwner
 		return
 	}
-	if held, ok := found.byInode[s.Inode]; ok {
-		process := held.process
-		s.Process = &process
-		s.Gap = held.gap
+	if held := found.byInode[s.Inode]; len(held) > 0 {
+		slices.SortFunc(held, func(a, b holder) int { return cmp.Compare(a.process.PID, b.process.PID) })
+		for _, h := range held {
+			s.Processes = append(s.Processes, h.process)
+			if s.Gap == "" {
+				s.Gap = h.gap
+			}
+		}
 		return
 	}
-	if found.refused > 0 {
-		s.Gap = r.refusal()
-		return
+	switch {
+	case !r.privileged:
+		s.Gap = GapUndetermined
+	case found.refused > 0:
+		s.Gap = GapUnreadable
+	default:
+		s.Gap = GapNoOwner
 	}
-	s.Gap = GapNoOwner
 }
 
 // cachedAccountName returns a function that names the account with a given
@@ -442,13 +498,4 @@ func cachedAccountName() func(uid string) string {
 		names[uid] = name
 		return name
 	}
-}
-
-// compareSockets orders sockets by protocol, then local and remote end, then
-// inode, so a report is the same from run to run whatever order the kernel
-// listed them in.
-func compareSockets(a, b Socket) int {
-	return strings.Compare(
-		a.Protocol+"\x00"+a.Local+"\x00"+a.Remote+"\x00"+a.Inode,
-		b.Protocol+"\x00"+b.Local+"\x00"+b.Remote+"\x00"+b.Inode)
 }

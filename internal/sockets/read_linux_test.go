@@ -9,7 +9,7 @@ import (
 	"encoding/binary"
 	"os"
 	"path/filepath"
-	"strings"
+	"reflect"
 	"testing"
 )
 
@@ -33,24 +33,32 @@ func TestParseInet(t *testing.T) {
 		want           Socket
 	}{
 		{TCP, "   0: 00000000:0016 00000000:0000 0A 00000000:00000000 00:00000000 00000000     0        0 2205 1 0000000000000000 100 0 0 10 0",
-			Socket{Protocol: TCP, State: "LISTEN", Local: "0.0.0.0:22", Scope: ScopeWildcard, Owner: "user0", Inode: "2205"}},
+			Socket{Protocol: TCP, State: StateListen, Local: "0.0.0.0:22", Scope: ScopeWildcard, Owner: "user0", Inode: "2205"}},
 		{TCP, "   1: 3500007F:0035 00000000:0000 0A 00000000:00000000 00:00000000 00000000   101        0 8277 1 0000000000000000 100 0 0 10 5",
-			Socket{Protocol: TCP, State: "LISTEN", Local: "127.0.0.53:53", Scope: ScopeLoopback, Owner: "user101", Inode: "8277"}},
+			Socket{Protocol: TCP, State: StateListen, Local: "127.0.0.53:53", Scope: ScopeLoopback, Owner: "user101", Inode: "8277"}},
 		{TCP, "   2: 0100007F:E00D 0100007F:9C4C 01 00000000:00000000 00:00000000 00000000  1000        0 12831 1 0000000000000000 100 0 0 10 0",
-			Socket{Protocol: TCP, State: "ESTABLISHED", Local: "127.0.0.1:57357", Remote: "127.0.0.1:40012", Scope: ScopeLoopback, Owner: "user1000", Inode: "12831"}},
+			Socket{Protocol: TCP, State: StateEstablished, Local: "127.0.0.1:57357", Remote: "127.0.0.1:40012", Scope: ScopeLoopback, Owner: "user1000", Inode: "12831"}},
 		{TCP, "   3: 0100007F:0016 0100007F:C000 06 00000000:00000000 03:00000000 00000000     0        0 0 3 0000000000000000",
-			Socket{Protocol: TCP, State: "TIME_WAIT", Local: "127.0.0.1:22", Remote: "127.0.0.1:49152", Scope: ScopeLoopback, Owner: "user0", Inode: "0"}},
+			Socket{Protocol: TCP, State: StateTimeWait, Local: "127.0.0.1:22", Remote: "127.0.0.1:49152", Scope: ScopeLoopback, Owner: "user0", Inode: "0"}},
+		{TCP, "   4: 0100007F:0016 0100007F:C001 07 00000000:00000000 00:00000000 00000000     0        0 77 1 0000000000000000",
+			Socket{Protocol: TCP, State: StateClose, Local: "127.0.0.1:22", Remote: "127.0.0.1:49153", Scope: ScopeLoopback, Owner: "user0", Inode: "77"}},
+		{TCP, "   5: 0100007F:0016 00000000:0000 63 00000000:00000000 00:00000000 00000000     0        0 78 1 0000000000000000",
+			Socket{Protocol: TCP, State: "99", Local: "127.0.0.1:22", Scope: ScopeLoopback, Owner: "user0", Inode: "78"}},
 		{TCP6, "   0: 00000000000000000000000001000000:0016 00000000000000000000000000000000:0000 0A 00000000:00000000 00:00000000 00000000     0        0 2207 1 0000000000000000 100 0 0 10 0",
-			Socket{Protocol: TCP6, State: "LISTEN", Local: "[::1]:22", Scope: ScopeLoopback, Owner: "user0", Inode: "2207"}},
+			Socket{Protocol: TCP6, State: StateListen, Local: "[::1]:22", Scope: ScopeLoopback, Owner: "user0", Inode: "2207"}},
+		{TCP6, "   1: 0000000000000000FFFF00000100007F:0050 00000000000000000000000000000000:0000 0A 00000000:00000000 00:00000000 00000000     0        0 2208 1 0000000000000000 100 0 0 10 0",
+			Socket{Protocol: TCP6, State: StateListen, Local: "127.0.0.1:80", Scope: ScopeLoopback, Owner: "user0", Inode: "2208"}},
 		{UDP, " 1038: 3500007F:0035 00000000:0000 07 00000000:00000000 00:00000000 00000000   101        0 8276 2 0000000000000000 0",
-			Socket{Protocol: UDP, State: "UNCONN", Local: "127.0.0.53:53", Scope: ScopeLoopback, Owner: "user101", Inode: "8276"}},
+			Socket{Protocol: UDP, State: StateUnconnected, Local: "127.0.0.53:53", Scope: ScopeLoopback, Owner: "user101", Inode: "8276"}},
 	} {
 		got, ok := r.parseInet(c.protocol, c.line)
-		if !ok || got != c.want {
+		if !ok || !equalSocket(got, c.want) {
 			t.Errorf("%s line\n got  %+v (ok %v)\n want %+v", c.protocol, got, ok, c.want)
 		}
 	}
 }
+
+func equalSocket(a, b Socket) bool { return reflect.DeepEqual(a, b) }
 
 // A line that is not a socket line is skipped, not guessed at.
 func TestParseInetSkipsMalformed(t *testing.T) {
@@ -74,24 +82,50 @@ func TestParseUnix(t *testing.T) {
 	}
 	got := reader{}.parseUnix(lines)
 	want := []Socket{
-		{Protocol: Unix, Type: "stream", State: "LISTEN", Local: "/run/docker.sock", Inode: "12465"},
-		{Protocol: Unix, Type: "stream", State: "ESTABLISHED", Local: "/run/systemd/journal/stdout", Inode: "8298"},
-		{Protocol: Unix, Type: "dgram", State: "UNCONN", Local: "@abstract", Inode: "1948"},
-		{Protocol: Unix, Type: "seqpacket", State: "UNCONN", Inode: "42"},
+		{Protocol: Unix, Type: "stream", State: StateListen, Local: "/run/docker.sock", Inode: "12465"},
+		{Protocol: Unix, Type: "stream", State: StateEstablished, Local: "/run/systemd/journal/stdout", Inode: "8298"},
+		{Protocol: Unix, Type: "dgram", State: StateUnconnected, Local: "@abstract", Inode: "1948"},
+		{Protocol: Unix, Type: "seqpacket", State: StateUnconnected, Inode: "42"},
 	}
 	if len(got) != len(want) {
 		t.Fatalf("got %d sockets, want %d: %+v", len(got), len(want), got)
 	}
 	for i := range want {
-		if got[i] != want[i] {
+		if !equalSocket(got[i], want[i]) {
 			t.Errorf("socket %d\n got  %+v\n want %+v", i, got[i], want[i])
 		}
 	}
 }
 
-// proc builds a /proc of its own: a socket table with three sockets and the
-// process that holds the first open. With refused, it also holds a process
-// whose descriptors cannot be listed.
+// Packet sockets as the kernel printed them for a raw socket bound to every
+// interface and a datagram socket bound to one: the type from the SOCK_
+// number, the interface by index (0 meaning every interface) and the
+// descriptor's inode. The first column is the kernel's address of the socket
+// and is not read.
+func TestParsePacket(t *testing.T) {
+	lines := []string{
+		"ffff8d4ddd094000 3      3    0003   0     1 0      0      2347  ",
+		"ffff8d4ddd091000 3      2    0800   99999 1 0      0      2348  ",
+		"short",
+	}
+	got := reader{userName: name}.parsePacket(lines)
+	want := []Socket{
+		{Protocol: Packet, Type: "raw", Local: "any", Owner: "user0", Inode: "2347"},
+		{Protocol: Packet, Type: "dgram", Local: "99999", Owner: "user0", Inode: "2348"},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("got %d sockets, want %d: %+v", len(got), len(want), got)
+	}
+	for i := range want {
+		if !equalSocket(got[i], want[i]) {
+			t.Errorf("socket %d\n got  %+v\n want %+v", i, got[i], want[i])
+		}
+	}
+}
+
+// proc builds a /proc of its own: a socket table with three sockets, two
+// processes holding the first open (as a daemon and the child it forked), and,
+// with refused, a process whose descriptors cannot be listed.
 func proc(t *testing.T, refused bool) string {
 	t.Helper()
 	root := t.TempDir()
@@ -108,18 +142,24 @@ func proc(t *testing.T, refused bool) string {
 			t.Fatal(err)
 		}
 	}
+	link := func(target, path string) {
+		t.Helper()
+		mkdir(filepath.Dir(path))
+		if err := os.Symlink(target, filepath.Join(root, path)); err != nil {
+			t.Fatal(err)
+		}
+	}
 	header := "  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode\n"
 	write("net/tcp", header+
 		"   0: 00000000:0016 00000000:0000 0A 00000000:00000000 00:00000000 00000000     0        0 111 1 0\n"+
 		"   1: 00000000:0050 00000000:0000 0A 00000000:00000000 00:00000000 00000000     0        0 222 1 0\n"+
 		"   2: 0100007F:0016 0100007F:C000 06 00000000:00000000 03:00000000 00000000     0        0 0 3 0\n")
-	write("10/comm", "sshd\n")
-	mkdir("10/fd")
-	if err := os.Symlink("socket:[111]", filepath.Join(root, "10", "fd", "3")); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Symlink("/usr/sbin/sshd", filepath.Join(root, "10", "exe")); err != nil {
-		t.Fatal(err)
+	for _, pid := range []string{"30", "10"} {
+		write(pid+"/comm", "sshd\n")
+		write(pid+"/status", "Name:\tsshd\nUid:\t1000\t0\t1000\t0\nGid:\t0\t0\t0\t0\n")
+		link("/usr/sbin/sshd", pid+"/exe")
+		link("socket:[111]", pid+"/fd/3")
+		link("socket:[111]", pid+"/fd/4")
 	}
 	if refused {
 		mkdir("20/fd")
@@ -144,56 +184,52 @@ func byLocal(sockets []Socket, local string) Socket {
 	return Socket{}
 }
 
-// A socket a readable process holds names that process. One no readable
-// process holds is owned by nobody unless this run was refused a process's
-// descriptors, when it is unattributed with the advice to elevate; and one in
-// TIME_WAIT never has an owner.
+func readOrFail(t *testing.T, r reader) []Socket {
+	t.Helper()
+	sockets, err := r.read(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return sockets
+}
+
+// Every process holding a socket is named, each once, in pid order. A socket
+// in TIME_WAIT has no holder on any run. A socket no readable process holds
+// has no owner only on a root run that was refused nothing; a run that is not
+// root may not see every process, so for it the owner is undetermined; and a
+// root run that was refused a process cannot conclude either.
 func TestAttribution(t *testing.T) {
 	skipBigEndian(t)
 
-	owned := reader{proc: proc(t, false), userName: name}
-	sockets, err := owned.read(context.Background())
-	if err != nil {
-		t.Fatal(err)
+	user := readOrFail(t, reader{proc: proc(t, false), userName: name})
+	held := byLocal(user, "0.0.0.0:22")
+	if len(held.Processes) != 2 || held.Processes[0].PID != 10 || held.Processes[1].PID != 30 || held.Gap != "" {
+		t.Errorf("a socket two processes hold: %+v", held)
 	}
-	if s := byLocal(sockets, "0.0.0.0:22"); s.Process == nil || s.Process.PID != 10 || s.Process.Name != "sshd" || s.Process.Path != "/usr/sbin/sshd" || s.Gap != "" {
-		t.Errorf("owned socket: %+v %+v", s, s.Process)
+	if p := held.Processes[0]; p.Name != "sshd" || p.Path != "/usr/sbin/sshd" || p.User != "user0" {
+		t.Errorf("a holder read in full: %+v", p)
 	}
-	if s := byLocal(sockets, "0.0.0.0:80"); s.Process != nil || s.Gap != GapNoOwner {
-		t.Errorf("socket nobody holds: %+v", s)
+	if s := byLocal(user, "0.0.0.0:80"); len(s.Processes) != 0 || s.Gap != GapUndetermined {
+		t.Errorf("a socket no visible process holds, on a run that is not root: %+v", s)
 	}
-	if s := byLocal(sockets, "127.0.0.1:22"); s.Gap != GapNoOwner {
-		t.Errorf("TIME_WAIT socket: %+v", s)
+	if s := byLocal(user, "127.0.0.1:22"); s.Gap != GapNoOwner {
+		t.Errorf("a socket in TIME_WAIT: %+v", s)
 	}
-	if view := NewView(sockets); view.Unattributed != 0 {
-		t.Errorf("unattributed = %d with every process readable", view.Unattributed)
-	}
-
-	if os.Geteuid() == 0 {
-		t.Skip("root reads every process; the refusal cases need a user who may not")
-	}
-	refused := reader{proc: proc(t, true), userName: name}
-	sockets, err = refused.read(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if s := byLocal(sockets, "0.0.0.0:80"); s.Gap != GapNotPermitted || !strings.Contains(s.Gap, "elevated") {
-		t.Errorf("unattributed socket: %+v", s)
-	}
-	if s := byLocal(sockets, "127.0.0.1:22"); s.Gap != GapNoOwner {
-		t.Errorf("TIME_WAIT socket after a refusal: %+v", s)
-	}
-	if view := NewView(sockets); view.Unattributed != 1 {
+	if view := NewView(user); view.Unattributed != 1 {
 		t.Errorf("unattributed = %d, want 1", view.Unattributed)
 	}
 
-	privileged := reader{proc: refused.proc, privileged: true, userName: name}
-	sockets, err = privileged.read(context.Background())
-	if err != nil {
-		t.Fatal(err)
+	root := readOrFail(t, reader{proc: proc(t, false), privileged: true, userName: name})
+	if s := byLocal(root, "0.0.0.0:80"); s.Gap != GapNoOwner {
+		t.Errorf("a socket no process holds, on a root run refused nothing: %+v", s)
 	}
-	if s := byLocal(sockets, "0.0.0.0:80"); s.Gap != GapUnreadable {
-		t.Errorf("unattributed socket on an elevated run: %+v", s)
+
+	if os.Geteuid() == 0 {
+		t.Skip("root reads every directory; the refusal case needs a user who may not")
+	}
+	refusedRoot := readOrFail(t, reader{proc: proc(t, true), privileged: true, userName: name})
+	if s := byLocal(refusedRoot, "0.0.0.0:80"); s.Gap != GapUnreadable {
+		t.Errorf("a socket no readable process holds, on a root run refused a process: %+v", s)
 	}
 }
 
@@ -214,30 +250,5 @@ func TestReadSkipsMissingTablesAndStopsWhenCancelled(t *testing.T) {
 	cancel()
 	if _, err := r.read(ctx); err == nil {
 		t.Error("a cancelled run read to the end")
-	}
-}
-
-// Packet sockets as the kernel printed them for a raw socket bound to every
-// interface and a datagram socket bound to one: the type from the SOCK_
-// number, the interface by index (0 meaning every interface) and the
-// descriptor's inode.
-func TestParsePacket(t *testing.T) {
-	lines := []string{
-		"ffff8d4ddd094000 3      3    0003   0     1 0      0      2347  ",
-		"ffff8d4ddd091000 3      2    0800   99999 1 0      0      2348  ",
-		"short",
-	}
-	got := reader{userName: name}.parsePacket(lines)
-	want := []Socket{
-		{Protocol: Packet, Type: "raw", Local: "any", Owner: "user0", Inode: "2347"},
-		{Protocol: Packet, Type: "dgram", Local: "99999", Owner: "user0", Inode: "2348"},
-	}
-	if len(got) != len(want) {
-		t.Fatalf("got %d sockets, want %d: %+v", len(got), len(want), got)
-	}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Errorf("socket %d\n got  %+v\n want %+v", i, got[i], want[i])
-		}
 	}
 }

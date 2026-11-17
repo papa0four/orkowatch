@@ -1,4 +1,4 @@
-//go:build !linux
+//go:build !linux && !windows
 
 // internal/sockets/read_unsupported.go
 
