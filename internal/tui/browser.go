@@ -761,7 +761,7 @@ func (b browser) banner() string {
 		left += styleMuted.Render(bannerSeparator + part)
 	}
 
-	brand := styleProject.Render(projectName) + bannerGap + styleProduct.Render(productName) + " " + styleCommand.Render("("+toolCommand+")")
+	brand := styleProject.Render(projectName+":") + " " + styleProduct.Render(productName) + " " + styleCommand.Render("("+toolCommand+")")
 	room := width - lipgloss.Width(left) - lipgloss.Width(brand)
 	if room < len(bannerGap) {
 		return left

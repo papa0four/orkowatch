@@ -93,7 +93,7 @@ func TestBannerPutsTheBrandOnTheRight(t *testing.T) {
 	if !strings.HasPrefix(banner, "all · defender · 2026-11-17 03:03:32 UTC") {
 		t.Errorf("the left of the banner: %q", banner)
 	}
-	if !strings.HasSuffix(banner, "Project Orko  Orko Watch (owatch)") || strings.Count(banner, "owatch") != 1 {
+	if !strings.HasSuffix(banner, "Project Orko: Orko Watch (owatch)") || strings.Count(banner, "owatch") != 1 {
 		t.Errorf("the right of the banner: %q", banner)
 	}
 	if width := len([]rune(banner)); width != 120 {
