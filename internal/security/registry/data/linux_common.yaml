@@ -52,7 +52,7 @@ ssh.root_login_permitted:
   cvss_score: 9.3
   cvss_vector: "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N"
   records:
-    sshd-directive: [value]
+    sshd-directive: [value, match]
   cwe: "CWE-250"
   attack_techniques:
     - id: "T1021.004"
@@ -91,7 +91,7 @@ ssh.password_auth_enabled:
   cvss_score: 8.7
   cvss_vector: "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:N/VA:N/SC:N/SI:N/SA:N"
   records:
-    sshd-directive: [value]
+    sshd-directive: [value, match]
   cwe: "CWE-521"
   attack_techniques:
     - id: "T1021.004"

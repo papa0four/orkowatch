@@ -42,6 +42,7 @@ const (
 	FactSource           FactName = "source"
 	FactState            FactName = "state"
 	FactValue            FactName = "value"
+	FactMatch            FactName = "match"
 	FactListing          FactName = "listing"
 	FactStatus           FactName = "status"
 	FactPrincipal        FactName = "principal"
@@ -90,6 +91,7 @@ var (
 		FactSource:           nil,
 		FactState:            nil,
 		FactValue:            nil,
+		FactMatch:            nil,
 		FactListing:          nil,
 		FactStatus:           nil,
 		FactPrincipal:        nil,
