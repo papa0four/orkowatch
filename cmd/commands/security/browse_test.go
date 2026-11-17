@@ -105,7 +105,7 @@ func TestBrowserItemCarriesWeaknessAndCVSS(t *testing.T) {
 			Weakness: &finding.Weakness{ID: "CWE-732", Name: "Incorrect Permission Assignment for Critical Resource",
 				Description: "The product specifies permissions for a security-critical resource in a way that allows it to be read or modified by unintended actors.",
 				Usage:       "Allowed-with-Review", URL: "https://cwe.mitre.org/data/definitions/732.html"},
-			CVSS: &finding.CVSSScore{Version: "4.0", Vector: "CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:H/VI:H/VA:N/SC:N/SI:N/SA:N", BaseScore: 8.4, Severity: "HIGH",
+			CVSS: &finding.CVSSScore{Version: "4.0", Vector: "CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:H/VI:H/VA:N/SC:N/SI:N/SA:N", Score: 8.4, Severity: "HIGH",
 				Source: "registry", Nomenclature: "CVSS-B", Basis: "baseline for the condition, not measured on this host"}}}
 	item := browserItem(cond)
 	for _, want := range []string{"CWE-732 Incorrect Permission Assignment", "Allowed-with-Review"} {

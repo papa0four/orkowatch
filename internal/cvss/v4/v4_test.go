@@ -281,6 +281,54 @@ func TestModifiedBase(t *testing.T) {
 	}
 }
 
+// With sets a metric and writes the vector in the specification's order, so the
+// result parses back to itself and scores as FIRST prints it: the Implementation
+// Guide's localhost example, Modified Attack Vector Local, scores 8.6.
+func TestWith(t *testing.T) {
+	const b = "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N"
+	v := mustParse(t, b)
+	local, err := v.With("MAV", "L")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if local.String() != b+"/MAV:L" || local.Score() != 8.6 || local.Nomenclature() != "CVSS-BE" {
+		t.Errorf("MAV:L gives %s scoring %.1f labelled %s", local, local.Score(), local.Nomenclature())
+	}
+
+	// Set out of order, written in order, and a metric set back to Not Defined
+	// leaves the string.
+	both, err := local.With("E", "P")
+	if err != nil {
+		t.Fatal(err)
+	}
+	both, err = both.With("MPR", "H")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := b + "/E:P/MAV:L/MPR:H"; both.String() != want {
+		t.Errorf("got %s, want %s", both, want)
+	}
+	if back := mustParse(t, both.String()); back.Score() != both.Score() {
+		t.Errorf("%s does not parse back to its own score", both)
+	}
+	cleared, err := both.With("E", "X")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := b + "/MAV:L/MPR:H"; cleared.String() != want {
+		t.Errorf("got %s, want %s", cleared, want)
+	}
+	if v.String() != b || v.Value("MAV") != "X" {
+		t.Errorf("the original vector changed to %s", v)
+	}
+
+	for _, c := range [][2]string{{"MXX", "L"}, {"MAV", "Q"}, {"MSC", "S"}, {"mav", "L"}} {
+		if _, err := v.With(c[0], c[1]); err == nil {
+			t.Errorf("%s:%s was accepted", c[0], c[1])
+		}
+	}
+}
+
 // The qualitative scale of the specification's Table 22.
 func TestSeverityBands(t *testing.T) {
 	for score, want := range map[float64]string{0: "NONE", 0.1: "LOW", 3.9: "LOW", 4.0: "MEDIUM", 6.9: "MEDIUM", 7.0: "HIGH", 8.9: "HIGH", 9.0: "CRITICAL", 10.0: "CRITICAL"} {

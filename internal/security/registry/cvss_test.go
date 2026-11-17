@@ -51,8 +51,8 @@ func TestShippedBaselinesCarryTheCalculatorLink(t *testing.T) {
 		if f.CVSS != nil && f.CVSS.Severity != d.Severity {
 			t.Errorf("%s: severity %s differs from the definition's %s", label, f.CVSS.Severity, d.Severity)
 		}
-		if d.Result == finding.ResultFail && f.CVSS != nil && f.CVSS.BaseScore <= 0 {
-			t.Errorf("%s: a finding that can fail has a baseline of %.1f", label, f.CVSS.BaseScore)
+		if d.Result == finding.ResultFail && f.CVSS != nil && f.CVSS.Score <= 0 {
+			t.Errorf("%s: a finding that can fail has a baseline of %.1f", label, f.CVSS.Score)
 		}
 	}
 }

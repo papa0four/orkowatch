@@ -160,6 +160,34 @@ func ModifiedBase(name string) (base string, values []string, ok bool) {
 // the vector omitted, and empty for a name the specification does not define.
 func (v Vector) Value(name string) string { return v.values[name] }
 
+// With returns v with one metric set to value, its string rebuilt in the order
+// the specification requires, so a caller deriving a vector never has to know
+// that order. The rebuilt string states every Base metric and each other metric
+// that is not Not Defined. A metric or value the specification does not give is
+// refused.
+func (v Vector) With(name, value string) (Vector, error) {
+	at := slices.IndexFunc(metrics, func(m metricSpec) bool { return m.name == name })
+	if at < 0 {
+		return Vector{}, fmt.Errorf("%q is not a CVSS v4.0 metric", name)
+	}
+	if !slices.Contains(metrics[at].values, value) {
+		return Vector{}, fmt.Errorf("metric %s does not take the value %q, which is not one of %s", name, value, strings.Join(metrics[at].values, ", "))
+	}
+	values := make(map[string]string, len(v.values))
+	for k, val := range v.values {
+		values[k] = val
+	}
+	values[name] = value
+
+	parts := []string{prefix}
+	for i, spec := range metrics {
+		if i < baseCount || values[spec.name] != "X" {
+			parts = append(parts, spec.name+":"+values[spec.name])
+		}
+	}
+	return Vector{text: strings.Join(parts, "/"), values: values}, nil
+}
+
 // Nomenclature is the label FIRST requires on a displayed score so that it says
 // which metrics it was made from: CVSS-B for Base metrics, CVSS-BT with a Threat
 // metric, CVSS-BE with an Environmental one and CVSS-BTE with both.

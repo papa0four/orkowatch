@@ -45,6 +45,44 @@ func TestObservedHoldsEvidenceToRecords(t *testing.T) {
 	}
 }
 
+// A finding is scored on all the evidence recorded for it, including subjects
+// observed after the first: a file any user can reach, recorded second, keeps
+// the baseline that the first file alone would have modified, and the severity
+// used for filtering follows the host score only when there is one.
+func TestFinishScoresTheCompleteEvidence(t *testing.T) {
+	ctx := registry.OSContext{Platform: registry.PlatformLinux, Families: []registry.Distro{registry.DistroGeneric}}
+	const key = "permissions.suid_sgid_binary"
+	def, ok := registry.Lookup(ctx, key)
+	if !ok {
+		t.Fatal("no definition for " + key)
+	}
+	rootOnly := func(path string) finding.Evidence {
+		return evidence(finding.KindFile, path, fact(finding.FactMode, "-rwsr-xr-x"), fact(finding.FactReach, finding.ReachRootOnly))
+	}
+
+	scored := func(subjects ...finding.Evidence) *finding.Finding {
+		r := &report{osCtx: ctx, index: make(map[registry.FindingKey]int)}
+		for _, subject := range subjects {
+			r.observed(key, subject)
+		}
+		result := r.finish()
+		if len(result.Conditions) != 1 || result.Conditions[0].Finding == nil || result.Conditions[0].Finding.Host == nil {
+			t.Fatalf("no host score: %+v", result.Conditions)
+		}
+		return result.Conditions[0].Finding
+	}
+
+	all := scored(rootOnly("/usr/bin/a"), rootOnly("/usr/bin/b"))
+	if all.Host.CVSS == nil || all.Host.Modified[0].Carried != 2 || finding.EffectiveSeverity(*all) != all.Host.CVSS.Severity {
+		t.Errorf("every file root-only: %+v", all.Host)
+	}
+
+	mixed := scored(rootOnly("/usr/bin/a"), evidence(finding.KindFile, "/usr/bin/b", fact(finding.FactMode, "-rwsr-xr-x")))
+	if mixed.Host.CVSS != nil || len(mixed.Host.Unmodified) != 1 || finding.EffectiveSeverity(*mixed) != def.Severity {
+		t.Errorf("a later file reachable by others: %+v", mixed.Host)
+	}
+}
+
 // The evidence helper keeps facts in the order given and leaves out one with
 // no value.
 func TestEvidenceOmitsEmptyFacts(t *testing.T) {

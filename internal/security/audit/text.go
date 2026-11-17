@@ -231,7 +231,7 @@ func WeaknessText(w finding.Weakness) string {
 // CVSSText renders a CVSS score with the label FIRST requires on a displayed
 // score, the version, the vector and what the score is a statement about.
 func CVSSText(s finding.CVSSScore) string {
-	return fmt.Sprintf("%.1f %s  %s v%s, %s  %s", s.BaseScore, s.Severity, s.Nomenclature, s.Version, s.Basis, s.Vector)
+	return fmt.Sprintf("%.1f %s  %s v%s, %s  %s", s.Score, s.Severity, s.Nomenclature, s.Version, s.Basis, s.Vector)
 }
 
 // TechniqueText renders an ATT&CK technique as its identifier, name and
