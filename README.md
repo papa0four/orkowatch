@@ -43,9 +43,9 @@ and open an issue against this doc.
   and JSON/YAML report shape are considered stable for the fields that exist
   today, but new segments (enrichment, MITRE) will be added as those features
   land.
-- **No log capture, listener enumeration, or history modules yet.** Only OS
-  fingerprinting, software inventory, and the four audit checks (SSH,
-  firewall, users, permissions) exist today.
+- **No log capture or history modules yet.** OS fingerprinting, software
+  inventory, the host's sockets (Linux and Windows), and the four audit
+  checks (SSH, firewall, users, permissions) exist today.
 - **No automated test suite yet.** Every package reports no test files;
   verification is manual against a Linux and a Windows host. Test
   infrastructure design is tracked in #94 through #98.
@@ -58,6 +58,7 @@ and open an issue against this doc.
 |---|---|
 | `owatch osinfo` | Gather OS fingerprint information |
 | `owatch software` | List installed software packages |
+| `owatch listeners` | List the host's sockets and the processes holding them |
 | `owatch audit` | Run security audit checks |
 | `owatch all` | Run all available scans |
 | `owatch browse [report-file]` | Open a saved report in the results browser; reads any format that holds the whole report (JSON, YAML) |
@@ -85,6 +86,9 @@ owatch osinfo
 
 # List installed software
 owatch software
+
+# List the host's sockets; elevate to attribute every one to its process
+sudo owatch listeners --plain
 
 # Run a full security audit with verbose output
 owatch audit -v
@@ -130,11 +134,20 @@ With no check flags given, all checks run by default.
 | `-y, --yes` | Do not ask before a permissions check that scans the entire filesystem | false |
 | `--plain` | Print the report to the terminal instead of opening the results browser; the format is text unless `-o` names another | false |
 
-## `osinfo` and `software` Flags
+## `osinfo`, `software` and `listeners` Flags
 
-`owatch osinfo` and `owatch software` each run one module and deliver it as `all`
-does: the results browser on a terminal, with the System or Software source
-filled and the others saying they were not collected.
+`owatch osinfo`, `owatch software` and `owatch listeners` each run one module and
+deliver it as `all` does: the results browser on a terminal, with the System,
+Software or Sockets source filled and the others saying they were not collected.
+
+`owatch listeners` reads every socket the host reports, in every state, from the
+host's own tables, and connects to nothing. On Linux it lists TCP, UDP, raw,
+unix-domain and packet sockets; on Windows, TCP and UDP, and it says the others are
+not read there. Naming the process that holds another user's socket needs privilege:
+a run without it states, for each socket it could not attribute, that the owner was
+not determined or that reading it was not permitted, with the advice to rerun with
+sudo or from an administrator terminal. A saved report records the remote end of
+every connection, and so who the host was talking to.
 
 | Flag | Description | Default |
 |---|---|---|
@@ -148,7 +161,7 @@ opens it.
 
 ## `all` Flags (`owatch all`)
 
-`all` runs every module (osinfo, software, audit) in one consolidated report.
+`all` runs every module (osinfo, software, listeners, audit) in one consolidated report.
 There's no way to invoke multiple modules explicitly and select others — the
 underlying CLI framework doesn't support that yet — so composition happens by
 skipping what you don't want, in either direction: skip whole modules, or skip
@@ -156,7 +169,7 @@ individual audit checks within the audit module, or both together.
 
 | Flag | Description | Default |
 |---|---|---|
-| `--skip-modules` | Comma-separated modules to skip (osinfo, software, audit) | — |
+| `--skip-modules` | Comma-separated modules to skip (osinfo, software, listeners, audit) | — |
 | `--skip-checks` | Comma-separated audit checks to skip (ssh, firewall, users, permissions); composes with `--skip-modules` | — |
 | `-o, --output` | Format of the full report, wherever it goes (`--plain`, `--report-file`, or `t` in the browser): text, json, yaml. Unspecified, a report file is JSON and anything else is text | text |
 | `--report-file` | Save report to directory; filename is generated automatically | — |
@@ -198,7 +211,7 @@ run proceeds as it would from a script.
 
 ## Results Browser
 
-On a terminal, `owatch audit`, `owatch osinfo`, `owatch software` and `owatch all`
+On a terminal, `owatch audit`, `owatch osinfo`, `owatch software`, `owatch listeners` and `owatch all`
 end in an interactive results browser instead of printing the report, because a
 whole-filesystem scan produces far more lines than a terminal keeps. Every
 command opens the same layout. The left pane lists the sources, each with the
@@ -209,7 +222,8 @@ so they read n/a on a source that has none. The browser has a source for each
 part of the run: Findings lists each finding with its severity and shows the selected one in
 full with what triggered it (the rule that failed, what it found, the severity the registry
 gives it, the techniques it is mapped to) and its evidence; System shows the host's fingerprint; Software lists the
-installed packages and can be searched; MITRE ATT&CK® groups the findings by the
+installed packages and can be searched; Sockets lists each socket with its state, ends,
+scope and the processes holding it, or why they could not be read; MITRE ATT&CK® groups the findings by the
 technique each makes available, with the finding, rule and evidence behind each. A source a command did not run, or a module
 that was skipped or failed, is still listed and says so. A run opens on
 Findings when the audit ran, and otherwise on the first module that did, so
@@ -217,7 +231,7 @@ Findings when the audit ran, and otherwise on the first module that did, so
 
 | Key | Action |
 |---|---|
-| the key in the left pane's `key` column (`f`, `o`, `s`, `m`) | Switch to that source from any pane; the left pane lists each source under the headings `key` and `source`, so a new source adds a row |
+| the key in the left pane's `key` column (`f`, `o`, `s`, `l`, `m`) | Switch to that source from any pane; the left pane lists each source under the headings `key` and `source`, so a new source adds a row |
 | `[`, `]`, `1` to `9` | Step to the previous or next source, or go to a source by its number |
 | `tab`, `shift+tab` | Move between the left, list and detail panes |
 | up/down, pgup/pgdn, home/end | Move through the focused pane |
@@ -390,7 +404,7 @@ owatch-<hostname>-m.<module_codes>-c.<check_codes>-e.<enrichment_codes>-<timesta
 |---|---|---|
 | `h` | Shell/terminal history | reserved, not yet implemented |
 | `l` | Log capture (syslog, Event Log, unified logging) | reserved, not yet implemented |
-| `n` | Local listener enumeration | reserved, not yet implemented |
+| `n` | Local listener enumeration (`owatch listeners`) | implemented |
 | `o` | OS fingerprint | implemented |
 | `r` | Remote network scanning | reserved, not yet implemented |
 | `s` | Software inventory | implemented |
