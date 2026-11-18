@@ -60,8 +60,9 @@ type (
 	//
 	// Result is what the condition reports when a checker observes it. It
 	// defaults to fail. A definition that describes a state the rule does
-	// not apply to declares notapplicable instead, and only a definition
-	// that can fail must name the weakness it maps to in CWE.
+	// not apply to declares notapplicable instead, one that records a fact
+	// about the host without judging it declares informational, and only a
+	// definition that can fail must name the weakness it maps to in CWE.
 	FindingDefinition struct {
 		Title       string          `yaml:"title"`
 		Severity    string          `yaml:"severity"`
@@ -387,7 +388,7 @@ func (d FindingDefinition) validated() (FindingDefinition, error) {
 	switch d.Result {
 	case "":
 		d.Result = finding.ResultFail
-	case finding.ResultFail, finding.ResultNotApplicable:
+	case finding.ResultFail, finding.ResultNotApplicable, finding.ResultInformational:
 	default:
 		return d, fmt.Errorf("result %q is not one a definition can declare", d.Result)
 	}

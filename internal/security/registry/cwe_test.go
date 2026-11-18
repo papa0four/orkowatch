@@ -114,7 +114,7 @@ func TestShippedFindingsCarryWeaknessAndLabelledCVSS(t *testing.T) {
 	for label, d := range allDefinitions() {
 		f := d.Finding()
 		switch {
-		case d.Result == finding.ResultNotApplicable:
+		case d.Result != finding.ResultFail:
 		case d.CWE != "" && (f.Weakness == nil || f.Weakness.Name == "" || f.Weakness.Description == ""):
 			t.Errorf("%s: names %s but carries no weakness", label, d.CWE)
 		case d.CWE == "" && f.NoWeakness == "":
