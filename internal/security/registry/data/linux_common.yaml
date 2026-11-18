@@ -527,7 +527,7 @@ users.root_account_unlocked:
       id: "AC-6"
 
 users.ldap_configured:
-  title: "LDAP client configuration file is present"
+  title: "OpenLDAP client configuration file is present"
   severity: "NONE"
   result: "informational"
   cvss_score: 0.0
@@ -535,36 +535,70 @@ users.ldap_configured:
   records:
     file: [source]
   description: >
-    /etc/ldap.conf is present. The file configures an LDAP client, which
-    can make the host look up or authenticate accounts against a directory
-    server. Its presence does not show that the host uses the directory, and
-    its contents were not examined.
+    The OpenLDAP client library's configuration file is present:
+    /etc/ldap/ldap.conf on the Debian family, /etc/openldap/ldap.conf on the
+    others. It sets defaults for every program on the host that uses the
+    library to reach a directory server, and a distribution can install it
+    with the library. Its presence does not show that any program uses a
+    directory, and its contents were not examined.
   impact: >
-    Where the host does use the directory, account lookups and logins depend
-    on the directory server and on how the connection to it is protected.
-    Whether that connection is encrypted and whether the server's certificate
-    is checked are set in this file and were not examined.
+    Where a program does use the library, whether its connection to the
+    directory server checks the server's certificate is set in this file and
+    was not examined. ldap.conf(5) says TLS_REQCERT never will not request or
+    check any server certificate.
   resolution: >
-    If the host should not consult a directory, remove the file or the client
-    package that installed it. If it should, review /etc/ldap.conf for how it
-    connects to the directory server: the connection should be encrypted and
-    the server's certificate checked.
+    Review the file: TLS_REQCERT should not be set to never or allow.
+  references:
+    - source: NIST
+      id: "IA-2"
+
+users.nslcd_configured:
+  title: "nslcd configuration or wiring is present"
+  severity: "NONE"
+  result: "informational"
+  cvss_score: 0.0
+  cvss_vector: "CVSS:4.0/AV:L/AC:L/AT:N/PR:H/UI:N/VC:N/VI:N/VA:N/SC:N/SI:N/SA:N"
+  records:
+    file: [source]
+    nss-database: [line, value]
+    pam-rule: [line, services]
+  description: >
+    /etc/nslcd.conf is present, or the name service switch names the ldap
+    service or a PAM rule names pam_ldap.so, which ask nslcd to look up or
+    authenticate accounts against an LDAP directory. Each is recorded with
+    where it was found. A distribution's packages can add the wiring when
+    they are installed, so neither the file nor the wiring shows that nslcd
+    is used, and the file's contents were not examined.
+  impact: >
+    Where nslcd is used, account lookups, and with pam_ldap.so in the PAM
+    stack the passwords given at login, go to the directory server over the
+    connection nslcd.conf sets. Whether that connection is encrypted and
+    whether the server's certificate is checked were not examined.
+  resolution: >
+    If the host should not consult an LDAP directory, remove ldap from the
+    name service switch and pam_ldap.so from the PAM stack. If it should,
+    review /etc/nslcd.conf: nslcd.conf(5) gives the default for ssl as not
+    to use it, and suggests the file grant access only to root where bindpw
+    is set.
   references:
     - source: NIST
       id: "IA-2"
 
 users.kerberos_configured:
-  title: "Kerberos client configuration file is present"
+  title: "Kerberos configuration or wiring is present"
   severity: "NONE"
   result: "informational"
   cvss_score: 0.0
   cvss_vector: "CVSS:4.0/AV:L/AC:L/AT:N/PR:H/UI:N/VC:N/VI:N/VA:N/SC:N/SI:N/SA:N"
   records:
     file: [source]
+    pam-rule: [line, services]
   description: >
-    /etc/krb5.conf is present. The file configures the Kerberos libraries,
-    and a distribution can install it with them, so its presence does not
-    show that the host authenticates with Kerberos. Its contents were not
+    /etc/krb5.conf is present, or a PAM rule names pam_krb5.so, which
+    authenticates logins with Kerberos. Each is recorded with where it was
+    found. A distribution can install the file with the Kerberos libraries
+    and add the PAM rule when the module is installed, so neither shows that
+    the host authenticates with Kerberos, and the file's contents were not
     examined.
   impact: >
     Where the host does use Kerberos, the realms it uses and the encryption
@@ -574,32 +608,39 @@ users.kerberos_configured:
     des3-cbc-sha1 and arcfour-hmac deprecated.
   resolution: >
     If the host should not use Kerberos, the file can stay as the libraries
-    installed it. If it should, review /etc/krb5.conf and every file it
-    includes: allow_weak_crypto should not be set to true, and no weak or
-    deprecated encryption type should be listed in permitted_enctypes,
+    installed it, and pam_krb5.so can be removed from the PAM stack. If it
+    should, review /etc/krb5.conf and every file it includes:
+    allow_weak_crypto should not be set to true, and no weak or deprecated
+    encryption type should be listed in permitted_enctypes,
     default_tgs_enctypes or default_tkt_enctypes.
   references:
     - source: NIST
       id: "IA-2"
 
 users.sssd_configured:
-  title: "SSSD configuration file is present"
+  title: "SSSD configuration or wiring is present"
   severity: "NONE"
   result: "informational"
   cvss_score: 0.0
   cvss_vector: "CVSS:4.0/AV:L/AC:L/AT:N/PR:H/UI:N/VC:N/VI:N/VA:N/SC:N/SI:N/SA:N"
   records:
     file: [source]
+    nss-database: [line, value]
+    pam-rule: [line, services]
   description: >
-    /etc/sssd/sssd.conf is present. The file configures the System Security
-    Services Daemon, which can look up and authenticate accounts against a
-    directory or identity provider. Its presence does not show that the host
-    uses it, and its contents were not examined.
+    /etc/sssd/sssd.conf is present, or the name service switch names the sss
+    service or a PAM rule names pam_sss.so, which ask the System Security
+    Services Daemon to look up or authenticate accounts against a directory
+    or identity provider. Each is recorded with where it was found. A
+    distribution can ship the wiring by default or add it when the packages
+    are installed, so neither the file nor the wiring shows that SSSD is
+    used, and the file's contents were not examined.
   impact: >
-    Where the host does use SSSD, the identity providers it consults,
-    whether its connections to them are encrypted, and how long cached
-    credentials stay usable while a provider is unreachable are set in this
-    file and the snippets in /etc/sssd/conf.d, and were not examined.
+    Where SSSD is used, account lookups, and with pam_sss.so in the PAM
+    stack the passwords given at login, go to the providers sssd.conf
+    names. Whether its connections to them are encrypted, and how long
+    cached credentials stay usable while a provider is unreachable, are set
+    in this file and the snippets in /etc/sssd/conf.d, and were not examined.
   resolution: >
     Review /etc/sssd/sssd.conf and /etc/sssd/conf.d. sssd.conf(5) requires
     the file to be accessible only by root or the user SSSD runs as, and the

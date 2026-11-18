@@ -6,11 +6,7 @@ package checker
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"io/fs"
-	"os"
-	"path"
 	"strconv"
 	"strings"
 
@@ -117,7 +113,7 @@ func NewUserChecker(osCtx registry.OSContext) *UnixUserChecker {
 func (u *UnixUserChecker) Check(ctx context.Context) finding.AuditResult {
 	r := newReport(u.checkIdentity)
 
-	u.checkAuthConfig(r)
+	u.checkDirectoryClients(r)
 
 	users, err := u.getUsers(ctx)
 	if err != nil {
@@ -230,122 +226,6 @@ func appendAccountSection(r *report, title string, symbol string, entries []stri
 	r.section(title)
 	for _, entry := range entries {
 		r.note(symbol, "%s", entry)
-	}
-}
-
-// clientConfig is a directory client's configuration file and the rule that
-// records whether it is present.
-type clientConfig struct {
-	path  string
-	label string
-	key   registry.FindingKey
-}
-
-// clientConfigs are the directory clients checkAuthConfig looks for.
-var clientConfigs = []clientConfig{
-	{"/etc/ldap.conf", "LDAP", "users.ldap_configured"},
-	{"/etc/krb5.conf", "Kerberos", "users.kerberos_configured"},
-	{"/etc/sssd/sssd.conf", "SSSD", "users.sssd_configured"},
-}
-
-// checkAuthConfig reports the authentication sources configured on the host:
-// the PAM modules referenced under /etc/pam.d and whether each directory
-// client's configuration file is present.
-func (u *UnixUserChecker) checkAuthConfig(r *report) {
-	u.reportPAMModules(r)
-	recordClientConfigs(r, clientConfigs)
-}
-
-// recordClientConfigs records whether each client's configuration file is
-// present. Presence and absence are both informational: neither shows whether
-// the host uses the client or how it is set. A file whose presence cannot be
-// determined is concluded as an error, because the directory holding sssd.conf
-// is unreadable to an unprivileged caller and a stat failure there is not
-// evidence of absence.
-func recordClientConfigs(r *report, configs []clientConfig) {
-	for _, config := range configs {
-		_, err := os.Stat(config.path)
-		switch {
-		case err == nil:
-			r.observed(config.key, evidence(finding.KindFile, config.path, fact(finding.FactSource, config.label)))
-		case errors.Is(err, fs.ErrNotExist):
-			r.inconclusive(finding.ResultInformational, config.path+" is not present", config.key)
-		default:
-			r.inconclusive(finding.ResultError,
-				fmt.Sprintf("%s configuration could not be checked: %v", config.label, err), config.key)
-		}
-	}
-}
-
-// reportPAMModules narrates which of the well-known authentication modules
-// /etc/pam.d references. The tree is read once and every file is inspected,
-// with unreadable files counted and reported so that reduced coverage is
-// visible rather than read as absence. The walk is scoped through os.DirFS
-// so a symlink under /etc/pam.d cannot lead it elsewhere (CWE-367).
-func (u *UnixUserChecker) reportPAMModules(r *report) {
-	modules := []string{"pam_unix.so", "pam_ldap.so", "pam_sss.so"}
-	found := make(map[string]bool, len(modules))
-	for _, module := range modules {
-		found[module] = false
-	}
-
-	pamFS := os.DirFS("/etc/pam.d")
-	var unreadable int
-	err := fs.WalkDir(pamFS, ".", func(name string, d fs.DirEntry, err error) error {
-		if err != nil {
-			if name == "." {
-				return err
-			}
-			unreadable++
-			return nil
-		}
-		if d.IsDir() {
-			return nil
-		}
-
-		data, err := fs.ReadFile(pamFS, name)
-		if err != nil {
-			unreadable++
-			return nil
-		}
-		markPAMModules(data, found)
-		return nil
-	})
-
-	switch {
-	case errors.Is(err, fs.ErrNotExist):
-		return
-	case err != nil:
-		r.note(finding.SymbolWarning, "PAM configuration could not be checked: %v", err)
-		return
-	}
-
-	r.note(finding.SymbolInfo, "PAM authentication is configured")
-	for _, module := range modules {
-		if found[module] {
-			r.note(finding.SymbolInfo, "Found authentication module: %s", module)
-		}
-	}
-	if unreadable > 0 {
-		r.note(finding.SymbolWarning, "%d PAM configuration files could not be read; module detection is incomplete", unreadable)
-	}
-}
-
-// markPAMModules sets found[module] for every module a PAM configuration
-// file references. Only active directives count: a commented-out line is
-// not a reference, and a module may be named by bare file name or by path.
-func markPAMModules(data []byte, found map[string]bool) {
-	for _, line := range strings.Split(string(data), "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" || line[0] == '#' {
-			continue
-		}
-		for _, field := range strings.Fields(line) {
-			module := path.Base(field)
-			if _, tracked := found[module]; tracked {
-				found[module] = true
-			}
-		}
 	}
 }
 

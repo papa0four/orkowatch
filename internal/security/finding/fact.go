@@ -26,6 +26,8 @@ const (
 	KindShare     EvidenceKind = "share"
 	KindSetting   EvidenceKind = "setting"
 	KindListening EvidenceKind = "listening"
+	KindNSSEntry  EvidenceKind = "nss-database"
+	KindPAMRule   EvidenceKind = "pam-rule"
 )
 
 // The fact names checkers record. The registry's rules read facts by these
@@ -54,6 +56,8 @@ const (
 	FactInternetIdentity FactName = "internet_identity"
 	FactListening        FactName = "listening"
 	FactAddresses        FactName = "addresses"
+	FactLine             FactName = "line"
+	FactServices         FactName = "services"
 )
 
 // The values of FactListening: how far the listening sockets of a service, or
@@ -86,6 +90,7 @@ var (
 	evidenceKinds = []EvidenceKind{
 		KindFile, KindAccount, KindDirective, KindManager, KindProfile,
 		KindService, KindACL, KindShare, KindSetting, KindListening,
+		KindNSSEntry, KindPAMRule,
 	}
 
 	// factValues is every fact name a checker records, with the values it can
@@ -115,6 +120,8 @@ var (
 		FactInternetIdentity: nil,
 		FactListening:        {ListeningNetwork, ListeningLoopbackOnly, ListeningNone, ListeningUndetermined},
 		FactAddresses:        nil,
+		FactLine:             nil,
+		FactServices:         nil,
 	}
 )
 
