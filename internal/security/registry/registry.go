@@ -53,8 +53,9 @@ type (
 	// FindingDefinition is the authored form of a finding: everything the
 	// registry knows about a condition, independent of the host it is found
 	// on. Finding projects everything but CVSSScore and CVSSVector, which load
-	// validates and #87 shows: the vector gives the score, the score gives the
-	// severity, and a definition in which the three disagree does not load.
+	// validates and every view shows as the CVSS-B baseline: the vector gives
+	// the score, the score gives the severity, and a definition in which the
+	// three disagree does not load.
 	// They are the static baseline a live score overrides through
 	// finding.EffectiveSeverity.
 	//

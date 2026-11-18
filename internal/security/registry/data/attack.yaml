@@ -50,7 +50,8 @@ mitigations:
   M1054: "Software Configuration"
 
 techniques:
-  # Consumer: #186. No definition cites this technique yet.
+  # No definition cites this technique yet. It is reserved for the directory
+  # client configuration rules, which cite it or remove it.
   T1003.005:
     name: "Cached Domain Credentials"
     tactics: ["Credential Access"]
@@ -96,7 +97,8 @@ techniques:
     name: "Private Keys"
     tactics: ["Credential Access"]
     mitigations: ["M1047", "M1041", "M1027", "M1022"]
-  # Consumer: #186. No definition cites this technique yet.
+  # No definition cites this technique yet. It is reserved for the directory
+  # client configuration rules, which cite it or remove it.
   T1558.005:
     name: "Ccache Files"
     tactics: ["Credential Access"]

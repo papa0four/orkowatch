@@ -19,7 +19,8 @@
 # Firewall checker findings
 # -------------------------
 
-# Consumer: #142. No checker emits this definition yet.
+# No checker emits this definition yet. It is kept for the Linux check that
+# will detect the condition.
 firewall.no_firewall_installed:
   title: "No firewall manager is installed or active"
   severity: "CRITICAL"
@@ -64,10 +65,9 @@ firewall.no_firewall_installed:
     - source: NIST
       id: "CM-6"
 
-# Consumer: #142. No checker emits this definition yet. nftables is not
-# queried separately today, on the reasoning that iptables on a modern host
-# is the nf_tables backend; #142 implements or removes this once that is
-# verified.
+# No checker emits this definition yet. nftables is not queried separately
+# today, on the reasoning that iptables on a modern host is the nf_tables
+# backend; the definition is implemented or removed once that is verified.
 firewall.nftables_no_rules:
   title: "nftables is active but has no rules configured"
   severity: "HIGH"
@@ -162,7 +162,8 @@ firewall.iptables_default_accept:
 # User checker findings
 # -------------------------
 
-# Consumer: #142. No checker emits this definition yet.
+# No checker emits this definition yet. It is kept for the Linux check that
+# will detect the condition.
 users.sudo_nopasswd:
   title: "Sudoers entry permits privilege escalation without password"
   severity: "HIGH"
@@ -208,7 +209,8 @@ users.sudo_nopasswd:
       version: "page revision 876067"
       verified: "2026-11-15"
 
-# Consumer: #142. No checker emits this definition yet.
+# No checker emits this definition yet. It is kept for the Linux check that
+# will detect the condition.
 users.wheel_group_unrestricted:
   title: "wheel group has unrestricted sudo access"
   severity: "HIGH"
@@ -249,7 +251,8 @@ users.wheel_group_unrestricted:
       version: "page revision 876067"
       verified: "2026-11-15"
 
-# Consumer: #142. No checker emits this definition yet.
+# No checker emits this definition yet. It is kept for the Linux check that
+# will detect the condition.
 users.aur_helper_installed:
   title: "AUR helper is installed"
   severity: "MEDIUM"
@@ -287,7 +290,8 @@ users.aur_helper_installed:
 # Permissions checker findings
 # -------------------------
 
-# Consumer: #142. No checker emits this definition yet.
+# No checker emits this definition yet. It is kept for the Linux check that
+# will detect the condition.
 permissions.shadow_world_readable:
   title: "/etc/shadow is readable by non-root users"
   severity: "HIGH"
@@ -327,7 +331,8 @@ permissions.shadow_world_readable:
     - source: NIST
       id: "AC-3"
 
-# Consumer: #142. No checker emits this definition yet.
+# No checker emits this definition yet. It is kept for the Linux check that
+# will detect the condition.
 permissions.pacman_cache_world_writable:
   title: "pacman cache directory is world-writable"
   severity: "HIGH"
@@ -361,7 +366,8 @@ permissions.pacman_cache_world_writable:
     - source: NIST
       id: "AC-3"
 
-# Consumer: #142. No checker emits this definition yet.
+# No checker emits this definition yet. It is kept for the Linux check that
+# will detect the condition.
 permissions.ssh_dir_permissions:
   title: "SSH directory or authorized_keys has incorrect permissions"
   severity: "HIGH"
