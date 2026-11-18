@@ -12,10 +12,9 @@
 # page gives them; the name of each mitigation was cross-checked against the
 # site's mitigations index. A technique with no definition referencing it, a
 # mitigation no technique lists, or a definition naming an id absent here,
-# stops the registry from loading. A technique kept for an open issue that will
-# cite it names that issue as its consumer instead; the issue cites it or
-# removes it, and a consumer named on a technique a definition cites also
-# stops the load.
+# stops the registry from loading. A technique kept for work that will cite it
+# is marked reserved, with a comment naming that work; a reserved technique a
+# definition cites also stops the load.
 #
 # A technique is attached to a finding where the technique's page, or the
 # finding's own impact text, names the host condition the finding reports. It
@@ -51,11 +50,12 @@ mitigations:
   M1054: "Software Configuration"
 
 techniques:
+  # Consumer: #186. No definition cites this technique yet.
   T1003.005:
     name: "Cached Domain Credentials"
     tactics: ["Credential Access"]
     mitigations: ["M1015", "M1017", "M1026", "M1027", "M1028"]
-    consumer: "#186"
+    reserved: true
   T1003.008:
     name: "/etc/passwd and /etc/shadow"
     tactics: ["Credential Access"]
@@ -96,11 +96,12 @@ techniques:
     name: "Private Keys"
     tactics: ["Credential Access"]
     mitigations: ["M1047", "M1041", "M1027", "M1022"]
+  # Consumer: #186. No definition cites this technique yet.
   T1558.005:
     name: "Ccache Files"
     tactics: ["Credential Access"]
     mitigations: ["M1043", "M1047"]
-    consumer: "#186"
+    reserved: true
   T1574.005:
     name: "Executable Installer File Permissions Weakness"
     tactics: ["Stealth", "Execution"]

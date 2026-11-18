@@ -9,22 +9,22 @@ import (
 	"github.com/papa0four/orkowatch/internal/security/finding"
 )
 
-// A bundled technique is cited by a definition or kept for a named issue; one
-// that is neither, or cited and still kept, is refused.
+// A bundled technique is cited by a definition or reserved; one that is
+// neither, or cited and still reserved, is refused.
 func TestTechniqueUse(t *testing.T) {
 	known := map[string]finding.Technique{"T1000": {ID: "T1000"}, "T2000": {ID: "T2000"}}
 	citing := map[FindingKey]FindingDefinition{"x.cites": {AttackTechniques: []AttackLink{{ID: "T1000", Basis: []string{"b"}}}}}
 
 	cases := map[string]struct {
-		consumers map[string]string
-		want      string
+		reserved map[string]bool
+		want     string
 	}{
-		"cited and kept for an issue": {consumers: map[string]string{"T2000": "#186"}},
-		"neither cited nor kept":      {want: "no issue is named to: T2000"},
-		"cited and still kept":        {consumers: map[string]string{"T1000": "#186", "T2000": "#186"}, want: "already references: T1000 (#186)"},
+		"cited, and uncited but reserved": {reserved: map[string]bool{"T2000": true}},
+		"neither cited nor reserved":      {want: "none reserves: T2000"},
+		"cited and still reserved":        {reserved: map[string]bool{"T1000": true, "T2000": true}, want: "already references: T1000"},
 	}
 	for name, c := range cases {
-		err := techniqueUse(known, c.consumers, citing)
+		err := techniqueUse(known, c.reserved, citing)
 		switch {
 		case c.want == "" && err != nil:
 			t.Errorf("%s: refused: %v", name, err)
@@ -34,18 +34,14 @@ func TestTechniqueUse(t *testing.T) {
 	}
 }
 
-// A consumer is an issue reference, and only the techniques the bundled
-// dataset keeps for #186 name one.
-func TestTechniqueConsumers(t *testing.T) {
-	defer func() {
-		if r := recover(); r == nil || !strings.Contains(r.(string), "not an issue reference") {
-			t.Errorf("a malformed consumer was accepted: %v", r)
-		}
-	}()
-	for id, consumer := range techniqueConsumers {
-		if id != "T1003.005" && id != "T1558.005" || consumer != "#186" {
-			t.Errorf("%s is kept for %s", id, consumer)
-		}
+// The bundled dataset reserves exactly the techniques kept for the directory
+// client rules, and the loader reads the mark.
+func TestReservedTechniques(t *testing.T) {
+	if len(reservedTechniques) != 2 || !reservedTechniques["T1003.005"] || !reservedTechniques["T1558.005"] {
+		t.Errorf("the bundled dataset reserves %v", reservedTechniques)
 	}
-	mustLoadTechniques([]byte("version: \"20.1\"\nmitigations:\n  M1000: \"m\"\ntechniques:\n  T1000:\n    name: \"t\"\n    tactics: [\"x\"]\n    mitigations: [\"M1000\"]\n    consumer: \"186\"\n"))
+	_, reserved := mustLoadTechniques([]byte("version: \"20.1\"\nmitigations:\n  M1000: \"m\"\ntechniques:\n  T1000:\n    name: \"t\"\n    tactics: [\"x\"]\n    mitigations: [\"M1000\"]\n    reserved: true\n"))
+	if !reserved["T1000"] {
+		t.Errorf("a reserved technique was not read as reserved: %v", reserved)
+	}
 }

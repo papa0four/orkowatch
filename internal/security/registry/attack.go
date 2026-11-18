@@ -37,14 +37,14 @@ type (
 	}
 
 	// attackTechnique is one technique as the ATT&CK site lists it, with the
-	// identifiers of the mitigations its page lists. Consumer names the open
-	// issue that will cite a technique no definition cites yet; that issue
-	// cites it or removes it.
+	// identifiers of the mitigations its page lists. Reserved marks a
+	// technique kept for work that will cite it, which no definition cites
+	// yet.
 	attackTechnique struct {
 		Name        string   `yaml:"name"`
 		Tactics     []string `yaml:"tactics"`
 		Mitigations []string `yaml:"mitigations"`
-		Consumer    string   `yaml:"consumer"`
+		Reserved    bool     `yaml:"reserved"`
 	}
 )
 
@@ -57,22 +57,19 @@ var (
 	techniqueID  = regexp.MustCompile(`^T\d{4}(\.\d{3})?$`)
 	mitigationID = regexp.MustCompile(`^M\d{4}$`)
 
-	// issueRef matches the issue a consumer names.
-	issueRef = regexp.MustCompile(`^#\d+$`)
-
 	// techniques is the bundled dataset keyed by identifier, and
-	// techniqueConsumers the issue each uncited technique is kept for.
+	// reservedTechniques those kept for work that will cite them.
 	// Definitions are validated against them as they load, so they are read
 	// first.
-	techniques, techniqueConsumers = mustLoadTechniques(attackData)
+	techniques, reservedTechniques = mustLoadTechniques(attackData)
 )
 
 // mustLoadTechniques decodes the bundled dataset strictly and panics on a
 // malformed entry, halting startup rather than letting a definition cite a
 // technique with no name or tactic, or a technique name a mitigation the
 // dataset does not hold. It returns the techniques and, apart from them, the
-// consumer each names, which no finding carries.
-func mustLoadTechniques(data []byte) (map[string]finding.Technique, map[string]string) {
+// identifiers of those reserved, which no finding carries.
+func mustLoadTechniques(data []byte) (map[string]finding.Technique, map[string]bool) {
 	var file attackFile
 	decoder := yaml.NewDecoder(bytes.NewReader(data))
 	decoder.KnownFields(true)
@@ -96,7 +93,7 @@ func mustLoadTechniques(data []byte) (map[string]finding.Technique, map[string]s
 
 	used := make(map[string]bool, len(mitigations))
 	out := make(map[string]finding.Technique, len(file.Techniques))
-	consumers := make(map[string]string)
+	reserved := make(map[string]bool)
 	for id, t := range file.Techniques {
 		switch {
 		case !techniqueID.MatchString(id):
@@ -105,11 +102,9 @@ func mustLoadTechniques(data []byte) (map[string]finding.Technique, map[string]s
 			panic(fmt.Sprintf("registry: attack.yaml: %s has no name", id))
 		case len(t.Tactics) == 0:
 			panic(fmt.Sprintf("registry: attack.yaml: %s lists no tactic", id))
-		case t.Consumer != "" && !issueRef.MatchString(t.Consumer):
-			panic(fmt.Sprintf("registry: attack.yaml: %s names consumer %q, which is not an issue reference such as #186", id, t.Consumer))
 		}
-		if t.Consumer != "" {
-			consumers[id] = t.Consumer
+		if t.Reserved {
+			reserved[id] = true
 		}
 
 		technique := finding.Technique{ID: id, Name: t.Name, Tactics: t.Tactics, URL: techniqueURL(id)}
@@ -134,7 +129,7 @@ func mustLoadTechniques(data []byte) (map[string]finding.Technique, map[string]s
 			panic("registry: attack.yaml: mitigation " + id + " is listed by no technique")
 		}
 	}
-	return out, consumers
+	return out, reserved
 }
 
 // techniqueURL is the technique's page on the ATT&CK site, which spells a
@@ -170,16 +165,15 @@ func checkTechniques(links []AttackLink) error {
 // checkTechniqueUse panics when the bundled dataset and the definitions
 // disagree about which techniques are cited, as techniqueUse reports.
 func checkTechniqueUse(sets ...map[FindingKey]FindingDefinition) {
-	if err := techniqueUse(techniques, techniqueConsumers, sets...); err != nil {
+	if err := techniqueUse(techniques, reservedTechniques, sets...); err != nil {
 		panic("registry: attack.yaml " + err.Error())
 	}
 }
 
-// techniqueUse reports a technique no definition cites and no issue is named
-// to cite, since an entry nothing reads is data with no reader, and a technique
-// that is cited yet still names a consumer, since that issue no longer needs it
-// kept.
-func techniqueUse(known map[string]finding.Technique, consumers map[string]string, sets ...map[FindingKey]FindingDefinition) error {
+// techniqueUse reports a technique no definition cites that is not reserved,
+// since an entry nothing reads is data with no reader, and a reserved technique
+// a definition cites, since it no longer needs reserving.
+func techniqueUse(known map[string]finding.Technique, reserved map[string]bool, sets ...map[FindingKey]FindingDefinition) error {
 	used := make(map[string]bool, len(known))
 	for _, defs := range sets {
 		for _, def := range defs {
@@ -190,20 +184,20 @@ func techniqueUse(known map[string]finding.Technique, consumers map[string]strin
 	}
 	var unused, stale []string
 	for id := range known {
-		switch _, kept := consumers[id]; {
-		case !used[id] && !kept:
+		switch {
+		case !used[id] && !reserved[id]:
 			unused = append(unused, id)
-		case used[id] && kept:
-			stale = append(stale, id+" ("+consumers[id]+")")
+		case used[id] && reserved[id]:
+			stale = append(stale, id)
 		}
 	}
 	sort.Strings(unused)
 	sort.Strings(stale)
 	switch {
 	case len(unused) > 0:
-		return fmt.Errorf("holds techniques no definition references and no issue is named to: %s", strings.Join(unused, ", "))
+		return fmt.Errorf("holds techniques no definition references and none reserves: %s", strings.Join(unused, ", "))
 	case len(stale) > 0:
-		return fmt.Errorf("names a consumer for techniques a definition already references: %s", strings.Join(stale, ", "))
+		return fmt.Errorf("reserves techniques a definition already references: %s", strings.Join(stale, ", "))
 	}
 	return nil
 }
