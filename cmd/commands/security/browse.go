@@ -414,9 +414,10 @@ func browserItem(condition audit.ConditionView) tui.Item {
 }
 
 // setWeaknessAndCVSS fills the parts of a finding's detail that state what kind
-// of weakness it is and how the registry scores the condition: the CWE entry
-// with MITRE's description, or the reason none fits, and the CVSS score with
-// the label that says what it is a statement about.
+// of weakness it is and how it is scored: the CWE entry with MITRE's
+// description, or the reason none fits, the registry's baseline, the score on
+// this host with what it rests on, and which of them the severity is. The
+// scores are rendered as the text report renders them.
 func setWeaknessAndCVSS(item *tui.Item, def *audit.FindingView) {
 	switch {
 	case def.Weakness != nil:
@@ -426,12 +427,10 @@ func setWeaknessAndCVSS(item *tui.Item, def *audit.FindingView) {
 		item.Weakness = "none"
 		item.WeaknessAbout = safeLines(def.NoWeakness)
 	}
+	item.SeverityBasis = audit.SeverityBasis(def)
 	if def.CVSS != nil {
-		item.CVSS = audit.CVSSText(*def.CVSS)
-		if def.CVSS.CalculatorURL != "" {
-			item.CVSS += "\n" + def.CVSS.CalculatorURL
-		}
-		item.CVSS = safeLines(item.CVSS)
+		item.CVSS = safeLines(strings.Join(audit.ScoreLines(*def.CVSS), "\n"))
+		item.HostCVSS = safeLines(strings.Join(audit.HostScoreLines(def.Host), "\n"))
 	}
 }
 

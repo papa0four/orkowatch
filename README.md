@@ -108,7 +108,7 @@ owatch all --skip-modules software,audit
 # Skip specific audit checks (composes with --skip-modules)
 owatch all --skip-checks permissions
 
-# Filter findings to HIGH severity and above
+# Report findings whose severity on this host is HIGH or above
 owatch all --min-severity HIGH
 ```
 
@@ -126,7 +126,7 @@ With no check flags given, all checks run by default.
 | `--skip-checks` | Comma-separated checks to skip (ssh, firewall, users, permissions) | — |
 | `-o, --output` | Format of the full report, wherever it goes (`--plain`, `--report-file`, or `t` in the browser): text, json, yaml. Unspecified, a report file is JSON and anything else is text | text |
 | `--report-file` | Save report to directory; filename is generated automatically | — |
-| `--min-severity` | Minimum severity to report: NONE, LOW, MEDIUM, HIGH, CRITICAL | NONE |
+| `--min-severity` | Minimum severity to report, judged on the severity on this host: NONE, LOW, MEDIUM, HIGH, CRITICAL | NONE |
 | `--timeout` | Maximum audit duration | 10m |
 | `--enrich, -e` | Query external sources to annotate findings with CVEs mapped to referenced CWEs | false |
 | `--allow-elevated-write` | Permit an elevated write outside the allowlisted directories or into a directory other users control | false |
@@ -173,7 +173,7 @@ individual audit checks within the audit module, or both together.
 | `--skip-checks` | Comma-separated audit checks to skip (ssh, firewall, users, permissions); composes with `--skip-modules` | — |
 | `-o, --output` | Format of the full report, wherever it goes (`--plain`, `--report-file`, or `t` in the browser): text, json, yaml. Unspecified, a report file is JSON and anything else is text | text |
 | `--report-file` | Save report to directory; filename is generated automatically | — |
-| `--min-severity` | Minimum severity to report: NONE, LOW, MEDIUM, HIGH, CRITICAL | NONE |
+| `--min-severity` | Minimum severity to report, judged on the severity on this host: NONE, LOW, MEDIUM, HIGH, CRITICAL | NONE |
 | `--timeout` | Maximum time to run all scans | 30m |
 | `--enrich, -e` | Query external sources to annotate findings with CVEs mapped to referenced CWEs | false |
 | `--allow-elevated-write` | Permit an elevated write outside the allowlisted directories or into a directory other users control | false |
@@ -327,11 +327,26 @@ own guidance on mapping to it (`weakness` in JSON and YAML). The registry refuse
 load a definition that maps to an entry MITRE marks Discouraged or Prohibited. Where
 no entry describes a finding, which is the case for a disabled SELinux, the finding
 says so and gives the reason (`no_weakness`) rather than naming a weakness that does
-not fit. The CVSS score (`cvss`) is a CVSS v4.0 score, labelled with FIRST's
-nomenclature: CVSS-B is a base score, here the registry's baseline for the condition
-in general, and the label says it is not measured on the host the finding was raised
-on. It carries a link that opens FIRST's calculator on its vector, so the score can
-be reproduced there; owatch computes it itself and never requests the link.
+not fit.
+
+Every finding shows two CVSS v4.0 scores, each labelled with FIRST's nomenclature.
+The baseline (`cvss`) is CVSS-B, a base score for the condition in general, and its
+label says it is not measured on the host. The score on this host (`host_score`) is
+CVSS-BE: where the evidence a checker recorded meets one of the registry's rules,
+the rule sets a Modified Base metric, for example Modified Attack Vector Local for an
+SSH server that listens only on loopback, and the finding shows each metric set with
+the fact behind it, how many of the subjects carried that fact, and the passage of
+FIRST's Implementation Guide the rule rests on. Every metric a rule left at the
+baseline is shown with the reason. Where the evidence modified nothing, or the
+finding has no rule, the finding says the baseline is its score. When several
+subjects support different values, owatch takes the combination that scores highest,
+so the score never falls below what any one subject supports. Each score carries a
+link that opens FIRST's calculator on its vector, so it can be reproduced there;
+owatch computes both itself and never requests the link.
+
+A finding's severity is the CVSS-BE severity when the host's evidence modified the
+score, and otherwise the registry's rating, which is the severity band of the
+baseline.
 
 ## Third-Party Notices
 
@@ -378,10 +393,12 @@ recognized. A check's own result is the aggregate of its conditions.
 A finding is a condition that failed. It carries the rule key, the registry
 description, and the evidence that caused it: the files, accounts or settings
 the rule failed on, each with the facts observed about it. In JSON and YAML the
-evidence sits inside its condition. A finding below `--min-severity` is left out
-together with its evidence; conditions that are not findings are always shown.
+evidence sits inside its condition. A finding whose severity on this host is below
+`--min-severity` is left out together with its evidence; conditions that are not
+findings are always shown.
 
-The summary counts checks and conditions by result and findings by severity.
+The summary counts checks and conditions by result and findings by their severity
+on this host.
 
 ## Report Output
 

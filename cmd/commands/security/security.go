@@ -79,7 +79,7 @@ func BindAudit(cmd *cobra.Command) *AuditFlags {
 		fmt.Sprintf("Audit checks to skip (comma-separated: %s)",
 			selection.ValidNamesFor(selection.CategoryCheck)))
 	cmd.Flags().StringVar(&a.minSeverity, "min-severity", finding.SeverityNone,
-		fmt.Sprintf("Minimum severity level to report (%s)", finding.SeverityNames()))
+		fmt.Sprintf("Minimum severity level to report, judged on the severity on this host (%s)", finding.SeverityNames()))
 	cmd.Flags().BoolVarP(&a.enrich, "enrich", "e", false,
 		"Query external sources to annotate findings with CVEs mapped to referenced CWEs")
 	cmd.Flags().BoolVarP(&a.yes, "yes", "y", false,
@@ -166,7 +166,7 @@ You can run all checks or specify individual checks to run.`,
   # Skip checks; skipped checks are still reported, as notselected
   owatch audit --skip-checks ssh,firewall
 
-  # Set minimum severity level
+  # Report findings whose severity on this host is HIGH or above
   owatch audit --min-severity HIGH
 
   # Scan the whole filesystem without being asked first
