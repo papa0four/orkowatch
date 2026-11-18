@@ -50,13 +50,10 @@ mitigations:
   M1054: "Software Configuration"
 
 techniques:
-  # No definition cites this technique yet. It is reserved for the directory
-  # client configuration rules, which cite it or remove it.
   T1003.005:
     name: "Cached Domain Credentials"
     tactics: ["Credential Access"]
     mitigations: ["M1015", "M1017", "M1026", "M1027", "M1028"]
-    reserved: true
   T1003.008:
     name: "/etc/passwd and /etc/shadow"
     tactics: ["Credential Access"]

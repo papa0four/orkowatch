@@ -18,13 +18,16 @@ type (
 	// authenticate accounts against a directory: the rule recording it, the
 	// file that configures it, empty where the host's distribution has no
 	// established path, and the name service and PAM module that wire the
-	// host's lookups and logins to it, empty where it provides none.
+	// host's lookups and logins to it, empty where it provides none. snippets
+	// lists the further files a client reads its configuration from, nil for
+	// a client with one file.
 	directoryClient struct {
-		label  string
-		key    registry.FindingKey
-		path   string
-		nss    string
-		module string
+		label    string
+		key      registry.FindingKey
+		path     string
+		nss      string
+		module   string
+		snippets func(fs.FS) ([]string, error)
 	}
 
 	// nssWiring is the host's name service switch: where it was read and the
@@ -53,7 +56,7 @@ func directoryClients(families []registry.Distro) []directoryClient {
 		{label: "OpenLDAP client", key: "users.ldap_configured", path: openLDAPConfig(families)},
 		{label: "nslcd", key: "users.nslcd_configured", path: "/etc/nslcd.conf", nss: "ldap", module: "pam_ldap.so"},
 		{label: "Kerberos", key: "users.kerberos_configured", path: "/etc/krb5.conf", module: "pam_krb5.so"},
-		{label: "SSSD", key: "users.sssd_configured", path: "/etc/sssd/sssd.conf", nss: "sss", module: "pam_sss.so"},
+		{label: "SSSD", key: "users.sssd_configured", path: "/etc/sssd/sssd.conf", nss: "sss", module: "pam_sss.so", snippets: sssdSnippets},
 	}
 }
 
@@ -138,6 +141,17 @@ func recordDirectoryClients(r *report, fsys fs.FS, clients []directoryClient, ns
 			r.inconclusive(finding.ResultError,
 				fmt.Sprintf("%s configuration could not be checked: %v", client.label, err), client.key)
 			continue
+		}
+		if client.snippets != nil {
+			snippets, err := client.snippets(fsys)
+			if err != nil {
+				r.inconclusive(finding.ResultError,
+					fmt.Sprintf("%s configuration could not be checked: %v", client.label, err), client.key)
+				continue
+			}
+			for _, snippet := range snippets {
+				subjects = append(subjects, evidence(finding.KindFile, "/"+snippet, fact(finding.FactSource, client.label)))
+			}
 		}
 		subjects = append(subjects, client.wiring(nss, stack)...)
 		if len(subjects) == 0 {

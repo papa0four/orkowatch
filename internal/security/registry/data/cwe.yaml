@@ -1316,6 +1316,7 @@ weaknesses:
     abstraction: "Base"
     usage: "Allowed"
     parents: ["CWE-1390"]
+    description: "This attack-focused weakness is caused by incorrectly implemented authentication schemes that are subject to spoofing attacks."
   "CWE-291":
     name: "Reliance on IP Address for Authentication"
     abstraction: "Variant"
@@ -1341,6 +1342,7 @@ weaknesses:
     abstraction: "Base"
     usage: "Allowed"
     parents: ["CWE-287"]
+    description: "The product does not validate, or incorrectly validates, a certificate."
   "CWE-296":
     name: "Improper Following of a Certificate's Chain of Trust"
     abstraction: "Base"
@@ -1458,6 +1460,7 @@ weaknesses:
     abstraction: "Base"
     usage: "Allowed"
     parents: ["CWE-311"]
+    description: "The product transmits sensitive or security-critical data in cleartext in a communication channel that can be sniffed by unauthorized actors."
   "CWE-321":
     name: "Use of Hard-coded Cryptographic Key"
     abstraction: "Variant"
