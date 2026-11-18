@@ -4,6 +4,8 @@
 
 package checker
 
+import "context"
+
 // checkDirectoryClients records nothing: the directory client rules are
 // defined for Linux alone.
-func (u *UnixUserChecker) checkDirectoryClients(*report) {}
+func (u *UnixUserChecker) checkDirectoryClients(context.Context, *report) {}

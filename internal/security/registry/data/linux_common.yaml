@@ -627,20 +627,24 @@ users.sssd_configured:
     file: [source]
     nss-database: [line, value]
     pam-rule: [line, services]
+    setting: [state]
   description: >
-    /etc/sssd/sssd.conf is present, or the name service switch names the sss
+    /etc/sssd/sssd.conf or a snippet in /etc/sssd/conf.d is present, or the
+    name service switch names the sss
     service or a PAM rule names pam_sss.so, which ask the System Security
     Services Daemon to look up or authenticate accounts against a directory
     or identity provider. Each is recorded with where it was found. A
     distribution can ship the wiring by default or add it when the packages
     are installed, so neither the file nor the wiring shows that SSSD is
-    used, and the file's contents were not examined.
+    used. The domains SSSD serves, which do show it, are recorded where the
+    configuration names any, and what the configuration sets is judged by
+    the SSSD rules.
   impact: >
     Where SSSD is used, account lookups, and with pam_sss.so in the PAM
     stack the passwords given at login, go to the providers sssd.conf
-    names. Whether its connections to them are encrypted, and how long
-    cached credentials stay usable while a provider is unreachable, are set
-    in this file and the snippets in /etc/sssd/conf.d, and were not examined.
+    names. Whether its connections to them are encrypted and whether
+    password hashes are cached on the host are set in this file and the
+    snippets in /etc/sssd/conf.d.
   resolution: >
     Review /etc/sssd/sssd.conf and /etc/sssd/conf.d. sssd.conf(5) requires
     the file to be accessible only by root or the user SSSD runs as, and the
@@ -651,6 +655,186 @@ users.sssd_configured:
   references:
     - source: NIST
       id: "IA-2"
+
+users.sssd_config_readable:
+  title: "SSSD configuration can be read by accounts other than root and SSSD"
+  severity: "MEDIUM"
+  cvss_score: 4.8
+  cvss_vector: "CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:L/VI:N/VA:N/SC:N/SI:N/SA:N"
+  records:
+    file: [mode, uid, gid, expected, version]
+  cwe: "CWE-732"
+  description: >
+    /etc/sssd/sssd.conf or a snippet in /etc/sssd/conf.d can be read by an
+    account other than root or the one SSSD runs as. Before SSSD 2.10.0,
+    sssd.conf(5) requires the file to be "owned by root and only root may
+    read from or write to the file", and snippets to have the same owner and
+    permissions. From 2.10.0 it "must be a regular file that is accessible
+    only by the user used to run SSSD service or root". The file is judged by
+    the rule of the release installed, whether or not SSSD is in use.
+  impact: >
+    A local account can read the directory servers, search bases and options
+    the host uses, and the bind credential where ldap_default_authtok is set
+    in the file.
+  resolution: >
+    Before SSSD 2.10.0: chown root:root and chmod 0600 the file. From
+    2.10.0: give it to root or the sssd user, allow group access to the sssd
+    group at most, and remove all access for others.
+  references:
+    - source: NIST
+      id: "AC-3"
+
+users.sssd_config_writable:
+  title: "SSSD configuration can be changed by accounts other than root and SSSD"
+  severity: "HIGH"
+  cvss_score: 8.5
+  cvss_vector: "CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N"
+  records:
+    file: [mode, uid, gid, expected, version]
+  cwe: "CWE-732"
+  description: >
+    /etc/sssd/sssd.conf or a snippet in /etc/sssd/conf.d can be written by an
+    account other than root or the one SSSD runs as, or is owned by such an
+    account, which can change its mode. Before SSSD 2.10.0, sssd.conf(5)
+    requires the file to be "owned by root and only root may read from or
+    write to the file"; from 2.10.0 it "must be a regular file that is
+    accessible only by the user used to run SSSD service or root". The file
+    is judged by the rule of the release installed, whether or not SSSD is in
+    use.
+  impact: >
+    An account that can change the configuration chooses the servers the
+    host looks accounts up in and authenticates them against, and so who can
+    log in and as whom.
+  resolution: >
+    Before SSSD 2.10.0: chown root:root and chmod 0600 the file. From
+    2.10.0: give it to root or the sssd user, allow group access to the sssd
+    group at most, and remove all access for others.
+  references:
+    - source: NIST
+      id: "AC-3"
+
+users.sssd_ldap_id_unencrypted:
+  title: "SSSD looks up identities over an unencrypted LDAP connection"
+  severity: "HIGH"
+  cvss_score: 8.3
+  cvss_vector: "CVSS:4.0/AV:N/AC:L/AT:P/PR:N/UI:N/VC:L/VI:H/VA:N/SC:N/SI:N/SA:N"
+  records:
+    setting: [value, state, line, version]
+  cwe: "CWE-319"
+  description: >
+    A domain SSSD serves takes its identities from an LDAP server named with
+    an ldap:// URI while ldap_id_use_start_tls is false. sssd-ldap(5) says the
+    option "Specifies that the id_provider connection must also use tls to
+    protect the channel", that true "is strongly recommended for security
+    reasons", and that "Even if the LDAP server is used only as an identity
+    provider, an encrypted channel is strongly recommended." The default is
+    false before SSSD 2.10.0 and true from it, so an unset option is judged
+    by the release installed.
+  impact: >
+    An attacker on the network path between the host and the server can read
+    the account data the host looks up, and can alter the answers: the user
+    and group identifiers, group memberships, home directories and shells the
+    host acts on.
+  resolution: >
+    Set ldap_id_use_start_tls = true in the domain section, or name the
+    servers with ldaps:// URIs, and restart SSSD.
+  references:
+    - source: NIST
+      id: "SC-8"
+    - source: NIST
+      id: "SC-8(1)"
+
+users.sssd_ldap_cert_unchecked:
+  title: "SSSD does not check the certificate of its LDAP server"
+  severity: "CRITICAL"
+  cvss_score: 9.1
+  cvss_vector: "CVSS:4.0/AV:N/AC:L/AT:P/PR:N/UI:N/VC:H/VI:H/VA:N/SC:N/SI:N/SA:N"
+  records:
+    setting: [value, line]
+  cwe: "CWE-295"
+  description: >
+    A domain SSSD serves sets ldap_tls_reqcert to never or allow. sssd-ldap(5):
+    "never = The client will not request or check any server certificate" and
+    "allow = The server certificate is requested. If no certificate is
+    provided, the session proceeds normally. If a bad certificate is provided,
+    it will be ignored and the session proceeds normally." The default is
+    hard.
+  impact: >
+    An attacker on the network path can stand in for the LDAP server on a
+    connection the host believes is protected. sssd-ldap(5) says
+    authentication takes place only over an encrypted channel, so the
+    attacker receives the passwords users authenticate with, and answers the
+    identity lookups the host makes.
+  resolution: >
+    Remove ldap_tls_reqcert from the domain section, or set it to demand,
+    name the authority that signed the server certificate with
+    ldap_tls_cacert or ldap_tls_cacertdir, and restart SSSD.
+  references:
+    - source: NIST
+      id: "SC-8"
+    - source: NIST
+      id: "SC-23"
+
+users.sssd_credentials_cached:
+  title: "SSSD caches password hashes on the host"
+  severity: "MEDIUM"
+  cvss_score: 4.0
+  cvss_vector: "CVSS:4.0/AV:L/AC:L/AT:P/PR:H/UI:N/VC:N/VI:N/VA:N/SC:H/SI:N/SA:N"
+  records:
+    setting: [value, state, line]
+  no_weakness: "Caching a salted hash so that logins work while the provider is unreachable is a documented feature; CWE-522 would apply only if the stored form were shown to be insufficiently protected, which the manual does not state."
+  attack_techniques:
+    - id: "T1003.005"
+      basis:
+        - "NIST IA-5 maps to this technique (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
+  description: >
+    A domain SSSD serves sets cache_credentials = true, which is false unless
+    set. sssd.conf(5): "Determines if user credentials are also cached in the
+    local LDB cache", and, from SSSD 2.9, "while credentials are stored as a
+    salted SHA512 hash, this still potentially poses some security risk in
+    case an attacker manages to get access to a cache file (normally requires
+    privileged access) and to break a password using brute force attack."
+    offline_credentials_expiration, which limits for how many days a cached
+    login is allowed, is recorded and not judged.
+  impact: >
+    An attacker who has gained root on the host can copy the cache and work
+    on the hashes offline. Each password recovered belongs to a directory
+    account, valid on every system that account can reach.
+  resolution: >
+    Where logins while the provider is unreachable are not needed, remove
+    cache_credentials from the domain section or set it to false, and restart
+    SSSD. Where they are needed, this is an accepted risk.
+  references:
+    - source: NIST
+      id: "IA-5"
+    - source: NIST
+      id: "IA-5(13)"
+
+users.sssd_krb5_tgt_unvalidated:
+  title: "SSSD does not validate the Kerberos ticket it authenticates with"
+  severity: "CRITICAL"
+  cvss_score: 9.2
+  cvss_vector: "CVSS:4.0/AV:N/AC:L/AT:P/PR:N/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N"
+  records:
+    setting: [value, state, line]
+  cwe: "CWE-290"
+  description: >
+    A domain SSSD serves authenticates with the krb5 provider while
+    krb5_validate is false, which it is unless set. sssd-krb5(5): "Verify
+    with the help of krb5_keytab that the TGT obtained has not been spoofed."
+    Without it the host accepts a ticket-granting ticket without proving that
+    the key distribution center that issued it holds the key of the host.
+  impact: >
+    An attacker who can answer the Kerberos requests of the host in place of
+    the key distribution center can issue a ticket for any directory user
+    with a password of the attacker's choosing, and log in to the host as
+    that user.
+  resolution: >
+    Give the host a keytab holding its own principal, set krb5_validate = true
+    in the domain section, and restart SSSD.
+  references:
+    - source: NIST
+      id: "SC-23"
 
 users.regular_user_admin_privileges:
   title: "Regular user account has administrative group membership"

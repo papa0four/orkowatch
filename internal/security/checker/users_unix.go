@@ -113,7 +113,7 @@ func NewUserChecker(osCtx registry.OSContext) *UnixUserChecker {
 func (u *UnixUserChecker) Check(ctx context.Context) finding.AuditResult {
 	r := newReport(u.checkIdentity)
 
-	u.checkDirectoryClients(r)
+	u.checkDirectoryClients(ctx, r)
 
 	users, err := u.getUsers(ctx)
 	if err != nil {

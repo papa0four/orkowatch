@@ -34,10 +34,10 @@ func TestTechniqueUse(t *testing.T) {
 	}
 }
 
-// The bundled dataset reserves exactly the techniques kept for the directory
+// The bundled dataset reserves exactly the technique kept for the Kerberos
 // client rules, and the loader reads the mark.
 func TestReservedTechniques(t *testing.T) {
-	if len(reservedTechniques) != 2 || !reservedTechniques["T1003.005"] || !reservedTechniques["T1558.005"] {
+	if len(reservedTechniques) != 1 || !reservedTechniques["T1558.005"] {
 		t.Errorf("the bundled dataset reserves %v", reservedTechniques)
 	}
 	_, reserved := mustLoadTechniques([]byte("version: \"20.1\"\nmitigations:\n  M1000: \"m\"\ntechniques:\n  T1000:\n    name: \"t\"\n    tactics: [\"x\"]\n    mitigations: [\"M1000\"]\n    reserved: true\n"))
