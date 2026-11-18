@@ -109,10 +109,14 @@ type (
 
 		// Weakness is the CWE entry the finding maps to, with MITRE's
 		// description of it, or the reason none fits. CVSS is the registry's
-		// score, labelled with what it is a statement about.
+		// baseline and HostCVSS the score on this host with what it rests on,
+		// each labelled with what it is a statement about. SeverityBasis says
+		// which of them Severity is.
 		Weakness      string
 		WeaknessAbout string
 		CVSS          string
+		HostCVSS      string
+		SeverityBasis string
 		Description   string
 		Impact        string
 		Resolution    string
@@ -268,7 +272,8 @@ func buildIndex(items []Item) []itemIndex {
 	index := make([]itemIndex, len(items))
 	for i, item := range items {
 		fields := []string{item.Title, item.Key, item.Check, item.Reason, item.Description,
-			item.Impact, item.Resolution, item.Weakness, item.WeaknessAbout}
+			item.Impact, item.Resolution, item.Weakness, item.WeaknessAbout,
+			item.CVSS, item.HostCVSS, item.SeverityBasis}
 		fields = append(fields, item.Categories...)
 		fields = append(fields, item.References...)
 		fields = append(fields, item.Techniques...)
@@ -1058,8 +1063,8 @@ func (browser) rowText(item Item) string {
 }
 
 // triggerText says what raised a finding: the rule that failed and what it
-// found, the evidence recorded for it, the severity the registry gives that
-// rule, and the ATT&CK techniques the rule is mapped to, so each of those can be
+// found, the evidence recorded for it, the severity and what it rests on, and
+// the ATT&CK techniques the rule is mapped to, so each of those can be
 // traced back to the host observation it came from.
 func triggerText(item Item) string {
 	lines := []string{"rule      " + item.Key + "  (" + item.Check + " check failed)"}
@@ -1074,7 +1079,11 @@ func triggerText(item Item) string {
 	default:
 		lines = append(lines, fmt.Sprintf("evidence  %d entries, listed below", n))
 	}
-	lines = append(lines, "severity  "+item.Severity+", the registry's rating for this rule")
+	severity := "severity  " + item.Severity
+	if item.SeverityBasis != "" {
+		severity += ", " + item.SeverityBasis
+	}
+	lines = append(lines, severity)
 	var ids []string
 	for _, technique := range item.Techniques {
 		if fields := strings.Fields(technique); len(fields) > 0 {
@@ -1114,7 +1123,8 @@ func (b browser) detailText(item Item) string {
 		section("triggered by", triggerText(item))
 	}
 	section("weakness", strings.TrimSpace(item.Weakness+"\n"+item.WeaknessAbout))
-	section("CVSS", item.CVSS)
+	section("CVSS baseline", item.CVSS)
+	section("CVSS on this host", item.HostCVSS)
 	section("categories", strings.Join(item.Categories, ", "))
 	section("description", item.Description)
 	section("impact", item.Impact)
