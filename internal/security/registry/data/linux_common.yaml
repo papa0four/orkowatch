@@ -527,88 +527,86 @@ users.root_account_unlocked:
       id: "AC-6"
 
 users.ldap_configured:
-  title: "LDAP authentication is configured"
-  severity: "MEDIUM"
-  cvss_score: 4.6
-  cvss_vector: "CVSS:4.0/AV:L/AC:L/AT:N/PR:H/UI:N/VC:L/VI:N/VA:N/SC:N/SI:N/SA:N"
+  title: "LDAP client configuration file is present"
+  severity: "NONE"
+  result: "informational"
+  cvss_score: 0.0
+  cvss_vector: "CVSS:4.0/AV:L/AC:L/AT:N/PR:H/UI:N/VC:N/VI:N/VA:N/SC:N/SI:N/SA:N"
   records:
     file: [source]
-  no_weakness: "The finding reports where authentication is performed, not a weakness; CWE-287 is discouraged by MITRE."
   description: >
-    /etc/ldap.conf is present, indicating LDAP-based authentication is
-    configured. LDAP authentication introduces a network dependency for
-    local login and may expose credentials if the LDAP connection is
-    not encrypted.
+    /etc/ldap.conf is present. The file configures an LDAP client, which
+    can make the host look up or authenticate accounts against a directory
+    server. Its presence does not show that the host uses the directory, and
+    its contents were not examined.
   impact: >
-    If LDAP is configured without TLS/LDAPS, credentials are transmitted
-    in cleartext over the network. An LDAP server outage may prevent
-    local login. Misconfigured LDAP referrals can expose the system to
-    authentication bypass.
+    Where the host does use the directory, account lookups and logins depend
+    on the directory server and on how the connection to it is protected.
+    Whether that connection is encrypted and whether the server's certificate
+    is checked are set in this file and were not examined.
   resolution: >
-    Verify LDAP is configured with TLS (ldaps:// or StartTLS).
-    Ensure a local fallback authentication method exists for system
-    recovery. Review /etc/ldap.conf for cleartext bind credentials.
+    If the host should not consult a directory, remove the file or the client
+    package that installed it. If it should, review /etc/ldap.conf for how it
+    connects to the directory server: the connection should be encrypted and
+    the server's certificate checked.
   references:
     - source: NIST
       id: "IA-2"
 
 users.kerberos_configured:
-  title: "Kerberos authentication is configured"
-  severity: "MEDIUM"
-  cvss_score: 4.6
-  cvss_vector: "CVSS:4.0/AV:L/AC:L/AT:N/PR:H/UI:N/VC:L/VI:N/VA:N/SC:N/SI:N/SA:N"
+  title: "Kerberos client configuration file is present"
+  severity: "NONE"
+  result: "informational"
+  cvss_score: 0.0
+  cvss_vector: "CVSS:4.0/AV:L/AC:L/AT:N/PR:H/UI:N/VC:N/VI:N/VA:N/SC:N/SI:N/SA:N"
   records:
     file: [source]
-  no_weakness: "The finding reports where authentication is performed, not a weakness; CWE-287 is discouraged by MITRE."
-  attack_techniques:
-    - id: "T1558.005"
-      basis:
-        - "NIST IA-2 maps to this technique (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
   description: >
-    /etc/krb5.conf is present, indicating Kerberos authentication is
-    configured. Kerberos introduces a KDC dependency for authentication
-    and requires time synchronization within 5 minutes to function
-    correctly.
+    /etc/krb5.conf is present. The file configures the Kerberos libraries,
+    and a distribution can install it with them, so its presence does not
+    show that the host authenticates with Kerberos. Its contents were not
+    examined.
   impact: >
-    KDC unavailability or clock skew may prevent authentication. Weak
-    Kerberos encryption types (DES, RC4) in krb5.conf expose ticket
-    traffic to offline cracking. Misconfigured realms may permit
-    cross-realm authentication abuse.
+    Where the host does use Kerberos, the realms it uses and the encryption
+    types its tickets may carry are set in this file and the files it
+    includes, and were not examined. The MIT Kerberos documentation marks
+    the single-DES encryption types and arcfour-hmac-exp weak, and
+    des3-cbc-sha1 and arcfour-hmac deprecated.
   resolution: >
-    Review /etc/krb5.conf for deprecated encryption types and remove
-    DES and RC4 entries. Ensure time synchronization is configured.
-    Verify KDC redundancy for availability.
+    If the host should not use Kerberos, the file can stay as the libraries
+    installed it. If it should, review /etc/krb5.conf and every file it
+    includes: allow_weak_crypto should not be set to true, and no weak or
+    deprecated encryption type should be listed in permitted_enctypes,
+    default_tgs_enctypes or default_tkt_enctypes.
   references:
     - source: NIST
       id: "IA-2"
 
 users.sssd_configured:
-  title: "SSSD authentication is configured"
-  severity: "MEDIUM"
-  cvss_score: 4.6
-  cvss_vector: "CVSS:4.0/AV:L/AC:L/AT:N/PR:H/UI:N/VC:L/VI:N/VA:N/SC:N/SI:N/SA:N"
+  title: "SSSD configuration file is present"
+  severity: "NONE"
+  result: "informational"
+  cvss_score: 0.0
+  cvss_vector: "CVSS:4.0/AV:L/AC:L/AT:N/PR:H/UI:N/VC:N/VI:N/VA:N/SC:N/SI:N/SA:N"
   records:
     file: [source]
-  no_weakness: "The finding reports where authentication is performed, not a weakness; CWE-287 is discouraged by MITRE."
-  attack_techniques:
-    - id: "T1003.005"
-      basis:
-        - "NIST IA-2 maps to this technique (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
   description: >
-    /etc/sssd/sssd.conf is present, indicating the System Security
-    Services Daemon is configured for centralized identity management.
-    SSSD introduces external identity provider dependencies for
-    authentication.
+    /etc/sssd/sssd.conf is present. The file configures the System Security
+    Services Daemon, which can look up and authenticate accounts against a
+    directory or identity provider. Its presence does not show that the host
+    uses it, and its contents were not examined.
   impact: >
-    SSSD misconfiguration or identity provider unavailability may prevent
-    login. Overly permissive SSSD filter configurations may allow
-    unauthorized accounts to authenticate. Cache poisoning is possible
-    if SSSD offline caching is misconfigured.
+    Where the host does use SSSD, the identity providers it consults,
+    whether its connections to them are encrypted, and how long cached
+    credentials stay usable while a provider is unreachable are set in this
+    file and the snippets in /etc/sssd/conf.d, and were not examined.
   resolution: >
-    Review /etc/sssd/sssd.conf for access_provider and ldap_access_filter
-    settings. Ensure the identity provider connection uses TLS. Test
-    offline authentication behavior to verify local fallback functions
-    correctly.
+    Review /etc/sssd/sssd.conf and /etc/sssd/conf.d. sssd.conf(5) requires
+    the file to be accessible only by root or the user SSSD runs as, and the
+    snippets to have the same owner and permissions. For an LDAP domain,
+    sssd-ldap(5) strongly recommends ldap_id_use_start_tls = true for
+    security reasons. offline_credentials_expiration defaults to 0, which
+    places no limit on how long cached logins are allowed.
   references:
     - source: NIST
       id: "IA-2"

@@ -6,18 +6,18 @@ import "time"
 
 type (
 	// Source identifies which enrichment adapter contributed a field
-	// value. The adapters are tracked as #89 through #93; none is configured
+	// value. No enrichment source adapter (NVD, CISA KEV, EPSS, GHSA) exists
 	// yet, so every value below is written by nothing in this tree.
 	Source string
 
 	// Status reports the terminal state of an enrichment attempt for a single
 	// CWE. Only StatusNoMatches is produced today; the rest are set by the
-	// adapters in #89 through #93.
+	// enrichment source adapters.
 	Status string
 
 	// CWEEnrichment is per-CWE enrichment data with per-field source
 	// attribution. The attribution and description fields are filled by the
-	// adapters in #89 through #93 and are not yet projected by any view.
+	// enrichment source adapters and are not yet projected by any view.
 	CWEEnrichment struct {
 		CWEID  string
 		Status Status
@@ -55,7 +55,7 @@ type (
 	}
 
 	// Failure records why enrichment for a specific CWE failed. Err holds the
-	// adapter's underlying error for the adapters in #89 through #93; the
+	// adapter's underlying error for the enrichment source adapters; the
 	// projections render Reason.
 	Failure struct {
 		CWEID     string
@@ -66,8 +66,8 @@ type (
 	}
 
 	// Result is the aggregate output of an enrichment run. AdapterErrors,
-	// SourcesQueried and Duration are populated by the adapters in #89 through
-	// #93.
+	// SourcesQueried and Duration are populated by the enrichment source
+	// adapters.
 	Result struct {
 		Successes      map[string]CWEEnrichment
 		Failures       map[string]Failure
@@ -77,7 +77,7 @@ type (
 	}
 
 	// EnrichRequest is the input to Enricher.Enrich. BypassCache, Sources and
-	// MinSeverity are honored by the adapters in #89 through #93.
+	// MinSeverity are honored by the enrichment source adapters.
 	EnrichRequest struct {
 		CWEs        []string
 		BypassCache bool
@@ -88,7 +88,7 @@ type (
 
 // Enrichment source and status vocabulary. Only StatusNoMatches has a reader
 // today; the rest have no producer, their designated consumers being the
-// enrichment adapters (#89-#93), which share these values so that a result
+// enrichment source adapters, which share these values so that a result
 // names its origin and its outcome identically whichever adapter produced it.
 const (
 	// SourceNVD identifies the NIST National Vulnerability Database.

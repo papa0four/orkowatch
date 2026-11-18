@@ -37,11 +37,14 @@ type (
 	}
 
 	// attackTechnique is one technique as the ATT&CK site lists it, with the
-	// identifiers of the mitigations its page lists.
+	// identifiers of the mitigations its page lists. Reserved marks a
+	// technique kept for work that will cite it, which no definition cites
+	// yet.
 	attackTechnique struct {
 		Name        string   `yaml:"name"`
 		Tactics     []string `yaml:"tactics"`
 		Mitigations []string `yaml:"mitigations"`
+		Reserved    bool     `yaml:"reserved"`
 	}
 )
 
@@ -54,16 +57,19 @@ var (
 	techniqueID  = regexp.MustCompile(`^T\d{4}(\.\d{3})?$`)
 	mitigationID = regexp.MustCompile(`^M\d{4}$`)
 
-	// techniques is the bundled dataset keyed by identifier. Definitions are
-	// validated against it as they load, so it is read first.
-	techniques = mustLoadTechniques(attackData)
+	// techniques is the bundled dataset keyed by identifier, and
+	// reservedTechniques those kept for work that will cite them.
+	// Definitions are validated against them as they load, so they are read
+	// first.
+	techniques, reservedTechniques = mustLoadTechniques(attackData)
 )
 
 // mustLoadTechniques decodes the bundled dataset strictly and panics on a
 // malformed entry, halting startup rather than letting a definition cite a
 // technique with no name or tactic, or a technique name a mitigation the
-// dataset does not hold.
-func mustLoadTechniques(data []byte) map[string]finding.Technique {
+// dataset does not hold. It returns the techniques and, apart from them, the
+// identifiers of those reserved, which no finding carries.
+func mustLoadTechniques(data []byte) (map[string]finding.Technique, map[string]bool) {
 	var file attackFile
 	decoder := yaml.NewDecoder(bytes.NewReader(data))
 	decoder.KnownFields(true)
@@ -87,6 +93,7 @@ func mustLoadTechniques(data []byte) map[string]finding.Technique {
 
 	used := make(map[string]bool, len(mitigations))
 	out := make(map[string]finding.Technique, len(file.Techniques))
+	reserved := make(map[string]bool)
 	for id, t := range file.Techniques {
 		switch {
 		case !techniqueID.MatchString(id):
@@ -95,6 +102,9 @@ func mustLoadTechniques(data []byte) map[string]finding.Technique {
 			panic(fmt.Sprintf("registry: attack.yaml: %s has no name", id))
 		case len(t.Tactics) == 0:
 			panic(fmt.Sprintf("registry: attack.yaml: %s lists no tactic", id))
+		}
+		if t.Reserved {
+			reserved[id] = true
 		}
 
 		technique := finding.Technique{ID: id, Name: t.Name, Tactics: t.Tactics, URL: techniqueURL(id)}
@@ -119,7 +129,7 @@ func mustLoadTechniques(data []byte) map[string]finding.Technique {
 			panic("registry: attack.yaml: mitigation " + id + " is listed by no technique")
 		}
 	}
-	return out
+	return out, reserved
 }
 
 // techniqueURL is the technique's page on the ATT&CK site, which spells a
@@ -152,10 +162,19 @@ func checkTechniques(links []AttackLink) error {
 	return nil
 }
 
-// checkTechniqueUse panics when a bundled technique is referenced by no
-// definition, since an entry nothing cites is data with no reader.
+// checkTechniqueUse panics when the bundled dataset and the definitions
+// disagree about which techniques are cited, as techniqueUse reports.
 func checkTechniqueUse(sets ...map[FindingKey]FindingDefinition) {
-	used := make(map[string]bool, len(techniques))
+	if err := techniqueUse(techniques, reservedTechniques, sets...); err != nil {
+		panic("registry: attack.yaml " + err.Error())
+	}
+}
+
+// techniqueUse reports a technique no definition cites that is not reserved,
+// since an entry nothing reads is data with no reader, and a reserved technique
+// a definition cites, since it no longer needs reserving.
+func techniqueUse(known map[string]finding.Technique, reserved map[string]bool, sets ...map[FindingKey]FindingDefinition) error {
+	used := make(map[string]bool, len(known))
 	for _, defs := range sets {
 		for _, def := range defs {
 			for _, link := range def.AttackTechniques {
@@ -163,14 +182,22 @@ func checkTechniqueUse(sets ...map[FindingKey]FindingDefinition) {
 			}
 		}
 	}
-	var unused []string
-	for id := range techniques {
-		if !used[id] {
+	var unused, stale []string
+	for id := range known {
+		switch {
+		case !used[id] && !reserved[id]:
 			unused = append(unused, id)
+		case used[id] && reserved[id]:
+			stale = append(stale, id)
 		}
 	}
-	if len(unused) > 0 {
-		sort.Strings(unused)
-		panic("registry: attack.yaml holds techniques no definition references: " + strings.Join(unused, ", "))
+	sort.Strings(unused)
+	sort.Strings(stale)
+	switch {
+	case len(unused) > 0:
+		return fmt.Errorf("holds techniques no definition references and none reserves: %s", strings.Join(unused, ", "))
+	case len(stale) > 0:
+		return fmt.Errorf("reserves techniques a definition already references: %s", strings.Join(stale, ", "))
 	}
+	return nil
 }

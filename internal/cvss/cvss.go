@@ -4,8 +4,8 @@
 // a score to its qualitative severity band, following the equations in the
 // FIRST CVSS v3.1 specification. The registry's baselines are CVSS v4.0 and are
 // scored by internal/cvss/v4; this package remains for the v3.x scores NVD
-// publishes for a CVE, which the NVD adapter (#90) cross-checks against their
-// vectors, and for the severity bands both versions share.
+// publishes for a CVE, which the NVD enrichment adapter is to cross-check
+// against their vectors, and for the severity bands both versions share.
 //
 // Only the base metrics are supported. A vector that carries temporal or
 // environmental metrics is refused rather than scored as though it did not.

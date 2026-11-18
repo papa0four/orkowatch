@@ -204,8 +204,6 @@ func TestMappedTechniquesReachFindings(t *testing.T) {
 		{linux(DistroDebian), "users.regular_user_admin_privileges", "T1548.003"},
 		{linux(DistroDebian), "permissions.sudoers_world_readable", "T1548.003"},
 		{linux(DistroRHEL), "permissions.sudoers_world_readable", "T1548.003"},
-		{linux(DistroDebian), "users.sssd_configured", "T1003.005"},
-		{linux(DistroDebian), "users.kerberos_configured", "T1558.005"},
 		{linux(DistroDebian), "ssh.password_auth_not_set", "T1021.004"},
 	}
 	for _, c := range cases {

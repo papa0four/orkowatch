@@ -317,7 +317,8 @@ users.no_password_required:
     - source: NIST
       id: "IA-2"
 
-# CIS citation pending for the two policy definitions below: #144.
+# CIS citation pending for the two policy definitions below, until each is
+# checked against the Windows benchmark.
 users.password_min_length_zero:
   title: "Password policy sets no minimum password length"
   severity: "MEDIUM"
@@ -476,8 +477,9 @@ users.microsoft_account_no_local_password:
       version: "page updated 2024-02-22"
       verified: "2026-11-15"
 
-# Consumer: #144. No checker emits this definition: the local account
-# database does not hold this kind of principal.
+# No checker emits this definition: the local account database does not hold
+# this kind of principal. It is kept for the Windows check of accounts
+# authenticated off the host.
 users.azure_ad_account_no_local_password:
   title: "Azure AD account has no local password hash"
   severity: "NONE"
@@ -510,8 +512,9 @@ users.azure_ad_account_no_local_password:
       version: "v3.0.0"
       id: "1.1"
 
-# Consumer: #144. No checker emits this definition: the local account
-# database does not hold this kind of principal.
+# No checker emits this definition: the local account database does not hold
+# this kind of principal. It is kept for the Windows check of accounts
+# authenticated off the host.
 users.domain_account_no_local_password:
   title: "Active Directory domain account has no local password hash"
   severity: "NONE"
@@ -548,8 +551,9 @@ users.domain_account_no_local_password:
     - source: NIST
       id: "SC-8"
 
-# Consumer: #144. No checker emits this definition: the local account
-# database does not hold this kind of principal.
+# No checker emits this definition: the local account database does not hold
+# this kind of principal. It is kept for the Windows check of accounts
+# authenticated off the host.
 users.unknown_principal_no_local_password:
   title: "Account with undetermined principal source has no local password hash"
   severity: "MEDIUM"
@@ -658,7 +662,8 @@ permissions.users_full_control:
     - source: NIST
       id: "AC-3"
 
-# CIS citation pending for the two access control definitions below: #144.
+# CIS citation pending for the two access control definitions below, until
+# each is checked against the Windows benchmark.
 permissions.broad_group_write_access:
   title: "A broad group can change a path"
   severity: "MEDIUM"

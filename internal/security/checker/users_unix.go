@@ -233,35 +233,46 @@ func appendAccountSection(r *report, title string, symbol string, entries []stri
 	}
 }
 
+// clientConfig is a directory client's configuration file and the rule that
+// records whether it is present.
+type clientConfig struct {
+	path  string
+	label string
+	key   registry.FindingKey
+}
+
+// clientConfigs are the directory clients checkAuthConfig looks for.
+var clientConfigs = []clientConfig{
+	{"/etc/ldap.conf", "LDAP", "users.ldap_configured"},
+	{"/etc/krb5.conf", "Kerberos", "users.kerberos_configured"},
+	{"/etc/sssd/sssd.conf", "SSSD", "users.sssd_configured"},
+}
+
 // checkAuthConfig reports the authentication sources configured on the host:
-// the PAM modules referenced under /etc/pam.d and the network directories
-// whose configuration files are present. A file whose presence cannot be
-// determined is concluded as an error, because the directory holding
-// sssd.conf is unreadable to an unprivileged caller and a stat failure there
-// is not evidence of absence.
+// the PAM modules referenced under /etc/pam.d and whether each directory
+// client's configuration file is present.
 func (u *UnixUserChecker) checkAuthConfig(r *report) {
 	u.reportPAMModules(r)
+	recordClientConfigs(r, clientConfigs)
+}
 
-	sources := []struct {
-		path  string
-		label string
-		key   registry.FindingKey
-	}{
-		{"/etc/ldap.conf", "LDAP", "users.ldap_configured"},
-		{"/etc/krb5.conf", "Kerberos", "users.kerberos_configured"},
-		{"/etc/sssd/sssd.conf", "SSSD", "users.sssd_configured"},
-	}
-
-	for _, source := range sources {
-		_, err := os.Stat(source.path)
+// recordClientConfigs records whether each client's configuration file is
+// present. Presence and absence are both informational: neither shows whether
+// the host uses the client or how it is set. A file whose presence cannot be
+// determined is concluded as an error, because the directory holding sssd.conf
+// is unreadable to an unprivileged caller and a stat failure there is not
+// evidence of absence.
+func recordClientConfigs(r *report, configs []clientConfig) {
+	for _, config := range configs {
+		_, err := os.Stat(config.path)
 		switch {
 		case err == nil:
-			r.observed(source.key, evidence(finding.KindFile, source.path, fact(finding.FactSource, source.label)))
+			r.observed(config.key, evidence(finding.KindFile, config.path, fact(finding.FactSource, config.label)))
 		case errors.Is(err, fs.ErrNotExist):
-			r.pass(source.key)
+			r.inconclusive(finding.ResultInformational, config.path+" is not present", config.key)
 		default:
 			r.inconclusive(finding.ResultError,
-				fmt.Sprintf("%s configuration could not be checked: %v", source.label, err), source.key)
+				fmt.Sprintf("%s configuration could not be checked: %v", config.label, err), config.key)
 		}
 	}
 }
