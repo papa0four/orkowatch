@@ -37,7 +37,7 @@ func TestDeclaredResults(t *testing.T) {
 // 0.0 with severity NONE, and makes no ATT&CK technique available.
 func TestClientConfigDefinitionsRecordAFact(t *testing.T) {
 	linux := OSContext{Platform: PlatformLinux, Families: []Distro{DistroGeneric}}
-	for _, key := range []FindingKey{"users.ldap_configured", "users.kerberos_configured", "users.sssd_configured"} {
+	for _, key := range []FindingKey{"users.ldap_configured", "users.nslcd_configured", "users.kerberos_configured", "users.sssd_configured"} {
 		d, ok := Lookup(linux, key)
 		if !ok {
 			t.Errorf("%s: no definition", key)

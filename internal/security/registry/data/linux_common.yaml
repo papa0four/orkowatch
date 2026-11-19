@@ -527,7 +527,7 @@ users.root_account_unlocked:
       id: "AC-6"
 
 users.ldap_configured:
-  title: "LDAP client configuration file is present"
+  title: "OpenLDAP client configuration file is present"
   severity: "NONE"
   result: "informational"
   cvss_score: 0.0
@@ -535,71 +535,397 @@ users.ldap_configured:
   records:
     file: [source]
   description: >
-    /etc/ldap.conf is present. The file configures an LDAP client, which
-    can make the host look up or authenticate accounts against a directory
-    server. Its presence does not show that the host uses the directory, and
-    its contents were not examined.
+    The OpenLDAP client library's configuration file is present:
+    /etc/ldap/ldap.conf on the Debian family, /etc/openldap/ldap.conf on the
+    others. It sets defaults for every program on the host that uses the
+    library to reach a directory server, and a distribution can install it
+    with the library. Its presence does not show that any program uses a
+    directory. Where it names a server, the certificate check it sets is
+    judged by the OpenLDAP client rule.
   impact: >
-    Where the host does use the directory, account lookups and logins depend
-    on the directory server and on how the connection to it is protected.
-    Whether that connection is encrypted and whether the server's certificate
-    is checked are set in this file and were not examined.
+    Where a program does use the library, whether its connection to the
+    directory server checks the server's certificate is set in this file.
+    ldap.conf(5) says TLS_REQCERT never will not request or check any server
+    certificate.
   resolution: >
-    If the host should not consult a directory, remove the file or the client
-    package that installed it. If it should, review /etc/ldap.conf for how it
-    connects to the directory server: the connection should be encrypted and
-    the server's certificate checked.
+    Review the file: TLS_REQCERT should not be set to never or allow.
   references:
     - source: NIST
       id: "IA-2"
 
-users.kerberos_configured:
-  title: "Kerberos client configuration file is present"
+users.ldap_cert_unchecked:
+  title: "OpenLDAP client does not check the certificate of its server"
+  severity: "CRITICAL"
+  cvss_score: 9.1
+  cvss_vector: "CVSS:4.0/AV:N/AC:L/AT:P/PR:N/UI:N/VC:H/VI:H/VA:N/SC:N/SI:N/SA:N"
+  records:
+    setting: [value, line]
+  cwe: "CWE-295"
+  attack_techniques:
+    - id: "T1557"
+      basis:
+        - "NIST SC-8 maps to this technique (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
+        - "NIST SC-23 maps to this technique (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
+  description: >
+    The OpenLDAP client library's configuration names a server with URI or
+    HOST and sets TLS_REQCERT to never or allow. ldap.conf(5): never, "The
+    client will not request or check any server certificate"; allow, "The
+    server certificate is requested. If a bad certificate is provided, it will
+    be ignored and the session proceeds normally"; demand "is the default
+    setting". The last TLS_REQCERT line the library accepts is the one in
+    force. The file sets the default for every program on the host that uses
+    the library and does not set its own, and no distribution packages it
+    naming a server, so it is judged where it names one.
+  impact: >
+    An attacker on the network path can stand in for the directory server on
+    a connection the program believes is protected, read what the program
+    sends, a password it binds with included, and answer its queries.
+  resolution: >
+    Remove TLS_REQCERT from the file, or set it to demand, and name the
+    authority that signed the server certificate with TLS_CACERT or
+    TLS_CACERTDIR.
+  references:
+    - source: NIST
+      id: "SC-8"
+    - source: NIST
+      id: "SC-23"
+
+users.nslcd_configured:
+  title: "nslcd configuration or wiring is present"
   severity: "NONE"
   result: "informational"
   cvss_score: 0.0
   cvss_vector: "CVSS:4.0/AV:L/AC:L/AT:N/PR:H/UI:N/VC:N/VI:N/VA:N/SC:N/SI:N/SA:N"
   records:
     file: [source]
+    nss-database: [line, value]
+    pam-rule: [line, services]
   description: >
-    /etc/krb5.conf is present. The file configures the Kerberos libraries,
-    and a distribution can install it with them, so its presence does not
-    show that the host authenticates with Kerberos. Its contents were not
-    examined.
+    /etc/nslcd.conf is present, or the name service switch names the ldap
+    service or a PAM rule names pam_ldap.so, which ask nslcd to look up or
+    authenticate accounts against an LDAP directory. Each is recorded with
+    where it was found. A distribution packages the file naming a server on
+    the host itself, and its packages can add the wiring when they are
+    installed, so neither alone shows that nslcd is used. What the file sets
+    is judged by the nslcd rules where the host is wired to nslcd.
+  impact: >
+    Where nslcd is used, account lookups, and with pam_ldap.so in the PAM
+    stack the passwords given at login, go to the directory server over the
+    connection nslcd.conf sets. Whether that connection is encrypted and
+    whether the server's certificate is checked are judged by the nslcd
+    rules.
+  resolution: >
+    If the host should not consult an LDAP directory, remove ldap from the
+    name service switch and pam_ldap.so from the PAM stack. If it should,
+    see the nslcd rules for the connection /etc/nslcd.conf sets.
+  references:
+    - source: NIST
+      id: "IA-2"
+
+users.nslcd_lookups_unencrypted:
+  title: "nslcd looks up accounts over an unencrypted LDAP connection"
+  severity: "HIGH"
+  cvss_score: 8.3
+  cvss_vector: "CVSS:4.0/AV:N/AC:L/AT:P/PR:N/UI:N/VC:L/VI:H/VA:N/SC:N/SI:N/SA:N"
+  records:
+    nss-database: [line, value]
+    setting: [value, state, line]
+  cwe: "CWE-319"
+  attack_techniques:
+    - id: "T1040"
+      basis:
+        - "NIST SC-8 maps to this technique (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
+  description: >
+    The name service switch sends account lookups to nslcd, and
+    /etc/nslcd.conf names an ldap:// server off the host, or has nslcd find
+    its servers in DNS, with no ssl line of on or start_tls. nslcd.conf(5),
+    for ssl: "Specifies whether to use SSL/TLS or not (the default is not
+    to)". nslcd uses every server every uri line names, so one such server is
+    enough, and a later ssl off does not undo an earlier on or start_tls. A
+    server on a loopback address, localhost or an ldapi socket is not counted:
+    that connection does not leave the host.
+  impact: >
+    An attacker on the network path between the host and the server can read
+    the account data the host looks up, and can alter the answers: the user
+    and group identifiers, group memberships, home directories and shells the
+    host acts on.
+  resolution: >
+    Set ssl start_tls in /etc/nslcd.conf, or name the servers with ldaps://
+    URIs, name the authority that signed the server certificate with
+    tls_cacertfile or tls_cacertdir, and restart nslcd.
+  references:
+    - source: NIST
+      id: "SC-8"
+    - source: NIST
+      id: "SC-8(1)"
+
+users.nslcd_logins_unencrypted:
+  title: "nslcd sends login passwords over an unencrypted LDAP connection"
+  severity: "CRITICAL"
+  cvss_score: 9.1
+  cvss_vector: "CVSS:4.0/AV:N/AC:L/AT:P/PR:N/UI:N/VC:H/VI:H/VA:N/SC:N/SI:N/SA:N"
+  records:
+    pam-rule: [line, services]
+    setting: [value, state, line]
+  cwe: "CWE-319"
+  attack_techniques:
+    - id: "T1040"
+      basis:
+        - "NIST SC-8 maps to this technique (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
+  description: >
+    A PAM rule names pam_ldap.so, which asks nslcd to authenticate the user,
+    and /etc/nslcd.conf names an ldap:// server off the host, or has nslcd
+    find its servers in DNS, with no ssl line of on or start_tls.
+    nslcd.conf(5), for ssl: "Specifies whether to use SSL/TLS or not (the
+    default is not to)". nslcd authenticates a user by binding to the server
+    as that user with the password given at login, and was seen to send that
+    bind in clear under this configuration. A server on a loopback address,
+    localhost or an ldapi socket is not counted: that connection does not
+    leave the host.
+  impact: >
+    An attacker on the network path between the host and the server can read
+    the password of every user who logs in through the services whose PAM
+    stack reaches the rule, and can answer the bind in the server's place.
+  resolution: >
+    Set ssl start_tls in /etc/nslcd.conf, or name the servers with ldaps://
+    URIs, name the authority that signed the server certificate with
+    tls_cacertfile or tls_cacertdir, and restart nslcd.
+  references:
+    - source: NIST
+      id: "SC-8"
+    - source: NIST
+      id: "SC-8(1)"
+
+users.nslcd_cert_unchecked:
+  title: "nslcd does not check the certificate of its LDAP server"
+  severity: "CRITICAL"
+  cvss_score: 9.1
+  cvss_vector: "CVSS:4.0/AV:N/AC:L/AT:P/PR:N/UI:N/VC:H/VI:H/VA:N/SC:N/SI:N/SA:N"
+  records:
+    setting: [value, line]
+  cwe: "CWE-295"
+  attack_techniques:
+    - id: "T1557"
+      basis:
+        - "NIST SC-8 maps to this technique (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
+        - "NIST SC-23 maps to this technique (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
+  description: >
+    The host is wired to nslcd, /etc/nslcd.conf has it use TLS, by an
+    ldaps:// server or an ssl line of on or start_tls, and the tls_reqcert in
+    force is never or allow. nslcd.conf(5): "Specifies what checks to perform
+    on a server-supplied certificate. The meaning of the values is described
+    in the ldap.conf(5) manual page." ldap.conf(5): never, "The client will
+    not request or check any server certificate"; allow, "If a bad
+    certificate is provided, it will be ignored and the session proceeds
+    normally." The last tls_reqcert line is the one in force, and nslcd reads
+    no as never. With none set, nslcd refuses a certificate that does not
+    verify.
+  impact: >
+    An attacker on the network path can stand in for the LDAP server on a
+    connection the host believes is protected: answer the account lookups the
+    host makes, and receive the passwords users log in with where a PAM rule
+    names pam_ldap.so.
+  resolution: >
+    Remove tls_reqcert from /etc/nslcd.conf, or set it to demand, name the
+    authority that signed the server certificate with tls_cacertfile or
+    tls_cacertdir, and restart nslcd.
+  references:
+    - source: NIST
+      id: "SC-8"
+    - source: NIST
+      id: "SC-23"
+
+users.nslcd_password_readable:
+  title: "nslcd.conf holds a password and can be read by accounts other than root"
+  severity: "MEDIUM"
+  cvss_score: 6.0
+  cvss_vector: "CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:L/VI:N/VA:N/SC:H/SI:N/SA:N"
+  records:
+    file: [mode, uid, gid, expected]
+    setting: [line]
+  cwe: "CWE-732"
+  attack_techniques:
+    - id: "T1552.001"
+      basis:
+        - "NIST AC-3 maps to its parent technique T1552 (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
+        - "NIST IA-5 maps to this technique (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
+  description: >
+    /etc/nslcd.conf sets bindpw or rootpwmodpw, and its owner, group or mode
+    lets an account other than root read it. nslcd.conf(5), under both
+    options: "If you set this option you should consider changing the
+    permissions of the nslcd.conf file to only grant access to the root
+    user." Some distributions package the file readable by a group or by
+    everyone. The file is judged whether or not the host is wired to nslcd,
+    and the password is not recorded.
+  impact: >
+    A local account that can read the file has the password of the directory
+    account nslcd binds as, or of the one that changes passwords for root,
+    and can use it against the directory from any system that reaches it.
+  resolution: >
+    chown root:root and chmod 0600 /etc/nslcd.conf. nslcd was seen to start
+    and connect with the file in that mode while running as its own account.
+  references:
+    - source: NIST
+      id: "AC-3"
+    - source: NIST
+      id: "IA-5"
+
+users.nslcd_ignorecase:
+  title: "nslcd matches account names without regard to case"
+  severity: "LOW"
+  cvss_score: 2.3
+  cvss_vector: "CVSS:4.0/AV:N/AC:L/AT:P/PR:L/UI:N/VC:L/VI:L/VA:L/SC:N/SI:N/SA:N"
+  records:
+    setting: [value, line]
+  cwe: "CWE-178"
+  description: >
+    The host is wired to nslcd and /etc/nslcd.conf sets ignorecase to yes.
+    nslcd.conf(5): "This specifies whether or not to perform searches for
+    group, netgroup, passwd, protocols, rpc, services and shadow maps using
+    case-insensitive matching. Setting this to yes could open up the system
+    to authorisation bypass vulnerabilities and introduce nscd cache
+    poisoning vulnerabilities which allow denial of service. The default is
+    to perform case-sensitive filtering of LDAP search results for the above
+    maps." The last ignorecase line is the one in force.
+  impact: >
+    A name that differs from an account's only in case resolves to that
+    account. A rule on the host that grants or denies by name, written for
+    one spelling, can be passed with another, and a name service cache can
+    be filled with entries under the wrong spelling.
+  resolution: >
+    Remove ignorecase from /etc/nslcd.conf, or set it to no, and restart
+    nslcd.
+  references:
+    - source: NIST
+      id: "AC-3"
+
+users.kerberos_configured:
+  title: "Kerberos configuration or wiring is present"
+  severity: "NONE"
+  result: "informational"
+  cvss_score: 0.0
+  cvss_vector: "CVSS:4.0/AV:L/AC:L/AT:N/PR:H/UI:N/VC:N/VI:N/VA:N/SC:N/SI:N/SA:N"
+  records:
+    file: [source]
+    pam-rule: [line, services]
+    setting: [value, line]
+  description: >
+    A Kerberos configuration file is present, or a PAM rule names
+    pam_krb5.so, which authenticates logins with Kerberos. Each is recorded
+    with where it was found. A distribution can install the file with the
+    Kerberos libraries, some with a default_realm already set, and add the
+    PAM rule when the module is installed, so none of these shows that the
+    host authenticates with Kerberos. What does is recorded where present:
+    the keytab of the host, and each domain SSSD serves that authenticates
+    with the krb5 provider.
   impact: >
     Where the host does use Kerberos, the realms it uses and the encryption
     types its tickets may carry are set in this file and the files it
-    includes, and were not examined. The MIT Kerberos documentation marks
-    the single-DES encryption types and arcfour-hmac-exp weak, and
-    des3-cbc-sha1 and arcfour-hmac deprecated.
+    includes. The encryption types in force are judged by the Kerberos
+    rules.
   resolution: >
     If the host should not use Kerberos, the file can stay as the libraries
-    installed it. If it should, review /etc/krb5.conf and every file it
-    includes: allow_weak_crypto should not be set to true, and no weak or
-    deprecated encryption type should be listed in permitted_enctypes,
-    default_tgs_enctypes or default_tkt_enctypes.
+    installed it, and pam_krb5.so can be removed from the PAM stack. If it
+    should, see the Kerberos rules for the encryption types in force.
   references:
     - source: NIST
       id: "IA-2"
 
+users.krb5_weak_enctypes:
+  title: "Kerberos client uses a weak encryption type"
+  severity: "CRITICAL"
+  cvss_score: 9.1
+  cvss_vector: "CVSS:4.0/AV:N/AC:L/AT:P/PR:N/UI:N/VC:H/VI:H/VA:N/SC:N/SI:N/SA:N"
+  records:
+    setting: [value, state, line, version, description]
+  cwe: "CWE-327"
+  description: >
+    The Kerberos configuration sets allow_weak_crypto to true and an
+    encryption type list in force names a type kdc.conf(5) marks weak:
+    des3-cbc-raw or arcfour-hmac-exp. krb5.conf(5): "If this flag is set to
+    false, then weak encryption types (as noted in Encryption types in
+    kdc.conf) will be filtered out of the lists default_tgs_enctypes,
+    default_tkt_enctypes, and permitted_enctypes. The default value for this
+    tag is false." With the flag true, the library requests the weak types
+    the lists name. Judged where the host holds a keytab or SSSD serves a
+    domain that authenticates with Kerberos.
+  impact: >
+    An attacker on the network path to a Kerberos exchange protected by a
+    weak type can read what it carries and alter it, including the tickets
+    and session keys that stand for the user to every service.
+  resolution: >
+    Remove allow_weak_crypto from [libdefaults], or set it to false, and
+    remove the weak types from permitted_enctypes, default_tkt_enctypes and
+    default_tgs_enctypes in /etc/krb5.conf and the files it includes.
+  references:
+    - source: NIST
+      id: "SC-13"
+    - source: NIST
+      id: "SC-8"
+
+users.krb5_deprecated_enctypes:
+  title: "Kerberos client uses a deprecated encryption type"
+  severity: "HIGH"
+  cvss_score: 8.2
+  cvss_vector: "CVSS:4.0/AV:N/AC:H/AT:P/PR:N/UI:N/VC:H/VI:N/VA:N/SC:N/SI:N/SA:N"
+  records:
+    setting: [value, state, line, version, description]
+  cwe: "CWE-327"
+  description: >
+    An encryption type list in force for the Kerberos client contains
+    des3-cbc-sha1 or arcfour-hmac, which kdc.conf(5) marks deprecated:
+    "Encryption types marked as "weak" and "deprecated" are available for
+    compatibility but not recommended for use." The list is the one a file
+    sets in permitted_enctypes, default_tkt_enctypes or default_tgs_enctypes,
+    or, for permitted_enctypes left unset, the default set of the library as
+    built for this distribution, taken from the types it was seen to request.
+    Judged where the host holds a keytab or SSSD serves a domain that
+    authenticates with Kerberos.
+  impact: >
+    An attacker on the network path who captures a Kerberos exchange
+    protected by triple DES or RC4, and has the means to break it, recovers
+    what it protects, including material derived from the password of the
+    user.
+  resolution: >
+    Set permitted_enctypes = DEFAULT -des3 -rc4 in [libdefaults] of
+    /etc/krb5.conf, and remove the deprecated types from default_tkt_enctypes
+    and default_tgs_enctypes where a file sets them. Confirm first that the
+    realm issues keys of the remaining types for every account and service
+    the host uses.
+  references:
+    - source: NIST
+      id: "SC-13"
+    - source: NIST
+      id: "SC-8"
+
 users.sssd_configured:
-  title: "SSSD configuration file is present"
+  title: "SSSD configuration or wiring is present"
   severity: "NONE"
   result: "informational"
   cvss_score: 0.0
   cvss_vector: "CVSS:4.0/AV:L/AC:L/AT:N/PR:H/UI:N/VC:N/VI:N/VA:N/SC:N/SI:N/SA:N"
   records:
     file: [source]
+    nss-database: [line, value]
+    pam-rule: [line, services]
+    setting: [state]
   description: >
-    /etc/sssd/sssd.conf is present. The file configures the System Security
-    Services Daemon, which can look up and authenticate accounts against a
-    directory or identity provider. Its presence does not show that the host
-    uses it, and its contents were not examined.
+    /etc/sssd/sssd.conf or a snippet in /etc/sssd/conf.d is present, or the
+    name service switch names the sss
+    service or a PAM rule names pam_sss.so, which ask the System Security
+    Services Daemon to look up or authenticate accounts against a directory
+    or identity provider. Each is recorded with where it was found. A
+    distribution can ship the wiring by default or add it when the packages
+    are installed, so neither the file nor the wiring shows that SSSD is
+    used. The domains SSSD serves, which do show it, are recorded where the
+    configuration names any, and what the configuration sets is judged by
+    the SSSD rules.
   impact: >
-    Where the host does use SSSD, the identity providers it consults,
-    whether its connections to them are encrypted, and how long cached
-    credentials stay usable while a provider is unreachable are set in this
-    file and the snippets in /etc/sssd/conf.d, and were not examined.
+    Where SSSD is used, account lookups, and with pam_sss.so in the PAM
+    stack the passwords given at login, go to the providers sssd.conf
+    names. Whether its connections to them are encrypted and whether
+    password hashes are cached on the host are set in this file and the
+    snippets in /etc/sssd/conf.d.
   resolution: >
     Review /etc/sssd/sssd.conf and /etc/sssd/conf.d. sssd.conf(5) requires
     the file to be accessible only by root or the user SSSD runs as, and the
@@ -610,6 +936,197 @@ users.sssd_configured:
   references:
     - source: NIST
       id: "IA-2"
+
+users.sssd_config_readable:
+  title: "SSSD configuration can be read by accounts other than root and SSSD"
+  severity: "MEDIUM"
+  cvss_score: 4.8
+  cvss_vector: "CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:L/VI:N/VA:N/SC:N/SI:N/SA:N"
+  records:
+    file: [mode, uid, gid, expected, version]
+  cwe: "CWE-732"
+  description: >
+    /etc/sssd/sssd.conf or a snippet in /etc/sssd/conf.d can be read by an
+    account other than root or the one SSSD runs as. Before SSSD 2.10.0,
+    sssd.conf(5) requires the file to be "owned by root and only root may
+    read from or write to the file", and snippets to have the same owner and
+    permissions. From 2.10.0 it "must be a regular file that is accessible
+    only by the user used to run SSSD service or root". The file is judged by
+    the rule of the release installed, whether or not SSSD is in use.
+  impact: >
+    A local account can read the directory servers, search bases and options
+    the host uses, and the bind credential where ldap_default_authtok is set
+    in the file.
+  resolution: >
+    Before SSSD 2.10.0: chown root:root and chmod 0600 the file. From
+    2.10.0: give it to root or the sssd user, allow group access to the sssd
+    group at most, and remove all access for others.
+  references:
+    - source: NIST
+      id: "AC-3"
+
+users.sssd_config_writable:
+  title: "SSSD configuration can be changed by accounts other than root and SSSD"
+  severity: "HIGH"
+  cvss_score: 8.5
+  cvss_vector: "CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N"
+  records:
+    file: [mode, uid, gid, expected, version]
+  cwe: "CWE-732"
+  description: >
+    /etc/sssd/sssd.conf or a snippet in /etc/sssd/conf.d can be written by an
+    account other than root or the one SSSD runs as, or is owned by such an
+    account, which can change its mode. Before SSSD 2.10.0, sssd.conf(5)
+    requires the file to be "owned by root and only root may read from or
+    write to the file"; from 2.10.0 it "must be a regular file that is
+    accessible only by the user used to run SSSD service or root". The file
+    is judged by the rule of the release installed, whether or not SSSD is in
+    use.
+  impact: >
+    An account that can change the configuration chooses the servers the
+    host looks accounts up in and authenticates them against, and so who can
+    log in and as whom.
+  resolution: >
+    Before SSSD 2.10.0: chown root:root and chmod 0600 the file. From
+    2.10.0: give it to root or the sssd user, allow group access to the sssd
+    group at most, and remove all access for others.
+  references:
+    - source: NIST
+      id: "AC-3"
+
+users.sssd_ldap_id_unencrypted:
+  title: "SSSD looks up identities over an unencrypted LDAP connection"
+  severity: "HIGH"
+  cvss_score: 8.3
+  cvss_vector: "CVSS:4.0/AV:N/AC:L/AT:P/PR:N/UI:N/VC:L/VI:H/VA:N/SC:N/SI:N/SA:N"
+  records:
+    setting: [value, state, line, version]
+  cwe: "CWE-319"
+  attack_techniques:
+    - id: "T1040"
+      basis:
+        - "NIST SC-8 maps to this technique (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
+  description: >
+    A domain SSSD serves takes its identities from an LDAP server off the
+    host, named with an ldap:// URI, while ldap_id_use_start_tls is false. A
+    server on a loopback address or localhost is not counted: that connection
+    does not leave the host. sssd-ldap(5) says the
+    option "Specifies that the id_provider connection must also use tls to
+    protect the channel", that true "is strongly recommended for security
+    reasons", and that "Even if the LDAP server is used only as an identity
+    provider, an encrypted channel is strongly recommended." The default is
+    false before SSSD 2.10.0 and true from it, so an unset option is judged
+    by the release installed.
+  impact: >
+    An attacker on the network path between the host and the server can read
+    the account data the host looks up, and can alter the answers: the user
+    and group identifiers, group memberships, home directories and shells the
+    host acts on.
+  resolution: >
+    Set ldap_id_use_start_tls = true in the domain section, or name the
+    servers with ldaps:// URIs, and restart SSSD.
+  references:
+    - source: NIST
+      id: "SC-8"
+    - source: NIST
+      id: "SC-8(1)"
+
+users.sssd_ldap_cert_unchecked:
+  title: "SSSD does not check the certificate of its LDAP server"
+  severity: "CRITICAL"
+  cvss_score: 9.1
+  cvss_vector: "CVSS:4.0/AV:N/AC:L/AT:P/PR:N/UI:N/VC:H/VI:H/VA:N/SC:N/SI:N/SA:N"
+  records:
+    setting: [value, line]
+  cwe: "CWE-295"
+  attack_techniques:
+    - id: "T1557"
+      basis:
+        - "NIST SC-8 maps to this technique (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
+        - "NIST SC-23 maps to this technique (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
+  description: >
+    A domain SSSD serves sets ldap_tls_reqcert to never or allow. sssd-ldap(5):
+    "never = The client will not request or check any server certificate" and
+    "allow = The server certificate is requested. If no certificate is
+    provided, the session proceeds normally. If a bad certificate is provided,
+    it will be ignored and the session proceeds normally." The default is
+    hard.
+  impact: >
+    An attacker on the network path can stand in for the LDAP server on a
+    connection the host believes is protected. sssd-ldap(5) says
+    authentication takes place only over an encrypted channel, so the
+    attacker receives the passwords users authenticate with, and answers the
+    identity lookups the host makes.
+  resolution: >
+    Remove ldap_tls_reqcert from the domain section, or set it to demand,
+    name the authority that signed the server certificate with
+    ldap_tls_cacert or ldap_tls_cacertdir, and restart SSSD.
+  references:
+    - source: NIST
+      id: "SC-8"
+    - source: NIST
+      id: "SC-23"
+
+users.sssd_credentials_cached:
+  title: "SSSD caches password hashes on the host"
+  severity: "MEDIUM"
+  cvss_score: 4.0
+  cvss_vector: "CVSS:4.0/AV:L/AC:L/AT:P/PR:H/UI:N/VC:N/VI:N/VA:N/SC:H/SI:N/SA:N"
+  records:
+    setting: [value, state, line]
+  no_weakness: "Caching a salted hash so that logins work while the provider is unreachable is a documented feature; CWE-522 would apply only if the stored form were shown to be insufficiently protected, which the manual does not state."
+  attack_techniques:
+    - id: "T1003.005"
+      basis:
+        - "NIST IA-5 maps to this technique (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
+  description: >
+    A domain SSSD serves sets cache_credentials = true, which is false unless
+    set. sssd.conf(5): "Determines if user credentials are also cached in the
+    local LDB cache", and, from SSSD 2.9, "while credentials are stored as a
+    salted SHA512 hash, this still potentially poses some security risk in
+    case an attacker manages to get access to a cache file (normally requires
+    privileged access) and to break a password using brute force attack."
+    offline_credentials_expiration, which limits for how many days a cached
+    login is allowed, is recorded and not judged.
+  impact: >
+    An attacker who has gained root on the host can copy the cache and work
+    on the hashes offline. Each password recovered belongs to a directory
+    account, valid on every system that account can reach.
+  resolution: >
+    Where logins while the provider is unreachable are not needed, remove
+    cache_credentials from the domain section or set it to false, and restart
+    SSSD. Where they are needed, this is an accepted risk.
+  references:
+    - source: NIST
+      id: "IA-5"
+    - source: NIST
+      id: "IA-5(13)"
+
+users.sssd_krb5_tgt_unvalidated:
+  title: "SSSD does not validate the Kerberos ticket it authenticates with"
+  severity: "CRITICAL"
+  cvss_score: 9.2
+  cvss_vector: "CVSS:4.0/AV:N/AC:L/AT:P/PR:N/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N"
+  records:
+    setting: [value, state, line]
+  cwe: "CWE-290"
+  description: >
+    A domain SSSD serves authenticates with the krb5 provider while
+    krb5_validate is false, which it is unless set. sssd-krb5(5): "Verify
+    with the help of krb5_keytab that the TGT obtained has not been spoofed."
+    Without it the host accepts a ticket-granting ticket without proving that
+    the key distribution center that issued it holds the key of the host.
+  impact: >
+    An attacker who can answer the Kerberos requests of the host in place of
+    the key distribution center can issue a ticket for any directory user
+    with a password of the attacker's choosing, and log in to the host as
+    that user.
+  resolution: >
+    Give the host a keytab holding its own principal, set krb5_validate = true
+    in the domain section, and restart SSSD.
+  references:
+    - source: NIST
+      id: "SC-23"
 
 users.regular_user_admin_privileges:
   title: "Regular user account has administrative group membership"
