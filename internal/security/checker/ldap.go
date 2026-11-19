@@ -48,7 +48,7 @@ func ldapEvidence(file, option string, set ldapSetting) finding.Evidence {
 // file is judged for who can read it whether or not nslcd is used.
 func recordNslcd(r *report, fsys fs.FS, owner fileOwner, lookups, logins []finding.Evidence) {
 	const file = "/" + nslcdConfFile
-	all := append([]registry.FindingKey{ruleNslcdReadable}, nslcdUseRules...)
+	all := append(slices.Clone(nslcdUseRules), ruleNslcdReadable)
 	config, err := readNslcdConfig(fsys)
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
@@ -58,8 +58,14 @@ func recordNslcd(r *report, fsys fs.FS, owner fileOwner, lookups, logins []findi
 		r.inconclusive(finding.ResultError, fmt.Sprintf("%s could not be read: %v", file, err), all...)
 		return
 	}
+	recordNslcdUse(r, config, lookups, logins)
 	recordNslcdPassword(r, fsys, owner, config)
+}
 
+// recordNslcdUse concludes the rules on what nslcd.conf sets, where the host
+// is wired to nslcd and nslcd starts with the file.
+func recordNslcdUse(r *report, config nslcdConfig, lookups, logins []finding.Evidence) {
+	const file = "/" + nslcdConfFile
 	switch {
 	case len(lookups)+len(logins) == 0:
 		r.inconclusive(finding.ResultNotApplicable,

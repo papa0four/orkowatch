@@ -426,3 +426,27 @@ func TestFileExcess(t *testing.T) {
 		t.Errorf("an account the host does not have: %+v", got)
 	}
 }
+
+// The rules are reported in one order whether or not the file is present:
+// what the connection carries, then the password the file holds.
+func TestRecordNslcdOrder(t *testing.T) {
+	want := []string{
+		string(ruleNslcdLookups), string(ruleNslcdLogins), string(ruleNslcdCertificate), string(ruleNslcdCase), string(ruleNslcdReadable),
+	}
+	for name, fsys := range map[string]fstest.MapFS{
+		"no configuration": {},
+		"in use":           nslcdHost(true, true, "uri ldap://dir.example.com/", "bindpw opensesame"),
+	} {
+		linux := registry.OSContext{Platform: registry.PlatformLinux, Families: []registry.Distro{registry.DistroGeneric}}
+		r := &report{osCtx: linux, index: make(map[registry.FindingKey]int)}
+		lookups := []finding.Evidence{evidence(finding.KindNSSEntry, "passwd", fact(finding.FactLine, "/etc/nsswitch.conf:1"))}
+		recordNslcd(r, fsys, ownerOf, lookups, nil)
+		var got []string
+		for _, c := range r.finish().Conditions {
+			got = append(got, c.Key)
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("%s: order %v, want %v", name, got, want)
+		}
+	}
+}
