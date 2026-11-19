@@ -35,10 +35,7 @@ func runSSSD(fsys fs.FS, release string) map[registry.FindingKey]finding.Conditi
 			}
 			return parseSSSDVersion(release)
 		},
-		owner: func(info fs.FileInfo) (uint32, uint32, bool) {
-			o, ok := info.Sys().(owned)
-			return o.uid, o.gid, ok
-		},
+		owner: ownerOf,
 	}, config, err)
 	got := map[registry.FindingKey]finding.Condition{}
 	for _, c := range r.finish().Conditions {
@@ -217,8 +214,11 @@ func TestRecordSSSDRules(t *testing.T) {
 		"start_tls unset, release unknown": {domain("id_provider = ldap", "ldap_uri = ldap://a"), "", ruleSSSDLDAPClear, finding.ResultUnknown, "the release could not be read"},
 		"start_tls false from 2.10.0": {domain("id_provider = ldap", "ldap_backup_uri = LDAP://b", "ldap_id_use_start_tls = False"), "2.10.2", ruleSSSDLDAPClear, finding.ResultFail,
 			"[domain/corp] ldap_id_use_start_tls value=False line=/etc/sssd/sssd.conf:8 version=2.10.2|[domain/corp] ldap_uri state=not set|[domain/corp] ldap_backup_uri value=LDAP://b line=/etc/sssd/sssd.conf:7"},
-		"start_tls true":           {domain("id_provider = ldap", "ldap_uri = ldap://a", "ldap_id_use_start_tls = true"), "2.9.9", ruleSSSDLDAPClear, finding.ResultPass, ""},
-		"ldaps servers only":       {domain("id_provider = ldap", "ldap_uri = ldaps://a, ldaps://b"), "2.9.9", ruleSSSDLDAPClear, finding.ResultPass, ""},
+		"start_tls true":      {domain("id_provider = ldap", "ldap_uri = ldap://a", "ldap_id_use_start_tls = true"), "2.9.9", ruleSSSDLDAPClear, finding.ResultPass, ""},
+		"ldaps servers only":  {domain("id_provider = ldap", "ldap_uri = ldaps://a, ldaps://b"), "2.9.9", ruleSSSDLDAPClear, finding.ResultPass, ""},
+		"servers on the host": {domain("id_provider = ldap", "ldap_uri = ldap://127.0.0.1, LDAP://localhost:389", "ldap_backup_uri = ldap://[::1]/"), "2.9.9", ruleSSSDLDAPClear, finding.ResultPass, ""},
+		"one server off the host": {domain("id_provider = ldap", "ldap_uri = ldap://127.0.0.1, ldap://a"), "2.9.9", ruleSSSDLDAPClear, finding.ResultFail,
+			"[domain/corp] ldap_id_use_start_tls state=not set version=2.9.9|[domain/corp] ldap_uri value=ldap://127.0.0.1, ldap://a line=/etc/sssd/sssd.conf:7|[domain/corp] ldap_backup_uri state=not set"},
 		"servers discovered":       {domain("id_provider = ldap"), "2.9.9", ruleSSSDLDAPClear, finding.ResultUnknown, "discovers its servers"},
 		"SASL mechanism":           {domain("id_provider = ldap", "ldap_uri = ldap://a", "ldap_sasl_mech = GSSAPI"), "2.9.9", ruleSSSDLDAPClear, finding.ResultUnknown, "SASL security layer"},
 		"start_tls not a boolean":  {domain("id_provider = ldap", "ldap_uri = ldap://a", "ldap_id_use_start_tls = yes"), "2.9.9", ruleSSSDLDAPClear, finding.ResultUnknown, "neither true nor false"},

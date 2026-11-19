@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io/fs"
 	"slices"
-	"strconv"
 	"strings"
 
 	"github.com/papa0four/orkowatch/internal/security/finding"
@@ -25,14 +24,8 @@ const (
 	ruleSSSDTicket      registry.FindingKey = "users.sssd_krb5_tgt_unvalidated"
 )
 
-// The permission bits that give a file's group and everyone else read or
-// write access.
-const (
-	groupRead  fs.FileMode = 0o040
-	groupWrite fs.FileMode = 0o020
-	otherRead  fs.FileMode = 0o004
-	otherWrite fs.FileMode = 0o002
-)
+// sssdAccountName is the user and group SSSD 2.10.0 and later runs as.
+const sssdAccountName = "sssd"
 
 var (
 	sssdFileRules    = []registry.FindingKey{ruleSSSDReadable, ruleSSSDWritable}
@@ -46,18 +39,10 @@ var (
 
 type (
 	// sssdHost is what the SSSD rules need from the host besides its files:
-	// the release installed, and who owns a file, which only a POSIX file
-	// system records.
+	// the release installed, and who owns a file.
 	sssdHost struct {
 		version func() (sssdVersion, error)
-		owner   func(fs.FileInfo) (uid, gid uint32, ok bool)
-	}
-
-	// sssdAccount is the account SSSD 2.10.0 and later runs as, where the
-	// host has one.
-	sssdAccount struct {
-		uid, gid    uint32
-		user, group bool
+		owner   fileOwner
 	}
 
 	// sssdDomain is one domain SSSD serves, with the providers it names.
@@ -146,7 +131,7 @@ func (d sssdDomain) foreign() bool {
 // (sssd.conf(5)), and that user is sssd. With the release unknown, a file is
 // judged only where both readings agree.
 func recordSSSDFiles(r *report, fsys fs.FS, config sssdConfig, host sssdHost, version sssdVersion, versionErr error) {
-	service := sssdServiceAccount(fsys)
+	service := lookupLocalAccount(fsys, sssdAccountName)
 	for _, file := range config.files {
 		info, err := fs.Stat(fsys, file)
 		if err != nil {
@@ -160,8 +145,8 @@ func recordSSSDFiles(r *report, fsys fs.FS, config sssdConfig, host sssdHost, ve
 		}
 
 		perm := info.Mode().Perm()
-		rootRead, rootWrite := sssdExcess(perm, uid, gid, sssdAccount{})
-		userRead, userWrite := sssdExcess(perm, uid, gid, service)
+		rootRead, rootWrite := fileExcess(perm, uid, gid, localAccount{})
+		userRead, userWrite := fileExcess(perm, uid, gid, service)
 		expected := "owned by root, with no access for its group or others"
 		subject := func() finding.Evidence {
 			return evidence(finding.KindFile, "/"+file,
@@ -192,47 +177,6 @@ func recordSSSDFiles(r *report, fsys fs.FS, config sssdConfig, host sssdHost, ve
 		conclude(ruleSSSDReadable, rootRead, userRead)
 		conclude(ruleSSSDWritable, rootWrite, userWrite)
 	}
-}
-
-// sssdExcess reports whether a file's owner, group and mode let an account
-// other than root and service read it or write it. An owner that is neither
-// can change the mode, so it has both.
-func sssdExcess(perm fs.FileMode, uid, gid uint32, service sssdAccount) (read, write bool) {
-	if uid != 0 && (!service.user || uid != service.uid) {
-		return true, true
-	}
-	if !service.group || gid != service.gid {
-		read, write = perm&groupRead != 0, perm&groupWrite != 0
-	}
-	return read || perm&otherRead != 0, write || perm&otherWrite != 0
-}
-
-// sssdServiceAccount looks the sssd user and group up in the host's own
-// account files, where a service account is kept.
-func sssdServiceAccount(fsys fs.FS) sssdAccount {
-	var account sssdAccount
-	account.uid, account.user = localID(fsys, "etc/passwd", "sssd")
-	account.gid, account.group = localID(fsys, "etc/group", "sssd")
-	return account
-}
-
-// localID returns the identifier of name in a passwd or group file, whose
-// third field holds it.
-func localID(fsys fs.FS, file, name string) (uint32, bool) {
-	const idField, fields, base, bits = 2, 3, 10, 32
-	data, err := fs.ReadFile(fsys, file)
-	if err != nil {
-		return 0, false
-	}
-	for _, line := range strings.Split(string(data), "\n") {
-		parts := strings.Split(line, ":")
-		if len(parts) < fields || parts[0] != name {
-			continue
-		}
-		id, err := strconv.ParseUint(parts[idField], base, bits)
-		return uint32(id), err == nil
-	}
-	return 0, false
 }
 
 // sssdJudge concludes the rules that read what the configuration sets.
@@ -296,9 +240,10 @@ func (j sssdJudge) undecided(section, key string) string {
 
 // ldapClear judges whether a domain's identity lookups reach an LDAP server
 // unencrypted: a server named ldap:// with ldap_id_use_start_tls false, which
-// is the default before SSSD 2.10.0 (sssd-ldap(5)). With no server named SSSD
-// discovers them, and with a SASL mechanism the security layer it negotiates
-// may protect the connection; neither is read from this configuration.
+// is the default before SSSD 2.10.0 (sssd-ldap(5)). A server on the host
+// itself is not counted. With no server named SSSD discovers them, and with a
+// SASL mechanism the security layer it negotiates may protect the connection;
+// neither is read from this configuration.
 func (j sssdJudge) ldapClear(d sssdDomain) bool {
 	if d.id != "ldap" || d.foreign() {
 		return false
@@ -331,7 +276,7 @@ func (j sssdJudge) ldapClear(d sssdDomain) bool {
 		for _, uri := range strings.Split(set.value, ",") {
 			if uri = strings.TrimSpace(uri); uri != "" {
 				servers = append(servers, uri)
-				clear = clear || strings.HasPrefix(strings.ToLower(uri), "ldap://")
+				clear = clear || ldapReachOf(uri) == ldapInClear
 			}
 		}
 	}
