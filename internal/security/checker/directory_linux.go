@@ -27,13 +27,17 @@ func (u *UnixUserChecker) checkDirectoryClients(ctx context.Context, r *report) 
 		r.note(finding.SymbolWarning, "%s", problem)
 	}
 	recordDirectoryClients(r, root, clients, nss, stack)
+	owner := func(info fs.FileInfo) (uint32, uint32, bool) {
+		uid, gid, _, ok := fileIdentity(info)
+		return uid, gid, ok
+	}
+	nslcd := clientFor(clients, ruleNslcdPresent)
+	recordNslcd(r, root, owner, nslcd.lookups(nss), nslcd.logins(stack))
+	recordOpenLDAP(r, root, clientFor(clients, ruleLDAPPresent).path)
 	sssd, sssdErr := readSSSDConfig(root)
 	recordSSSD(r, root, sssdHost{
 		version: func() (sssdVersion, error) { return installedSSSD(ctx) },
-		owner: func(info fs.FileInfo) (uint32, uint32, bool) {
-			uid, gid, _, ok := fileIdentity(info)
-			return uid, gid, ok
-		},
+		owner:   owner,
 	}, sssd, sssdErr)
 	recordKerberos(r, root, u.osCtx.Families, krb5Host{
 		release: func() (krb5Release, error) { return installedKerberos(ctx) },

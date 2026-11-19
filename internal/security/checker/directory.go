@@ -53,8 +53,8 @@ var nssDatabases = []string{
 // they come from nss-pam-ldapd, whose modules ask nslcd.
 func directoryClients(families []registry.Distro) []directoryClient {
 	return []directoryClient{
-		{label: "OpenLDAP client", key: "users.ldap_configured", path: openLDAPConfig(families)},
-		{label: "nslcd", key: "users.nslcd_configured", path: "/etc/nslcd.conf", nss: "ldap", module: "pam_ldap.so"},
+		{label: "OpenLDAP client", key: ruleLDAPPresent, path: openLDAPConfig(families)},
+		{label: "nslcd", key: ruleNslcdPresent, path: "/" + nslcdConfFile, nss: "ldap", module: "pam_ldap.so"},
 		{label: "Kerberos", key: ruleKrb5Present, path: "/etc/krb5.conf", module: "pam_krb5.so", snippets: krb5VendorConfig(families)},
 		{label: "SSSD", key: "users.sssd_configured", path: "/etc/sssd/sssd.conf", nss: "sss", module: "pam_sss.so", snippets: sssdSnippets},
 	}
@@ -92,6 +92,16 @@ func krb5VendorConfig(families []registry.Distro) func(fs.FS) ([]string, error) 
 		}
 		return []string{vendor}, nil
 	}
+}
+
+// clientFor returns the client whose presence key records.
+func clientFor(clients []directoryClient, key registry.FindingKey) directoryClient {
+	for _, client := range clients {
+		if client.key == key {
+			return client
+		}
+	}
+	panic("checker: no directory client is recorded by " + string(key))
 }
 
 // clientModules are the PAM modules of the directory clients.
@@ -183,20 +193,35 @@ func recordDirectoryClients(r *report, fsys fs.FS, clients []directoryClient, ns
 
 // wiring returns the name service lines and PAM rules naming the client.
 func (c directoryClient) wiring(nss nssWiring, stack *pamStack) []finding.Evidence {
+	return append(c.lookups(nss), c.logins(stack)...)
+}
+
+// lookups returns the name service lines naming the client's service, which
+// send the host's account lookups to it.
+func (c directoryClient) lookups(nss nssWiring) []finding.Evidence {
 	var out []finding.Evidence
-	if c.nss != "" {
-		for _, line := range nss.lines {
-			if slices.Contains(line.services, c.nss) {
-				out = append(out, evidence(finding.KindNSSEntry, line.database,
-					fact(finding.FactLine, lineRef(nss.path, line.line)), fact(finding.FactValue, line.value)))
-			}
+	if c.nss == "" {
+		return out
+	}
+	for _, line := range nss.lines {
+		if slices.Contains(line.services, c.nss) {
+			out = append(out, evidence(finding.KindNSSEntry, line.database,
+				fact(finding.FactLine, lineRef(nss.path, line.line)), fact(finding.FactValue, line.value)))
 		}
 	}
-	if c.module != "" {
-		for _, rule := range stack.wiring(c.module) {
-			out = append(out, evidence(finding.KindPAMRule, rule.subject,
-				fact(finding.FactLine, rule.line), fact(finding.FactServices, rule.services)))
-		}
+	return out
+}
+
+// logins returns the PAM rules naming the client's module, which send what
+// a service's stack handles to it.
+func (c directoryClient) logins(stack *pamStack) []finding.Evidence {
+	var out []finding.Evidence
+	if c.module == "" {
+		return out
+	}
+	for _, rule := range stack.wiring(c.module) {
+		out = append(out, evidence(finding.KindPAMRule, rule.subject,
+			fact(finding.FactLine, rule.line), fact(finding.FactServices, rule.services)))
 	}
 	return out
 }

@@ -205,6 +205,13 @@ func TestMappedTechniquesReachFindings(t *testing.T) {
 		{linux(DistroDebian), "permissions.sudoers_world_readable", "T1548.003"},
 		{linux(DistroRHEL), "permissions.sudoers_world_readable", "T1548.003"},
 		{linux(DistroDebian), "ssh.password_auth_not_set", "T1021.004"},
+		{linux(DistroDebian), "users.nslcd_lookups_unencrypted", "T1040"},
+		{linux(DistroRHEL), "users.nslcd_logins_unencrypted", "T1040"},
+		{linux(DistroSUSE), "users.sssd_ldap_id_unencrypted", "T1040"},
+		{linux(DistroArch), "users.nslcd_cert_unchecked", "T1557"},
+		{linux(DistroDebian), "users.ldap_cert_unchecked", "T1557"},
+		{linux(DistroRHEL), "users.sssd_ldap_cert_unchecked", "T1557"},
+		{linux(DistroDebian), "users.nslcd_password_readable", "T1552.001"},
 	}
 	for _, c := range cases {
 		d, ok := Lookup(c.host, c.key)
