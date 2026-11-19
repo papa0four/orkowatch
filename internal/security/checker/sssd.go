@@ -73,9 +73,9 @@ type (
 // nor a snippet there is nothing to judge, whatever the name service switch or
 // the PAM stack names. A file is judged for who can reach it whether or not
 // SSSD is used; what it sets is judged only for the domains SSSD serves.
-func recordSSSD(r *report, fsys fs.FS, host sssdHost) {
+// config and err are the configuration as readSSSDConfig returned it.
+func recordSSSD(r *report, fsys fs.FS, host sssdHost, config sssdConfig, err error) {
 	all := slices.Concat(sssdFileRules, sssdContentRules)
-	config, err := readSSSDConfig(fsys)
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
 		r.inconclusive(finding.ResultNotChecked,

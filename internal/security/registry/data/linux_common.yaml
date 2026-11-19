@@ -593,29 +593,95 @@ users.kerberos_configured:
   records:
     file: [source]
     pam-rule: [line, services]
+    setting: [value, line]
   description: >
-    /etc/krb5.conf is present, or a PAM rule names pam_krb5.so, which
-    authenticates logins with Kerberos. Each is recorded with where it was
-    found. A distribution can install the file with the Kerberos libraries
-    and add the PAM rule when the module is installed, so neither shows that
-    the host authenticates with Kerberos, and the file's contents were not
-    examined.
+    A Kerberos configuration file is present, or a PAM rule names
+    pam_krb5.so, which authenticates logins with Kerberos. Each is recorded
+    with where it was found. A distribution can install the file with the
+    Kerberos libraries, some with a default_realm already set, and add the
+    PAM rule when the module is installed, so none of these shows that the
+    host authenticates with Kerberos. What does is recorded where present:
+    the keytab of the host, and each domain SSSD serves that authenticates
+    with the krb5 provider.
   impact: >
     Where the host does use Kerberos, the realms it uses and the encryption
     types its tickets may carry are set in this file and the files it
-    includes, and were not examined. The MIT Kerberos documentation marks
-    the single-DES encryption types and arcfour-hmac-exp weak, and
-    des3-cbc-sha1 and arcfour-hmac deprecated.
+    includes. The encryption types in force are judged by the Kerberos
+    rules.
   resolution: >
     If the host should not use Kerberos, the file can stay as the libraries
     installed it, and pam_krb5.so can be removed from the PAM stack. If it
-    should, review /etc/krb5.conf and every file it includes:
-    allow_weak_crypto should not be set to true, and no weak or deprecated
-    encryption type should be listed in permitted_enctypes,
-    default_tgs_enctypes or default_tkt_enctypes.
+    should, see the Kerberos rules for the encryption types in force.
   references:
     - source: NIST
       id: "IA-2"
+
+users.krb5_weak_enctypes:
+  title: "Kerberos client uses a weak encryption type"
+  severity: "CRITICAL"
+  cvss_score: 9.1
+  cvss_vector: "CVSS:4.0/AV:N/AC:L/AT:P/PR:N/UI:N/VC:H/VI:H/VA:N/SC:N/SI:N/SA:N"
+  records:
+    setting: [value, state, line, version, description]
+  cwe: "CWE-327"
+  description: >
+    The Kerberos configuration sets allow_weak_crypto to true and an
+    encryption type list in force names a type kdc.conf(5) marks weak:
+    des3-cbc-raw or arcfour-hmac-exp. krb5.conf(5): "If this flag is set to
+    false, then weak encryption types (as noted in Encryption types in
+    kdc.conf) will be filtered out of the lists default_tgs_enctypes,
+    default_tkt_enctypes, and permitted_enctypes. The default value for this
+    tag is false." With the flag true, the library requests the weak types
+    the lists name. Judged where the host holds a keytab or SSSD serves a
+    domain that authenticates with Kerberos.
+  impact: >
+    An attacker on the network path to a Kerberos exchange protected by a
+    weak type can read what it carries and alter it, including the tickets
+    and session keys that stand for the user to every service.
+  resolution: >
+    Remove allow_weak_crypto from [libdefaults], or set it to false, and
+    remove the weak types from permitted_enctypes, default_tkt_enctypes and
+    default_tgs_enctypes in /etc/krb5.conf and the files it includes.
+  references:
+    - source: NIST
+      id: "SC-13"
+    - source: NIST
+      id: "SC-8"
+
+users.krb5_deprecated_enctypes:
+  title: "Kerberos client uses a deprecated encryption type"
+  severity: "HIGH"
+  cvss_score: 8.2
+  cvss_vector: "CVSS:4.0/AV:N/AC:H/AT:P/PR:N/UI:N/VC:H/VI:N/VA:N/SC:N/SI:N/SA:N"
+  records:
+    setting: [value, state, line, version, description]
+  cwe: "CWE-327"
+  description: >
+    An encryption type list in force for the Kerberos client contains
+    des3-cbc-sha1 or arcfour-hmac, which kdc.conf(5) marks deprecated:
+    "Encryption types marked as "weak" and "deprecated" are available for
+    compatibility but not recommended for use." The list is the one a file
+    sets in permitted_enctypes, default_tkt_enctypes or default_tgs_enctypes,
+    or, for permitted_enctypes left unset, the default set of the library as
+    built for this distribution, taken from the types it was seen to request.
+    Judged where the host holds a keytab or SSSD serves a domain that
+    authenticates with Kerberos.
+  impact: >
+    An attacker on the network path who captures a Kerberos exchange
+    protected by triple DES or RC4, and has the means to break it, recovers
+    what it protects, including material derived from the password of the
+    user.
+  resolution: >
+    Set permitted_enctypes = DEFAULT -des3 -rc4 in [libdefaults] of
+    /etc/krb5.conf, and remove the deprecated types from default_tkt_enctypes
+    and default_tgs_enctypes where a file sets them. Confirm first that the
+    realm issues keys of the remaining types for every account and service
+    the host uses.
+  references:
+    - source: NIST
+      id: "SC-13"
+    - source: NIST
+      id: "SC-8"
 
 users.sssd_configured:
   title: "SSSD configuration or wiring is present"

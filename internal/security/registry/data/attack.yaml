@@ -12,9 +12,7 @@
 # page gives them; the name of each mitigation was cross-checked against the
 # site's mitigations index. A technique with no definition referencing it, a
 # mitigation no technique lists, or a definition naming an id absent here,
-# stops the registry from loading. A technique kept for work that will cite it
-# is marked reserved, with a comment naming that work; a reserved technique a
-# definition cites also stops the load.
+# stops the registry from loading.
 #
 # A technique is attached to a finding where the technique's page, or the
 # finding's own impact text, names the host condition the finding reports. It
@@ -43,7 +41,6 @@ mitigations:
   M1038: "Execution Prevention"
   M1041: "Encrypt Sensitive Information"
   M1042: "Disable or Remove Feature or Program"
-  M1043: "Credential Access Protection"
   M1047: "Audit"
   M1051: "Update Software"
   M1052: "User Account Control"
@@ -94,13 +91,6 @@ techniques:
     name: "Private Keys"
     tactics: ["Credential Access"]
     mitigations: ["M1047", "M1041", "M1027", "M1022"]
-  # No definition cites this technique yet. It is reserved for the directory
-  # client configuration rules, which cite it or remove it.
-  T1558.005:
-    name: "Ccache Files"
-    tactics: ["Credential Access"]
-    mitigations: ["M1043", "M1047"]
-    reserved: true
   T1574.005:
     name: "Executable Installer File Permissions Weakness"
     tactics: ["Stealth", "Execution"]
