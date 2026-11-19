@@ -55,7 +55,7 @@ func directoryClients(families []registry.Distro) []directoryClient {
 	return []directoryClient{
 		{label: "OpenLDAP client", key: "users.ldap_configured", path: openLDAPConfig(families)},
 		{label: "nslcd", key: "users.nslcd_configured", path: "/etc/nslcd.conf", nss: "ldap", module: "pam_ldap.so"},
-		{label: "Kerberos", key: "users.kerberos_configured", path: "/etc/krb5.conf", module: "pam_krb5.so"},
+		{label: "Kerberos", key: ruleKrb5Present, path: "/etc/krb5.conf", module: "pam_krb5.so", snippets: krb5VendorConfig(families)},
 		{label: "SSSD", key: "users.sssd_configured", path: "/etc/sssd/sssd.conf", nss: "sss", module: "pam_sss.so", snippets: sssdSnippets},
 	}
 }
@@ -73,6 +73,25 @@ func openLDAPConfig(families []registry.Distro) string {
 		}
 	}
 	return ""
+}
+
+// krb5VendorConfig lists the vendor copy of krb5.conf on the families whose
+// library reads one, and is nil on the others.
+func krb5VendorConfig(families []registry.Distro) func(fs.FS) ([]string, error) {
+	if !slices.Contains(families, registry.DistroSUSE) && !slices.Contains(families, registry.DistroAlpine) {
+		return nil
+	}
+	return func(fsys fs.FS) ([]string, error) {
+		const vendor = "usr/etc/krb5.conf"
+		_, err := fs.Stat(fsys, vendor)
+		switch {
+		case errors.Is(err, fs.ErrNotExist):
+			return nil, nil
+		case err != nil:
+			return nil, err
+		}
+		return []string{vendor}, nil
+	}
 }
 
 // clientModules are the PAM modules of the directory clients.

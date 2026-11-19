@@ -1496,6 +1496,7 @@ weaknesses:
     abstraction: "Class"
     usage: "Allowed-with-Review"
     parents: ["CWE-693"]
+    description: "The product uses a broken or risky cryptographic algorithm or protocol."
   "CWE-328":
     name: "Use of Weak Hash"
     abstraction: "Base"

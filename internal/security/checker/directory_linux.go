@@ -27,13 +27,28 @@ func (u *UnixUserChecker) checkDirectoryClients(ctx context.Context, r *report) 
 		r.note(finding.SymbolWarning, "%s", problem)
 	}
 	recordDirectoryClients(r, root, clients, nss, stack)
+	sssd, sssdErr := readSSSDConfig(root)
 	recordSSSD(r, root, sssdHost{
 		version: func() (sssdVersion, error) { return installedSSSD(ctx) },
 		owner: func(info fs.FileInfo) (uint32, uint32, bool) {
 			uid, gid, _, ok := fileIdentity(info)
 			return uid, gid, ok
 		},
-	})
+	}, sssd, sssdErr)
+	recordKerberos(r, root, u.osCtx.Families, krb5Host{
+		release: func() (krb5Release, error) { return installedKerberos(ctx) },
+	}, sssd, sssdErr)
+}
+
+// installedKerberos asks klist for the release of the library. The default
+// encryption types differ between builds, and the configuration does not
+// state which is installed.
+func installedKerberos(ctx context.Context) (krb5Release, error) {
+	output, err := exec.CommandContext(ctx, "klist", "-V").Output()
+	if err != nil {
+		return krb5Release{}, fmt.Errorf("klist -V: %w", err)
+	}
+	return parseKrb5Release(string(output))
 }
 
 // installedSSSD asks the sssd binary for its release. The configuration does

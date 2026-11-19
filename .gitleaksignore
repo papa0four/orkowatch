@@ -1,0 +1,3 @@
+# A constant holding the path of the Kerberos keytab, etc/krb5.keytab, assigned
+# to a variable named keytab. It is a file path, not a credential.
+c21c624ae42d1a1bf1388366435ebc77a89c87d1:internal/security/checker/krb5.go:generic-api-key:172

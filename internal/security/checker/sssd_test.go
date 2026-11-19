@@ -27,6 +27,7 @@ func sssdFile(content string) *fstest.MapFile {
 func runSSSD(fsys fs.FS, release string) map[registry.FindingKey]finding.Condition {
 	linux := registry.OSContext{Platform: registry.PlatformLinux, Families: []registry.Distro{registry.DistroGeneric}}
 	r := &report{osCtx: linux, index: make(map[registry.FindingKey]int)}
+	config, err := readSSSDConfig(fsys)
 	recordSSSD(r, fsys, sssdHost{
 		version: func() (sssdVersion, error) {
 			if release == "" {
@@ -38,7 +39,7 @@ func runSSSD(fsys fs.FS, release string) map[registry.FindingKey]finding.Conditi
 			o, ok := info.Sys().(owned)
 			return o.uid, o.gid, ok
 		},
-	})
+	}, config, err)
 	got := map[registry.FindingKey]finding.Condition{}
 	for _, c := range r.finish().Conditions {
 		got[registry.FindingKey(c.Key)] = c
