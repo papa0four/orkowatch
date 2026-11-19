@@ -59,6 +59,8 @@ const (
 	FactLine             FactName = "line"
 	FactServices         FactName = "services"
 	FactVersion          FactName = "version"
+	FactGroup            FactName = "group"
+	FactGrant            FactName = "grant"
 )
 
 // The values of FactListening: how far the listening sockets of a service, or
@@ -124,6 +126,8 @@ var (
 		FactLine:             nil,
 		FactServices:         nil,
 		FactVersion:          nil,
+		FactGroup:            nil,
+		FactGrant:            nil,
 	}
 )
 

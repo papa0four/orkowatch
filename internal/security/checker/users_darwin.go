@@ -77,7 +77,7 @@ func (u *UnixUserChecker) adminMembers(ctx context.Context) map[string]bool {
 
 	output, err := exec.CommandContext(ctx, "dscacheutil", "-q", "group", "-a", "name", "admin").Output()
 	if err != nil {
-		u.adminLookupErr = execError(err)
+		u.unjudged = []unjudged{groupLookupFailed(execError(err))}
 		return members
 	}
 

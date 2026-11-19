@@ -30,7 +30,7 @@ func (u *UnixUserChecker) getUsers(ctx context.Context) ([]userAccount, error) {
 		// unknown; the account is still reported rather than dropped.
 		switch admin, err := u.inWheel(ctx, account.username); {
 		case err != nil:
-			u.adminLookupErr = err
+			u.unjudged = []unjudged{groupLookupFailed(err)}
 		default:
 			account.isAdmin = admin
 		}

@@ -1129,37 +1129,79 @@ users.sssd_krb5_tgt_unvalidated:
       id: "SC-23"
 
 users.regular_user_admin_privileges:
-  title: "Regular user account has administrative group membership"
+  title: "Regular user account may run a shell as root through sudo"
   severity: "HIGH"
-  cvss_score: 8.4
-  cvss_vector: "CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:H/VI:H/VA:N/SC:N/SI:N/SA:N"
+  cvss_score: 8.5
+  cvss_vector: "CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N"
   records:
-    account: [uid, shell]
+    account: [uid, shell, grant, group]
   cwe: "CWE-266"
   attack_techniques:
     - id: "T1548.003"
       basis:
         - "NIST AC-6 maps to this technique (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
   description: >
-    A non-system user account is a member of a privileged group (sudo or
-    wheel). Administrative group membership grants the ability to execute
-    commands as root via sudo. This may reflect intentional operator
-    access or an unauthorized privilege assignment.
+    sudo, asked as root, answers that a non-system account may run a shell
+    as root on this host, on the account's own password or on none. The
+    entries sudo lists for the account are recorded. sudoers(5): "A user
+    specification determines which commands a user may run (and as what
+    user) on specified hosts." An account sudo admits only where targetpw,
+    rootpw or runaspw is in force is not counted: sudo then asks for a
+    password the account does not hold by being admitted. A run that is not
+    root cannot ask sudo, and records the accounts in the groups sudo,
+    wheel and admin as members and not as accounts sudo admits. This may
+    reflect intentional operator access or an unauthorized privilege
+    assignment.
   impact: >
-    Any process or attacker that gains access to this account can escalate
-    to root via sudo without requiring additional exploitation. The risk
-    is proportional to the strength of the account's authentication and
+    Any process or attacker that gains access to this account and its
+    password can run any command as root, and stop any service on the
+    host, without requiring additional exploitation. The risk is
+    proportional to the strength of the account's authentication and
     whether the administrative access is operationally justified.
   resolution: >
-    Review sudo and wheel group membership: getent group sudo wheel.
-    Remove any account from administrative groups that does not require
-    elevated access. Scope sudo rules to specific commands where full
-    root access is not required.
+    List what sudo grants the account: sudo -l -U <account>. Remove the
+    entry, or remove the account from the group the entry names, where
+    elevated access is not required. Scope sudo rules to specific commands
+    where full root access is not required.
   references:
     - source: CIS
       benchmark: "CIS Distribution Independent Linux Benchmark"
       version: "v2.0.0"
       id: "5.4.1"
+    - source: NIST
+      id: "AC-6"
+
+users.sudo_nopasswd:
+  title: "Sudoers entry permits privilege escalation without password"
+  severity: "HIGH"
+  cvss_score: 8.5
+  cvss_vector: "CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N"
+  records:
+    account: [uid, shell, grant]
+  cwe: "CWE-306"
+  attack_techniques:
+    - id: "T1548.003"
+      basis:
+        - "NIST AC-6 maps to this technique (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
+  description: >
+    sudo, asked as root, lists for an account an entry that asks for no
+    password. sudoers(5): "By default, sudo requires that a user
+    authenticate before running a command. This behavior can be modified
+    via the NOPASSWD tag." and, of the authenticate flag, "If set, users
+    must authenticate themselves via a password (or other means of
+    authentication) before they may run commands. This default may be
+    overridden via the PASSWD and NOPASSWD tags. This flag is on by
+    default." The entries are recorded.
+  impact: >
+    Any attacker or process that gains access to the affected user account
+    can immediately escalate to root or another privileged user without
+    any additional credential. This eliminates the password barrier for
+    privilege escalation entirely for the affected account.
+  resolution: >
+    Remove NOPASSWD tags from sudoers rules unless operationally required.
+    Edit safely with: visudo. If NOPASSWD is required for automation,
+    scope it to the minimum required commands rather than ALL.
+  references:
     - source: NIST
       id: "AC-6"
 

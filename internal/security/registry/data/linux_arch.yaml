@@ -162,23 +162,23 @@ firewall.iptables_default_accept:
 # User checker findings
 # -------------------------
 
-# No checker emits this definition yet. It is kept for the Linux check that
-# will detect the condition.
 users.sudo_nopasswd:
   title: "Sudoers entry permits privilege escalation without password"
   severity: "HIGH"
   cvss_score: 8.5
   cvss_vector: "CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N"
-  records: {}
+  records:
+    account: [uid, shell, grant]
   cwe: "CWE-306"
   attack_techniques:
     - id: "T1548.003"
       basis:
         - "NIST AC-6 maps to this technique (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
   description: >
-    A sudoers rule contains the NOPASSWD tag, allowing one or more users
-    to execute commands with elevated privileges without providing a
-    password. On Arch-family systems this is commonly added during
+    sudo, asked as root, lists for an account an entry that asks for no
+    password, by the NOPASSWD tag or with authenticate turned off, so the
+    account runs the entry's commands with elevated privileges on no
+    credential. The entries are recorded. On Arch-family systems this is commonly added during
     initial setup for convenience and frequently left in place.
   impact: >
     Any attacker or process that gains access to the affected user account
@@ -201,48 +201,6 @@ users.sudo_nopasswd:
       benchmark: "CIS Distribution Independent Linux Benchmark"
       version: "v2.0.0"
       id: "5.3.7"
-    - source: NIST
-      id: "AC-6"
-    - source: URL
-      title: "ArchWiki: Sudo, Example entries"
-      url: "https://wiki.archlinux.org/title/Sudo#Example_entries"
-      version: "page revision 876067"
-      verified: "2026-11-15"
-
-# No checker emits this definition yet. It is kept for the Linux check that
-# will detect the condition.
-users.wheel_group_unrestricted:
-  title: "wheel group has unrestricted sudo access"
-  severity: "HIGH"
-  cvss_score: 8.4
-  cvss_vector: "CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:H/VI:H/VA:N/SC:N/SI:N/SA:N"
-  records: {}
-  cwe: "CWE-266"
-  attack_techniques:
-    - id: "T1548.003"
-      basis:
-        - "NIST AC-6 maps to this technique (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
-  description: >
-    The wheel group is configured with unrestricted sudo access to all
-    commands. On Arch Linux this is the default sudoers configuration
-    when the wheel group line is uncommented during setup. Every member
-    of the wheel group can run any command as root.
-  impact: >
-    Compromise of any wheel group member account yields full root access
-    via sudo. If multiple user accounts are in the wheel group, the
-    attack surface for privilege escalation is multiplied. Unrestricted
-    wheel access provides no command-level containment.
-  resolution: >
-    Audit wheel group membership: getent group wheel. Remove accounts
-    that do not require administrative access. Consider restricting
-    sudo access to specific commands for accounts that only need
-    limited elevation rather than full wheel membership.
-  references:
-    - source: URL
-      title: "ArchWiki: Security, Use sudo instead of su"
-      url: "https://wiki.archlinux.org/title/Security#Use_sudo_instead_of_su"
-      version: "page revision 888759"
-      verified: "2026-11-15"
     - source: NIST
       id: "AC-6"
     - source: URL
