@@ -207,14 +207,9 @@ func TestCheckSSHDConfigJudgesTheAssembledConfiguration(t *testing.T) {
 	}
 	for name, c := range cases {
 		dir := writeConfig(t, map[string]string{"sshd_config": c.config, "d/50-cloud.conf": "PasswordAuthentication yes\n"})
-		r := &report{
-			osCtx: registry.OSContext{Platform: registry.PlatformLinux, Families: []registry.Distro{registry.DistroGeneric}},
-			index: make(map[registry.FindingKey]int),
-		}
-		checkSSHDConfig(context.Background(), r, filepath.Join(dir, "sshd_config"), sshdAbsentKeys{
-			rootLogin:    "ssh.permit_root_login_not_set",
-			passwordAuth: "ssh.password_auth_not_set",
-		}, Listeners{View: loopbackSSHD()})
+		linux := registry.OSContext{Platform: registry.PlatformLinux, Families: []registry.Distro{registry.DistroGeneric}}
+		r := &report{osCtx: linux, index: make(map[registry.FindingKey]int)}
+		checkSSHDConfig(context.Background(), r, filepath.Join(dir, "sshd_config"), sshdPlatformFor(linux), Listeners{View: loopbackSSHD()})
 		condition := r.result.Conditions[r.index[registry.FindingKey(c.key)]]
 		if condition.Result != c.result {
 			t.Errorf("%s: %s is %s (%s), want %s", name, c.key, condition.Result, condition.Reason, c.result)
@@ -366,5 +361,92 @@ func TestHostListening(t *testing.T) {
 		if got := factValue(hostListening(r, Listeners{View: view}), finding.FactListening); got != want {
 			t.Errorf("host listening %s, want %s", got, want)
 		}
+	}
+}
+
+// On FreeBSD a directive the configuration leaves unset is judged by the
+// default sshd_config(5) states, and a password is accepted through
+// PasswordAuthentication or through keyboard-interactive authentication that
+// PAM answers. Each case is a configuration sshd on FreeBSD 15.1 was given,
+// and the rules answer as sshd admitted or refused: root, an account by its
+// password, and what PermitEmptyPasswords says of an empty one.
+func TestFreeBSDJudgesDefaultsAndKeyboardInteractive(t *testing.T) {
+	freebsd := registry.OSContext{Platform: registry.PlatformUnix, Families: []registry.Distro{registry.DistroFreeBSD}}
+	const pass, fail = finding.ResultPass, finding.ResultFail
+
+	cases := []struct {
+		name                  string
+		config                string
+		root, password, empty finding.Result
+	}{
+		{"as shipped", "AuthorizedKeysFile .ssh/authorized_keys\n", pass, fail, pass},
+		{"keyboard-interactive off", "KbdInteractiveAuthentication no\n", pass, pass, pass},
+		{"the deprecated alias off", "ChallengeResponseAuthentication no\n", pass, pass, pass},
+		{"passwords on", "PasswordAuthentication yes\n", pass, fail, pass},
+		{"both off", "KbdInteractiveAuthentication no\nPasswordAuthentication no\n", pass, pass, pass},
+		{"PAM off", "UsePAM no\n", pass, pass, pass},
+		{"PAM off, passwords on", "UsePAM no\nPasswordAuthentication yes\n", pass, fail, pass},
+		{"empty passwords permitted", "PermitEmptyPasswords yes\nKbdInteractiveAuthentication no\n", pass, pass, fail},
+		{"root permitted", "PermitRootLogin yes\nKbdInteractiveAuthentication no\n", fail, pass, pass},
+		{"root by key only", "PermitRootLogin prohibit-password\nKbdInteractiveAuthentication no\n", fail, pass, pass},
+		{"root refused outright", "PermitRootLogin no\nKbdInteractiveAuthentication no\n", pass, pass, pass},
+		{"a Match block turns the method on", "KbdInteractiveAuthentication no\nMatch User alice\n KbdInteractiveAuthentication yes\n", pass, fail, pass},
+	}
+	unread := Listeners{Unread: "not read on this platform"}
+	for _, c := range cases {
+		dir := writeConfig(t, map[string]string{"sshd_config": c.config})
+		r := &report{osCtx: freebsd, index: make(map[registry.FindingKey]int)}
+		checkSSHDConfig(context.Background(), r, filepath.Join(dir, "sshd_config"), sshdPlatformFor(freebsd), unread)
+
+		for key, want := range map[registry.FindingKey]finding.Result{
+			ruleSSHRootLogin: c.root, ruleSSHPassword: c.password, ruleSSHEmptyPasswords: c.empty,
+		} {
+			i, ok := r.index[key]
+			if !ok || r.result.Conditions[i].Result != want {
+				t.Errorf("%s: %s is not %s: %+v", c.name, key, want, r.result.Conditions)
+			}
+		}
+		for _, key := range []registry.FindingKey{ruleSSHRootLoginUnset, ruleSSHPasswordUnset} {
+			if _, ok := r.index[key]; ok {
+				t.Errorf("%s: %s was concluded on a platform that does not define it", c.name, key)
+			}
+		}
+	}
+
+	// The stock host fails by the default, and the evidence says which
+	// directives let a password in and that neither is set.
+	dir := writeConfig(t, map[string]string{"sshd_config": "Subsystem sftp /usr/libexec/sftp-server\n"})
+	r := &report{osCtx: freebsd, index: make(map[registry.FindingKey]int)}
+	checkSSHDConfig(context.Background(), r, filepath.Join(dir, "sshd_config"), sshdPlatformFor(freebsd), unread)
+	way := evidenceOfKind(r.result.Conditions[r.index[ruleSSHPassword]], finding.KindDirective)
+	if len(way) != 2 || way[0].Subject != directiveKeyboard || way[1].Subject != directiveUsePAM {
+		t.Fatalf("the way a password gets in is recorded as %+v", way)
+	}
+	for _, e := range way {
+		if factValue(e, finding.FactValue) != "yes" || factValue(e, finding.FactState) != sshdDefaultState {
+			t.Errorf("%s is recorded as %+v, want yes by default", e.Subject, e.Facts)
+		}
+	}
+}
+
+// A platform that states no default leaves an unset directive as it was: not
+// checked, with the rule the platform has for it, and the directives only
+// FreeBSD is judged by conclude nothing there.
+func TestUnsetDirectiveWithoutAStatedDefault(t *testing.T) {
+	linux := registry.OSContext{Platform: registry.PlatformLinux, Families: []registry.Distro{registry.DistroGeneric}}
+	dir := writeConfig(t, map[string]string{"sshd_config": "KbdInteractiveAuthentication yes\nUsePAM yes\nPermitEmptyPasswords yes\n"})
+	r := &report{osCtx: linux, index: make(map[registry.FindingKey]int)}
+	checkSSHDConfig(context.Background(), r, filepath.Join(dir, "sshd_config"), sshdPlatformFor(linux), Listeners{View: loopbackSSHD()})
+
+	for key, want := range map[registry.FindingKey]finding.Result{
+		ruleSSHRootLogin: finding.ResultNotChecked, ruleSSHPassword: finding.ResultNotChecked,
+		ruleSSHRootLoginUnset: finding.ResultFail, ruleSSHPasswordUnset: finding.ResultFail,
+	} {
+		if got := r.result.Conditions[r.index[key]].Result; got != want {
+			t.Errorf("%s: %s, want %s", key, got, want)
+		}
+	}
+	if _, ok := r.index[ruleSSHEmptyPasswords]; ok {
+		t.Error("the empty password rule was concluded on Linux, which does not define it")
 	}
 }
