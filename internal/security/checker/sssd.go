@@ -13,9 +13,11 @@ import (
 	"github.com/papa0four/orkowatch/internal/security/registry"
 )
 
-// The rules that judge the SSSD configuration. The two file rules are judged
-// whenever a file is present; the others need a domain SSSD serves.
+// The condition recording that SSSD is configured, and the rules that judge
+// its configuration. The two file rules are judged whenever a file is
+// present; the others need a domain SSSD serves.
 const (
+	ruleSSSDPresent     registry.FindingKey = "users.sssd_configured"
 	ruleSSSDReadable    registry.FindingKey = "users.sssd_config_readable"
 	ruleSSSDWritable    registry.FindingKey = "users.sssd_config_writable"
 	ruleSSSDLDAPClear   registry.FindingKey = "users.sssd_ldap_id_unencrypted"
@@ -41,7 +43,7 @@ type (
 	// sssdHost is what the SSSD rules need from the host besides its files:
 	// the release installed, and who owns a file.
 	sssdHost struct {
-		version func() (sssdVersion, error)
+		version func() (programRelease, error)
 		owner   fileOwner
 	}
 
@@ -89,7 +91,7 @@ func recordSSSD(r *report, fsys fs.FS, host sssdHost, config sssdConfig, err err
 		return
 	}
 	for _, domain := range domains {
-		r.observed("users.sssd_configured", evidence(finding.KindSetting, "["+domain.section+"]",
+		r.observed(ruleSSSDPresent, evidence(finding.KindSetting, "["+domain.section+"]",
 			fact(finding.FactState, "active")))
 	}
 
@@ -130,46 +132,31 @@ func (d sssdDomain) foreign() bool {
 // is accessible only by the user used to run SSSD service or root"
 // (sssd.conf(5)), and that user is sssd. With the release unknown, a file is
 // judged only where both readings agree.
-func recordSSSDFiles(r *report, fsys fs.FS, config sssdConfig, host sssdHost, version sssdVersion, versionErr error) {
+func recordSSSDFiles(r *report, fsys fs.FS, config sssdConfig, host sssdHost, version programRelease, versionErr error) {
 	service := lookupLocalAccount(fsys, sssdAccountName)
-	for _, file := range config.files {
-		info, err := fs.Stat(fsys, file)
-		if err != nil {
-			r.inconclusive(finding.ResultError, fmt.Sprintf("/%s could not be checked: %v", file, err), sssdFileRules...)
-			continue
-		}
-		uid, gid, ok := host.owner(info)
-		if !ok {
-			r.inconclusive(finding.ResultError, "/"+file+" ownership could not be determined", sssdFileRules...)
+	for _, name := range config.files {
+		file, unread := statOwned(fsys, name, host.owner)
+		if unread != "" {
+			r.inconclusive(finding.ResultError, unread, sssdFileRules...)
 			continue
 		}
 
-		perm := info.Mode().Perm()
-		rootRead, rootWrite := fileExcess(perm, uid, gid, localAccount{})
-		userRead, userWrite := fileExcess(perm, uid, gid, service)
-		expected := "owned by root, with no access for its group or others"
-		subject := func() finding.Evidence {
-			return evidence(finding.KindFile, "/"+file,
-				fact(finding.FactMode, formatMode(info.Mode())),
-				fact(finding.FactUID, fmt.Sprint(uid)),
-				fact(finding.FactGID, fmt.Sprint(gid)),
-				fact(finding.FactExpected, expected),
-				fact(finding.FactVersion, version.text))
-		}
+		rootRead, rootWrite := file.excess(localAccount{})
+		userRead, userWrite := file.excess(service)
 		conclude := func(key registry.FindingKey, root, user bool) {
-			excess := root
+			excess, expected := root, expectRootOnly
 			switch {
 			case versionErr != nil && root != user:
 				r.inconclusive(finding.ResultUnknown, fmt.Sprintf(
-					"/%s is %s owned by %d:%d, which SSSD 2.10.0 and later allows and earlier releases do not, and the release could not be read",
-					file, formatMode(info.Mode()), uid, gid), key)
+					"%s is %s owned by %d:%d, which SSSD 2.10.0 and later allows and earlier releases do not, and the release could not be read",
+					file.path, formatMode(file.mode), file.uid, file.gid), key)
 				return
-			case versionErr == nil && version.runsAsServiceUser():
+			case versionErr == nil && sssdRunsAsServiceUser(version):
 				excess = user
 				expected = "owned by root or sssd, with access for the sssd group at most and none for others"
 			}
 			if excess {
-				r.observed(key, subject())
+				r.observed(key, file.evidence(expected, fact(finding.FactVersion, version.text)))
 				return
 			}
 			r.pass(key)
@@ -183,7 +170,7 @@ func recordSSSDFiles(r *report, fsys fs.FS, config sssdConfig, host sssdHost, ve
 type sssdJudge struct {
 	r          *report
 	config     sssdConfig
-	version    sssdVersion
+	version    programRelease
 	versionErr error
 }
 
@@ -208,10 +195,9 @@ func (j sssdJudge) setting(section, key string) finding.Evidence {
 	subject := "[" + section + "] " + key
 	set, ok := j.config.get(section, key)
 	if !ok {
-		return evidence(finding.KindSetting, subject, fact(finding.FactState, "not set"))
+		return unsetEvidence(subject)
 	}
-	return evidence(finding.KindSetting, subject,
-		fact(finding.FactValue, set.value), fact(finding.FactLine, lineRef("/"+set.file, set.line)))
+	return settingEvidence(subject, set)
 }
 
 // boolean reads a boolean option of a section. known is false when the value
@@ -227,7 +213,7 @@ func (j sssdJudge) boolean(section, key string, unset bool) (value, known bool, 
 	}
 	value, known = sssdBool(set.value)
 	if !known {
-		reason = fmt.Sprintf("[%s] %s is %q at %s, which is neither true nor false", section, key, set.value, lineRef("/"+set.file, set.line))
+		reason = fmt.Sprintf("[%s] %s is %q at %s, which is neither true nor false", section, key, set.value, set.at())
 	}
 	return value, known, reason
 }
@@ -255,7 +241,7 @@ func (j sssdJudge) ldapClear(d sssdDomain) bool {
 			d.section, key), ruleSSSDLDAPClear)
 		return true
 	}
-	startTLS, known, reason := j.boolean(d.section, key, j.version.runsAsServiceUser())
+	startTLS, known, reason := j.boolean(d.section, key, sssdRunsAsServiceUser(j.version))
 	switch {
 	case !known:
 		j.r.inconclusive(finding.ResultUnknown, reason, ruleSSSDLDAPClear)
@@ -266,7 +252,7 @@ func (j sssdJudge) ldapClear(d sssdDomain) bool {
 	}
 
 	var servers []string
-	var clear bool
+	var inClear bool
 	for _, option := range []string{"ldap_uri", "ldap_backup_uri"} {
 		if j.config.undecided(d.section, option) {
 			j.r.inconclusive(finding.ResultUnknown, j.undecided(d.section, option), ruleSSSDLDAPClear)
@@ -276,7 +262,7 @@ func (j sssdJudge) ldapClear(d sssdDomain) bool {
 		for _, uri := range strings.Split(set.value, ",") {
 			if uri = strings.TrimSpace(uri); uri != "" {
 				servers = append(servers, uri)
-				clear = clear || ldapReachOf(uri) == ldapInClear
+				inClear = inClear || ldapReachOf(uri) == ldapInClear
 			}
 		}
 	}
@@ -286,7 +272,7 @@ func (j sssdJudge) ldapClear(d sssdDomain) bool {
 		j.r.inconclusive(finding.ResultUnknown, fmt.Sprintf(
 			"[%s] names no ldap_uri, so SSSD discovers its servers and how it connects to them is not in the configuration", d.section),
 			ruleSSSDLDAPClear)
-	case !clear:
+	case !inClear:
 		j.r.pass(ruleSSSDLDAPClear)
 	case sasl:
 		j.r.inconclusive(finding.ResultUnknown, fmt.Sprintf(
@@ -302,26 +288,28 @@ func (j sssdJudge) ldapClear(d sssdDomain) bool {
 
 // certificate judges whether a domain checks its LDAP server's certificate:
 // ldap_tls_reqcert of never or allow lets a session proceed with none or a bad
-// one, and the default is hard (sssd-ldap(5)).
+// one, and the default is hard (sssd-ldap(5)). The values are those of the
+// OpenLDAP library's TLS_REQCERT.
 func (j sssdJudge) certificate(d sssdDomain) bool {
 	if d.id != "ldap" && d.auth != "ldap" || d.foreign() {
 		return false
 	}
 	const key = "ldap_tls_reqcert"
 	set, ok := j.config.get(d.section, key)
-	switch value := strings.ToLower(set.value); {
+	unchecked, accepted := ldapReqcert[strings.ToLower(set.value)]
+	switch {
 	case !ok:
 		j.r.pass(ruleSSSDCertificate)
 	case j.config.undecided(d.section, key):
 		j.r.inconclusive(finding.ResultUnknown, j.undecided(d.section, key), ruleSSSDCertificate)
-	case value == "never" || value == "allow":
-		j.r.observed(ruleSSSDCertificate, j.setting(d.section, key))
-	case slices.Contains([]string{"try", "demand", "hard"}, value):
-		j.r.pass(ruleSSSDCertificate)
-	default:
+	case !accepted:
 		j.r.inconclusive(finding.ResultUnknown, fmt.Sprintf(
-			"[%s] %s is %q at %s, which is not a value sssd-ldap(5) gives", d.section, key, set.value, lineRef("/"+set.file, set.line)),
+			"[%s] %s is %q at %s, which is not a value sssd-ldap(5) gives", d.section, key, set.value, set.at()),
 			ruleSSSDCertificate)
+	case unchecked:
+		j.r.observed(ruleSSSDCertificate, j.setting(d.section, key))
+	default:
+		j.r.pass(ruleSSSDCertificate)
 	}
 	return true
 }

@@ -85,12 +85,12 @@ func outcome(c finding.Condition) (finding.Result, string) {
 // An option's name is read without regard to case, a comment begins a line,
 // and blanks, tabs and a carriage return separate a name from its value.
 func TestReadLDAPOptions(t *testing.T) {
-	got := readLDAPOptions([]byte("# comment\n  # not a comment\nURI ldap://a\n\tTls_ReqCert\tnever\r\nbindpw two  words\n\nuri ldaps://b\n"))
+	got := readLDAPOptions("etc/ldap.conf", []byte("# comment\n  # not a comment\nURI ldap://a\n\tTls_ReqCert\tnever\r\nbindpw two  words\n\nuri ldaps://b\n"))
 	want := ldapOptions{
-		"#":           {{value: "not a comment", line: 2}},
-		"uri":         {{value: "ldap://a", line: 3}, {value: "ldaps://b", line: 7}},
-		"tls_reqcert": {{value: "never", line: 4}},
-		"bindpw":      {{value: "two words", line: 5}},
+		"#":           {{value: "not a comment", file: "etc/ldap.conf", line: 2}},
+		"uri":         {{value: "ldap://a", file: "etc/ldap.conf", line: 3}, {value: "ldaps://b", file: "etc/ldap.conf", line: 7}},
+		"tls_reqcert": {{value: "never", file: "etc/ldap.conf", line: 4}},
+		"bindpw":      {{value: "two words", file: "etc/ldap.conf", line: 5}},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("options %v, want %v", got, want)

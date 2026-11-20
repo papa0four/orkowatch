@@ -9,7 +9,6 @@ import (
 	"context"
 	"fmt"
 	"slices"
-	"strconv"
 	"strings"
 
 	"github.com/papa0four/orkowatch/internal/security/finding"
@@ -333,7 +332,7 @@ func judgeAccount(user userAccount, r *report) {
 // then what else was observed of it.
 func accountEvidence(user userAccount, facts ...finding.Fact) finding.Evidence {
 	return evidence(finding.KindAccount, user.username, append([]finding.Fact{
-		fact(finding.FactUID, strconv.FormatUint(uint64(user.uid), decimalBase)),
+		fact(finding.FactUID, formatUnixID(user.uid)),
 		fact(finding.FactShell, user.shell),
 	}, facts...)...)
 }

@@ -29,9 +29,9 @@ func runSSSD(fsys fs.FS, release string) map[registry.FindingKey]finding.Conditi
 	r := &report{osCtx: linux, index: make(map[registry.FindingKey]int)}
 	config, err := readSSSDConfig(fsys)
 	recordSSSD(r, fsys, sssdHost{
-		version: func() (sssdVersion, error) {
+		version: func() (programRelease, error) {
 			if release == "" {
-				return sssdVersion{}, errors.New("sssd is not installed")
+				return programRelease{}, errors.New("sssd is not installed")
 			}
 			return parseSSSDVersion(release)
 		},
@@ -283,7 +283,7 @@ func TestRecordSSSDDomainsAndOrder(t *testing.T) {
 func TestParseSSSDVersion(t *testing.T) {
 	for text, want := range map[string]bool{"2.6.3\n": false, "2.9.9": false, "2.10.0": true, "2.10.2": true, "3.0": true} {
 		v, err := parseSSSDVersion(text)
-		if err != nil || v.runsAsServiceUser() != want || v.text != strings.TrimSpace(text) {
+		if err != nil || sssdRunsAsServiceUser(v) != want || v.text != strings.TrimSpace(text) {
 			t.Errorf("%q: %+v %v, want runsAsServiceUser %v", text, v, err, want)
 		}
 	}

@@ -24,9 +24,9 @@ func runKerberos(fsys fs.FS, family registry.Distro, release string) map[registr
 	linux := registry.OSContext{Platform: registry.PlatformLinux, Families: []registry.Distro{family, registry.DistroGeneric}}
 	r := &report{osCtx: linux, index: make(map[registry.FindingKey]int)}
 	sssd, sssdErr := readSSSDConfig(fsys)
-	recordKerberos(r, fsys, linux.Families, krb5Host{release: func() (krb5Release, error) {
+	recordKerberos(r, fsys, linux.Families, krb5Host{release: func() (programRelease, error) {
 		if release == "" {
-			return krb5Release{}, errors.New("klist is not installed")
+			return programRelease{}, errors.New("klist is not installed")
 		}
 		return parseKrb5Release("Kerberos 5 version " + release)
 	}}, sssd, sssdErr)
@@ -90,7 +90,7 @@ func TestReadKrb5Config(t *testing.T) {
 	if err != nil || len(config.refused) != 0 || len(config.undecided) != 0 {
 		t.Fatalf("%v refused %v undecided %v", err, config.refused, config.undecided)
 	}
-	want := map[string]krb5Setting{
+	want := map[string]setting{
 		"ticket_lifetime":      {"from-B", "etc/krb5.conf.d/B.conf", 2},
 		"default_realm":        {"SNIPPET.TEST", "etc/krb5.conf.d/a-policy", 3},
 		"permitted_enctypes":   {"aes256-cts", "etc/krb5.conf", 5},

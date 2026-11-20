@@ -12,8 +12,12 @@ import (
 )
 
 // nslcdConfFile is where nslcd reads its configuration on every supported
-// family, relative to the root of the file system read.
-const nslcdConfFile = "etc/nslcd.conf"
+// family, relative to the root of the file system read, and nslcdConfPath the
+// file as a report names it.
+const (
+	nslcdConfFile = "etc/nslcd.conf"
+	nslcdConfPath = "/" + nslcdConfFile
+)
 
 // How a client reaches the server a URI names.
 const (
@@ -51,15 +55,9 @@ type (
 	// ldapReach is how a client reaches a directory server.
 	ldapReach int
 
-	// ldapSetting is one option as nslcd.conf or ldap.conf states it.
-	ldapSetting struct {
-		value string
-		line  int
-	}
-
 	// ldapOptions holds every setting of each option of one file, under the
 	// option's name in lower case, in the order written.
-	ldapOptions map[string][]ldapSetting
+	ldapOptions map[string][]setting
 
 	// nslcdConfig is nslcd.conf as nslcd reads it. refused says why nslcd
 	// does not start with the file, as far as the options judged show: an
@@ -71,11 +69,11 @@ type (
 	}
 )
 
-// readLDAPOptions reads the lines of an nslcd.conf or an ldap.conf, which
-// share a syntax: an option name, white space, and its value, with the name
-// read without regard to case. A line beginning with # is a comment; one that
-// begins with blanks and then # is not, to either program.
-func readLDAPOptions(data []byte) ldapOptions {
+// readLDAPOptions reads the lines of an nslcd.conf or an ldap.conf, read from
+// file, which share a syntax: an option name, white space, and its value,
+// with the name read without regard to case. A line beginning with # is a
+// comment; one that begins with blanks and then # is not, to either program.
+func readLDAPOptions(file string, data []byte) ldapOptions {
 	options := ldapOptions{}
 	for i, raw := range strings.Split(string(data), "\n") {
 		fields := strings.Fields(raw)
@@ -83,16 +81,16 @@ func readLDAPOptions(data []byte) ldapOptions {
 			continue
 		}
 		name := strings.ToLower(fields[0])
-		options[name] = append(options[name], ldapSetting{value: strings.Join(fields[1:], " "), line: i + 1})
+		options[name] = append(options[name], setting{value: strings.Join(fields[1:], " "), file: file, line: i + 1})
 	}
 	return options
 }
 
 // last returns the last setting of an option, and whether the file sets it.
-func (o ldapOptions) last(option string) (ldapSetting, bool) {
+func (o ldapOptions) last(option string) (setting, bool) {
 	settings := o[option]
 	if len(settings) == 0 {
-		return ldapSetting{}, false
+		return setting{}, false
 	}
 	return settings[len(settings)-1], true
 }
@@ -103,23 +101,22 @@ func readNslcdConfig(fsys fs.FS) (nslcdConfig, error) {
 	if err != nil {
 		return nslcdConfig{}, err
 	}
-	config := nslcdConfig{options: readLDAPOptions(data)}
-	config.check()
-	return config, nil
+	options := readLDAPOptions(nslcdConfFile, data)
+	return nslcdConfig{options: options, refused: nslcdRefusals(options)}, nil
 }
 
-// check records each line of the options judged that nslcd was seen to
-// refuse: a comment after blanks, which it reads as a keyword, an option
-// without its value or with one too many, a value it does not accept, and a
-// file naming no server.
-func (c *nslcdConfig) check() {
+// nslcdRefusals returns each line of the options judged that nslcd was seen
+// to refuse, in the order of the file: a comment after blanks, which it
+// reads as a keyword, an option without its value or with one too many, a
+// value it does not accept, and last a file naming no server.
+func nslcdRefusals(options ldapOptions) []string {
 	type refusal struct {
 		line int
 		text string
 	}
 	var refusals []refusal
-	refuse := func(set ldapSetting, format string, args ...any) {
-		refusals = append(refusals, refusal{set.line, lineRef("/"+nslcdConfFile, set.line) + " " + fmt.Sprintf(format, args...)})
+	refuse := func(set setting, format string, args ...any) {
+		refusals = append(refusals, refusal{set.line, set.at() + " " + fmt.Sprintf(format, args...)})
 	}
 
 	single := map[string]func(string) bool{
@@ -129,7 +126,7 @@ func (c *nslcdConfig) check() {
 		"tls_reqcert": func(value string) bool { _, ok := nslcdReqcert[value]; return ok },
 		"ignorecase":  func(value string) bool { return slices.Contains(slices.Concat(nslcdTrue, nslcdFalse), value) },
 	}
-	for name, settings := range c.options {
+	for name, settings := range options {
 		accepts, judged := single[name]
 		for _, set := range settings {
 			switch {
@@ -145,21 +142,23 @@ func (c *nslcdConfig) check() {
 		}
 	}
 	slices.SortFunc(refusals, func(a, b refusal) int { return cmp.Compare(a.line, b.line) })
+	refused := make([]string, 0, len(refusals)+1)
 	for _, r := range refusals {
-		c.refused = append(c.refused, r.text)
+		refused = append(refused, r.text)
 	}
-	if len(c.options["uri"]) == 0 {
-		c.refused = append(c.refused, "/"+nslcdConfFile+" names no uri")
+	if len(options["uri"]) == 0 {
+		refused = append(refused, nslcdConfPath+" names no uri")
 	}
+	return refused
 }
 
 // servers returns each server a uri line names, with the line it is on. A
 // line may name several, and nslcd tries every one of every line.
-func (c nslcdConfig) servers() []ldapSetting {
-	var out []ldapSetting
+func (c nslcdConfig) servers() []setting {
+	var out []setting
 	for _, set := range c.options["uri"] {
 		for _, server := range strings.Fields(set.value) {
-			out = append(out, ldapSetting{value: server, line: set.line})
+			out = append(out, setting{value: server, file: set.file, line: set.line})
 		}
 	}
 	return out
@@ -168,14 +167,14 @@ func (c nslcdConfig) servers() []ldapSetting {
 // encrypted returns the ssl line that makes nslcd encrypt its connections to
 // ldap:// servers, and whether there is one. It is the last line setting on
 // or start_tls: nslcd was seen to keep it whatever a later off says.
-func (c nslcdConfig) encrypted() (ldapSetting, bool) {
+func (c nslcdConfig) encrypted() (setting, bool) {
 	settings := c.options["ssl"]
 	for i := len(settings) - 1; i >= 0; i-- {
 		if value := strings.ToLower(settings[i].value); slices.Contains(nslcdTrue, value) || slices.Contains(nslcdStartTLS, value) {
 			return settings[i], true
 		}
 	}
-	return ldapSetting{}, false
+	return setting{}, false
 }
 
 // nslcdReach is how nslcd reaches a server one uri argument names. DNS, alone

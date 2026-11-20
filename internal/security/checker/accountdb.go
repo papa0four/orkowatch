@@ -14,7 +14,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"strconv"
 	"strings"
 )
 
@@ -93,9 +92,7 @@ func nameServiceKnows(ctx context.Context, kind identityKind, id uint32) bool {
 	if kind == identityKindGroup {
 		database = "group"
 	}
-	value := strconv.FormatUint(uint64(id), decimalBase)
-
-	cmd := exec.CommandContext(ctx, "getent", database, value) // #nosec G204 -- command is fixed and the sole variable argument is a numeric identifier read from the filesystem
+	cmd := exec.CommandContext(ctx, "getent", database, formatUnixID(id)) // #nosec G204 -- command is fixed and the sole variable argument is a numeric identifier read from the filesystem
 	out, err := cmd.Output()
 	if err != nil {
 		return false

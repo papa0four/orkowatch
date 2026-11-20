@@ -1,6 +1,8 @@
-//go:build linux || darwin || freebsd || openbsd || netbsd
-
 // internal/security/checker/posixid.go
+
+// The numeric identifiers of a POSIX account database, read and written in
+// one way. The file is built on every platform because a Linux host's files
+// are also read from a file system a test supplies.
 
 package checker
 
@@ -8,9 +10,11 @@ import "strconv"
 
 const (
 	// decimalBase and idBitSize describe the numeric identifiers in a POSIX
-	// account database: base-10 text, uid_t and gid_t width.
+	// account database: base-10 text, uid_t and gid_t width. unixIDField is
+	// the colon-delimited field holding one in passwd and group alike.
 	decimalBase = 10
 	idBitSize   = 32
+	unixIDField = 2
 )
 
 // parseUnixID converts a numeric identifier field from a POSIX account
@@ -25,4 +29,11 @@ func parseUnixID(field string) (uint32, bool) {
 		return 0, false
 	}
 	return uint32(id), true
+}
+
+// formatUnixID writes an identifier as the account databases do. Evidence
+// keeps identifiers numeric: when one failed to resolve it is the number that
+// failed, and a name would be misleading.
+func formatUnixID(id uint32) string {
+	return strconv.FormatUint(uint64(id), decimalBase)
 }
