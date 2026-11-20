@@ -364,7 +364,9 @@ func pathWithin(target, base string) bool {
 // as 0044 is against an expected 0600. A stricter mode is never a finding.
 // Ownership is what makes a permissive-looking mode safe or unsafe:
 // /etc/shadow at 0640 is the Debian design when root owns it and an exposure
-// when an unprivileged account does.
+// when an unprivileged account does. The expected mode is rendered with the
+// path's own type so it reads against the observed mode: a directory expected
+// at 0750 is drwxr-x---, not the regular file -rwxr-x---.
 func checkCriticalPath(cp criticalPath, r *report) {
 	info, err := os.Stat(cp.path)
 	switch {
@@ -383,7 +385,7 @@ func checkCriticalPath(cp criticalPath, r *report) {
 		r.observed(ruleExcessMode, evidence(finding.KindFile, cp.path,
 			fact(finding.FactDescription, cp.description),
 			fact(finding.FactMode, formatMode(mode)),
-			fact(finding.FactExpected, formatMode(cp.expected))))
+			fact(finding.FactExpected, formatMode(mode.Type()|cp.expected))))
 	}
 
 	uid, _, _, ok := fileIdentity(info)
