@@ -124,7 +124,7 @@ func TestFinishScoresTheCompleteEvidence(t *testing.T) {
 // no value.
 func TestEvidenceOmitsEmptyFacts(t *testing.T) {
 	got := evidence(finding.KindFile, "/x", fact(finding.FactMode, "-rw-r--r--"), fact(finding.FactReach, ""), fact(finding.FactUID, "0"))
-	if len(got.Facts) != 2 || got.Facts[0].Name != string(finding.FactMode) || got.Facts[1].Name != string(finding.FactUID) {
+	if len(got.Facts) != 2 || got.Facts[0].Name != finding.FactMode || got.Facts[1].Name != finding.FactUID {
 		t.Errorf("facts = %v", got.Facts)
 	}
 }

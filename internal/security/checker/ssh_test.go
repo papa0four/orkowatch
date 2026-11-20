@@ -257,7 +257,7 @@ func loopbackSSHD() *sockets.View {
 func evidenceOfKind(condition finding.Condition, kind finding.EvidenceKind) []finding.Evidence {
 	var out []finding.Evidence
 	for _, e := range condition.Evidence {
-		if e.Kind == string(kind) {
+		if e.Kind == kind {
 			out = append(out, e)
 		}
 	}
@@ -267,7 +267,7 @@ func evidenceOfKind(condition finding.Condition, kind finding.EvidenceKind) []fi
 // factValue returns the value e records for name, or empty.
 func factValue(e finding.Evidence, name finding.FactName) string {
 	for _, f := range e.Facts {
-		if f.Name == string(name) {
+		if f.Name == name {
 			return f.Value
 		}
 	}
@@ -342,7 +342,7 @@ func TestSSHDListening(t *testing.T) {
 		"configuration not read in full": {parse(""), errors.New("partial"), loopbackSSHD(), finding.ListeningUndetermined},
 	} {
 		got := sshdListening(r, c.config, c.readErr, Listeners{View: c.view, Unread: "not read"})
-		if v := factValue(got, finding.FactListening); v != c.want || got.Kind != string(finding.KindListening) {
+		if v := factValue(got, finding.FactListening); v != c.want || got.Kind != finding.KindListening {
 			t.Errorf("%s: %+v, want %s", name, got, c.want)
 		}
 	}

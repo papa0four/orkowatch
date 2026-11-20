@@ -162,13 +162,13 @@ func (r *report) finish() finding.AuditResult {
 // fact records one observation. An empty value records nothing, so a caller
 // can pass an observation that may not apply without branching.
 func fact(name finding.FactName, value string) finding.Fact {
-	return finding.Fact{Name: string(name), Value: value}
+	return finding.Fact{Name: name, Value: value}
 }
 
 // evidence builds one evidence entry from a subject and the facts observed on
 // it, in the order given. A fact with an empty value is omitted.
 func evidence(kind finding.EvidenceKind, subject string, facts ...finding.Fact) finding.Evidence {
-	entry := finding.Evidence{Kind: string(kind), Subject: subject}
+	entry := finding.Evidence{Kind: kind, Subject: subject}
 	for _, f := range facts {
 		if f.Value != "" {
 			entry.Facts = append(entry.Facts, f)

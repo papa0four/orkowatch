@@ -196,12 +196,12 @@ func (d FindingDefinition) validateRule(rule EnvironmentRule, baseline v4.Vector
 // checker calls it on every subject it records, so a fact a rule reads cannot
 // be renamed or dropped at one end without the other noticing.
 func (d FindingDefinition) CheckEvidence(e finding.Evidence) error {
-	facts, ok := d.Records[finding.EvidenceKind(e.Kind)]
+	facts, ok := d.Records[e.Kind]
 	if !ok {
 		return fmt.Errorf("evidence of kind %q, which records does not declare", e.Kind)
 	}
 	for _, f := range e.Facts {
-		if !slices.Contains(facts, finding.FactName(f.Name)) {
+		if !slices.Contains(facts, f.Name) {
 			return fmt.Errorf("fact %q on %s evidence, which records does not declare", f.Name, e.Kind)
 		}
 	}
@@ -214,11 +214,11 @@ func (d FindingDefinition) CheckEvidence(e finding.Evidence) error {
 func (d FindingDefinition) Modified(e finding.Evidence) []finding.ModifiedMetric {
 	var out []finding.ModifiedMetric
 	for _, rule := range d.Environment {
-		if string(rule.Kind) != e.Kind {
+		if rule.Kind != e.Kind {
 			continue
 		}
 		for _, f := range e.Facts {
-			if f.Name != string(rule.Fact) {
+			if f.Name != rule.Fact {
 				continue
 			}
 			for _, c := range rule.Cases {
@@ -310,7 +310,7 @@ func (d FindingDefinition) yield(rule EnvironmentRule, evidence []finding.Eviden
 		counts:  make(map[string]int),
 	}
 	for _, e := range evidence {
-		if e.Kind != string(rule.Kind) {
+		if e.Kind != rule.Kind {
 			continue
 		}
 		y.subjects++
@@ -345,7 +345,7 @@ func (d FindingDefinition) derives(rule EnvironmentRule, e finding.Evidence) (fi
 // metric reports it.
 func recordedValue(e finding.Evidence, fact finding.FactName) string {
 	for _, f := range e.Facts {
-		if f.Name == string(fact) {
+		if f.Name == fact {
 			return f.Value
 		}
 	}

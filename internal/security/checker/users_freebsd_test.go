@@ -85,7 +85,7 @@ func TestFreeBSDAccountsAsRoot(t *testing.T) {
 	if c := got["users.su_group_member"]; len(c.Evidence) == 1 {
 		group := ""
 		for _, f := range c.Evidence[0].Facts {
-			if f.Name == string(finding.FactGroup) {
+			if f.Name == finding.FactGroup {
 				group = f.Value
 			}
 		}

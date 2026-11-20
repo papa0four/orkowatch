@@ -216,15 +216,15 @@ type (
 	// Facts are the observations in the order the checker recorded them.
 	// One shape serves every checker.
 	Evidence struct {
-		Kind    string `json:"kind" yaml:"kind"`
-		Subject string `json:"subject" yaml:"subject"`
-		Facts   []Fact `json:"facts,omitempty" yaml:"facts,omitempty"`
+		Kind    EvidenceKind `json:"kind" yaml:"kind"`
+		Subject string       `json:"subject" yaml:"subject"`
+		Facts   []Fact       `json:"facts,omitempty" yaml:"facts,omitempty"`
 	}
 
 	// Fact is one named observation about an evidence subject.
 	Fact struct {
-		Name  string `json:"name" yaml:"name"`
-		Value string `json:"value" yaml:"value"`
+		Name  FactName `json:"name" yaml:"name"`
+		Value string   `json:"value" yaml:"value"`
 	}
 
 	// Reference provides additional information about a finding

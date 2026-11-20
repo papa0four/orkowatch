@@ -22,19 +22,19 @@ func TestSettingEvidence(t *testing.T) {
 	}
 
 	got := settingEvidence("tls_reqcert", set, fact(finding.FactVersion, "0.9"))
-	want := finding.Evidence{Kind: string(finding.KindSetting), Subject: "tls_reqcert", Facts: []finding.Fact{
-		{Name: string(finding.FactValue), Value: "never"},
-		{Name: string(finding.FactLine), Value: "/etc/nslcd.conf:7"},
-		{Name: string(finding.FactVersion), Value: "0.9"},
+	want := finding.Evidence{Kind: finding.KindSetting, Subject: "tls_reqcert", Facts: []finding.Fact{
+		{Name: finding.FactValue, Value: "never"},
+		{Name: finding.FactLine, Value: "/etc/nslcd.conf:7"},
+		{Name: finding.FactVersion, Value: "0.9"},
 	}}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("a setting a file states: %+v, want %+v", got, want)
 	}
 
 	got = unsetEvidence("ssl", fact(finding.FactVersion, "0.9"))
-	want = finding.Evidence{Kind: string(finding.KindSetting), Subject: "ssl", Facts: []finding.Fact{
-		{Name: string(finding.FactState), Value: "not set"},
-		{Name: string(finding.FactVersion), Value: "0.9"},
+	want = finding.Evidence{Kind: finding.KindSetting, Subject: "ssl", Facts: []finding.Fact{
+		{Name: finding.FactState, Value: "not set"},
+		{Name: finding.FactVersion, Value: "0.9"},
 	}}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("a setting no file states: %+v, want %+v", got, want)
@@ -93,12 +93,12 @@ func TestStatOwned(t *testing.T) {
 	if read, _ := file.excess(localAccount{gid: 42, group: true}); read {
 		t.Error("0640 root:42 is read as open to others than the service group")
 	}
-	want := finding.Evidence{Kind: string(finding.KindFile), Subject: "/etc/secret.conf", Facts: []finding.Fact{
-		{Name: string(finding.FactMode), Value: "-rw-r-----"},
-		{Name: string(finding.FactUID), Value: "0"},
-		{Name: string(finding.FactGID), Value: "42"},
-		{Name: string(finding.FactExpected), Value: expectRootOnly},
-		{Name: string(finding.FactVersion), Value: "2.9"},
+	want := finding.Evidence{Kind: finding.KindFile, Subject: "/etc/secret.conf", Facts: []finding.Fact{
+		{Name: finding.FactMode, Value: "-rw-r-----"},
+		{Name: finding.FactUID, Value: "0"},
+		{Name: finding.FactGID, Value: "42"},
+		{Name: finding.FactExpected, Value: expectRootOnly},
+		{Name: finding.FactVersion, Value: "2.9"},
 	}}
 	if got := file.evidence(expectRootOnly, fact(finding.FactVersion, "2.9")); !reflect.DeepEqual(got, want) {
 		t.Errorf("evidence %+v, want %+v", got, want)
