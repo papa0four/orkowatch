@@ -197,7 +197,8 @@ func maxConcurrentChecks() int {
 
 // RunAudit executes the enabled checks concurrently, writing each result to
 // its check's canonical index so output order is independent of completion
-// order. A skipped check occupies its index with a notselected result.
+// order. A skipped check occupies its index with a notselected result, and
+// one the platform defines no finding for with notchecked.
 // ctx bounds the entire run -- checks and enrichment share its deadline --
 // and cancellation propagates into checker exec and filesystem work.
 func (sa *SecurityAuditor) RunAudit(ctx context.Context) (*Result, error) {
@@ -233,6 +234,10 @@ func (sa *SecurityAuditor) RunAudit(ctx context.Context) (*Result, error) {
 	for i, r := range runners {
 		if !enabled[r.name] {
 			result.Results[i] = skippedResult(r)
+			continue
+		}
+		if !registry.Defines(sa.osContext, r.name) {
+			result.Results[i] = undefinedResult(r, sa.osContext.DisplayLabel())
 			continue
 		}
 		sa.observer.CheckStarted(r.name)
@@ -328,6 +333,19 @@ func skippedResult(r checkRunner) finding.AuditResult {
 		Description: r.description,
 		Result:      finding.ResultNotSelected,
 		Reason:      "excluded by --skip-checks",
+	}
+}
+
+// undefinedResult returns the result row for a check the platform has no
+// finding definitions for. The check is not run: it could report nothing it
+// observed, and a row that says so is not a clean one.
+func undefinedResult(r checkRunner, platform string) finding.AuditResult {
+	return finding.AuditResult{
+		Key:         r.name,
+		Name:        r.display,
+		Description: r.description,
+		Result:      finding.ResultNotChecked,
+		Reason:      fmt.Sprintf("no finding definitions for the %s check on %s", r.name, platform),
 	}
 }
 

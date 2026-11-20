@@ -1,1 +1,322 @@
-# stub: findings for this platform/family are pending implementation
+# FreeBSD finding definitions for the orkowatch registry.
+# Each cvss_vector is the CVSS v4.0 baseline of the condition, scored by FIRST's algorithm,
+# and each cvss_score is the one its vector computes. Severity tiers follow the score
+# ranges of the specification's Table 22. The registry refuses to load a definition where
+# the severity, the score and the vector disagree:
+#   CRITICAL 9.0-10.0 | HIGH 7.0-8.9 | MEDIUM 4.0-6.9 | LOW 0.1-3.9
+# A NIST reference names only the control: its title and release come from the
+# bundled catalog (nist.yaml), which load checks it against. The weakness a
+# definition maps to is its cwe field, and its reference is built from that.
+# The manual pages quoted are those of FreeBSD 15.1-RELEASE, read on that release
+# on 2026-11-19, and each condition was produced there and seen to behave as its
+# definition says. A definition for a condition the Linux file also defines carries
+# the same baseline. Only the users check has definitions here: a check with none
+# for the platform is reported as not checked.
+
+# -------------------------
+# User checker findings
+# -------------------------
+
+users.empty_password_hash:
+  title: "User account has no password set in /etc/master.passwd"
+  severity: "CRITICAL"
+  cvss_score: 9.3
+  cvss_vector: "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N"
+  records:
+    account: [uid, shell]
+  cwe: "CWE-258"
+  attack_techniques:
+    - id: "T1078.003"
+      basis:
+        - "NIST IA-5 maps to its parent technique T1078 (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
+        - "NIST IA-2 maps to this technique (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
+  description: >
+    One or more accounts have an empty password field in
+    /etc/master.passwd. passwd(5): "If the password field is empty, no
+    password will be required to gain access to the machine." Whether a
+    service admits the account depends on its PAM policy. pam_unix(8), of
+    the nullok option: "If the password database has no password for the
+    entity being authenticated, then this option will forgo password
+    prompting, and silently allow authentication to succeed." The system
+    policy FreeBSD ships passes nullok, and su admitted such an account
+    with no prompt.
+  impact: >
+    Anyone who reaches a service whose policy passes nullok authenticates
+    as this account without providing a password. If the account is root,
+    or is in the group su requires for root, this is a path to full control
+    of the host that needs no exploitation.
+  resolution: >
+    Set a password: passwd <username>. If the account should not
+    authenticate by password, lock it: pw lock <username>, and for an
+    account that needs no session set its shell to /usr/sbin/nologin:
+    pw usermod <username> -s /usr/sbin/nologin.
+  references:
+    - source: NIST
+      id: "IA-5"
+    - source: NIST
+      id: "IA-2"
+
+users.no_password_login_shell:
+  title: "Account with no password set has a valid login shell"
+  severity: "CRITICAL"
+  cvss_score: 9.3
+  cvss_vector: "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:N/SC:N/SI:N/SA:N"
+  records:
+    account: [uid, shell]
+  cwe: "CWE-1390"
+  attack_techniques:
+    - id: "T1078.003"
+      basis:
+        - "NIST IA-5 maps to its parent technique T1078 (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
+        - "NIST IA-2 maps to this technique (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
+  description: >
+    An account has an empty password field in /etc/master.passwd and an
+    interactive login shell. passwd(5): "If the password field is empty, no
+    password will be required to gain access to the machine." With a shell
+    that starts a session, the account is one anyone can use wherever the
+    service's PAM policy accepts an empty password.
+  impact: >
+    Anyone who reaches a service whose policy accepts an empty password
+    obtains an interactive session as this account without any credential
+    and without exploitation.
+  resolution: >
+    Set a password: passwd <username>, or replace the shell where the
+    account needs no session: pw usermod <username> -s /usr/sbin/nologin.
+    Lock or remove an account that is no longer needed: pw lock <username>
+    or pw userdel <username>.
+  references:
+    - source: NIST
+      id: "IA-5"
+    - source: NIST
+      id: "IA-2"
+
+users.uid_zero_non_root:
+  title: "Non-root account has UID 0"
+  severity: "HIGH"
+  cvss_score: 8.5
+  cvss_vector: "CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N"
+  records:
+    account: [uid, shell]
+  cwe: "CWE-266"
+  description: >
+    An account other than root has UID 0. UID 0 confers full superuser
+    privileges whatever the account is named. FreeBSD ships toor as a
+    second account with UID 0, with password authentication disabled; it is
+    reported like any other, because whoever sets a password or a key for it
+    has a second root.
+  impact: >
+    Compromise of any UID 0 account is compromise of root. More than one
+    widens what an attacker can aim at and makes audit trails ambiguous:
+    actions appear under different names and carry the same privileges.
+  resolution: >
+    Remove the account where it is not required: pw userdel <username>, or
+    assign it another UID: pw usermod <username> -u <uid>. Find out how
+    UID 0 came to be assigned where it was not shipped that way. Only root
+    should have UID 0.
+  references:
+    - source: NIST
+      id: "AC-6"
+
+users.regular_user_admin_privileges:
+  title: "Regular user account may run a shell as root through sudo"
+  severity: "HIGH"
+  cvss_score: 8.5
+  cvss_vector: "CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N"
+  records:
+    account: [uid, shell, grant, group]
+  cwe: "CWE-266"
+  attack_techniques:
+    - id: "T1548.003"
+      basis:
+        - "NIST AC-6 maps to this technique (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
+  description: >
+    sudo, asked as root, answers that a non-system account may run a shell
+    as root on this host, on the account's own password or on none. The
+    entries sudo lists for the account are recorded. sudoers(5): "A user
+    specification determines which commands a user may run (and as what
+    user) on specified hosts." An account sudo admits only where targetpw,
+    rootpw or runaspw is in force is not counted: sudo then asks for a
+    password the account does not hold by being admitted. A run that is not
+    root cannot ask sudo, and records the accounts in the groups sudo,
+    wheel and admin as members and not as accounts sudo admits. sudo is a
+    package on FreeBSD; where it is not installed the rule does not apply,
+    and who su admits is reported by users.su_group_member.
+  impact: >
+    Any process or attacker that gains access to this account and its
+    password can run any command as root, and stop any service on the
+    host, without requiring additional exploitation.
+  resolution: >
+    List what sudo grants the account: sudo -l -U <account>. Remove the
+    entry, or remove the account from the group the entry names, where
+    elevated access is not required. Scope sudo rules to specific commands
+    where full root access is not required. Edit with visudo.
+  references:
+    - source: NIST
+      id: "AC-6"
+
+users.sudo_nopasswd:
+  title: "Sudoers entry permits privilege escalation without password"
+  severity: "HIGH"
+  cvss_score: 8.5
+  cvss_vector: "CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N"
+  records:
+    account: [uid, shell, grant]
+  cwe: "CWE-306"
+  attack_techniques:
+    - id: "T1548.003"
+      basis:
+        - "NIST AC-6 maps to this technique (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
+  description: >
+    sudo, asked as root, lists for an account an entry that asks for no
+    password. sudoers(5): "By default, sudo requires that a user
+    authenticate before running a command. This behavior can be modified
+    via the NOPASSWD tag." and, of the authenticate flag, "If set, users
+    must authenticate themselves via a password (or other means of
+    authentication) before they may run commands. This default may be
+    overridden via the PASSWD and NOPASSWD tags. This flag is on by
+    default." The entries are recorded.
+  impact: >
+    Any attacker or process that gains access to the affected account can
+    escalate to root or another privileged user at once, with no further
+    credential.
+  resolution: >
+    Remove NOPASSWD tags from the rules in /usr/local/etc/sudoers and
+    /usr/local/etc/sudoers.d unless operationally required, editing with
+    visudo. Where automation needs one, scope it to the commands required
+    and not to ALL.
+  references:
+    - source: NIST
+      id: "AC-6"
+
+users.su_group_member:
+  title: "Regular user account is in the group su admits to root"
+  severity: "HIGH"
+  cvss_score: 7.3
+  cvss_vector: "CVSS:4.0/AV:L/AC:L/AT:P/PR:L/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N"
+  records:
+    account: [uid, shell, group]
+  cwe: "CWE-266"
+  description: >
+    A non-system account belongs to the group the su service requires of an
+    account that asks for root, by being listed in it or by holding it as
+    its primary group. su(1): "PAM is used to set the policy su will use.
+    In particular, by default only users in the “wheel” group can switch to
+    UID 0 (“root”). This group requirement may be changed by modifying the
+    “pam_group” section of /etc/pam.d/su." The group is read from that
+    rule, and is recorded with the account. This may be the intended way
+    administrators reach root or a membership no one meant to grant.
+  impact: >
+    Anyone who controls this account and learns or guesses root's password
+    becomes root with su. Accounts outside the group are refused whatever
+    password they present, so each member is one more place from which
+    root's password is enough.
+  resolution: >
+    Remove the account from the group where it does not need root:
+    pw groupmod <group> -d <username>, or give it another primary group:
+    pw usermod <username> -g <group>. Where administrators use sudo, the
+    group su requires can be left without members.
+  references:
+    - source: NIST
+      id: "AC-6"
+
+users.su_unrestricted:
+  title: "su admits any account that presents root's password"
+  severity: "HIGH"
+  cvss_score: 7.3
+  cvss_vector: "CVSS:4.0/AV:L/AC:L/AT:P/PR:L/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N"
+  records:
+    file: []
+  no_weakness: "No CWE entry describes a su service that asks no group of its applicant; CWE-284, the nearest class, is discouraged by MITRE."
+  description: >
+    The auth chain of /etc/pam.d/su has no pam_group rule, so the su service
+    requires no group of an account that asks for root. pam_group(8): "The
+    group service module for PAM accepts or rejects users based on their
+    membership in a particular file group." FreeBSD ships the rule, naming
+    wheel; with it removed, su admitted an account outside wheel.
+  impact: >
+    Every local account, and every service account an attacker takes over,
+    becomes root with su once it has root's password. Nothing limits the
+    places from which that password is enough.
+  resolution: >
+    Restore the rule in /etc/pam.d/su, ahead of the include of the system
+    policy: auth requisite pam_group.so no_warn group=wheel root_only
+    fail_safe ruser. Name another group where site policy keeps wheel for
+    something else.
+  references:
+    - source: NIST
+      id: "AC-6"
+    - source: NIST
+      id: "AC-3"
+
+users.login_shell_present:
+  title: "User account has an interactive login shell"
+  severity: "MEDIUM"
+  cvss_score: 4.8
+  cvss_vector: "CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:L/VI:N/VA:N/SC:N/SI:N/SA:N"
+  records:
+    account: [uid, shell]
+  no_weakness: "CWE-272 concerns dropping an elevated privilege after an operation such as chroot(), which an account with a login shell is not."
+  description: >
+    A regular account has an interactive login shell. For the accounts of
+    people who use the host this is expected. For an account that needs no
+    session it is surface the host does not need. Context decides whether
+    it is a misconfiguration or intended.
+  impact: >
+    An account with an interactive shell that is compromised or misused
+    gives its user a full session on the host.
+  resolution: >
+    For an account that needs no session, set the shell to nologin:
+    pw usermod <username> -s /usr/sbin/nologin. Review the accounts with
+    interactive shells and confirm each is needed.
+  references:
+    - source: NIST
+      id: "AC-2"
+
+users.system_account_login_shell:
+  title: "System account has a shell other than nologin"
+  severity: "MEDIUM"
+  cvss_score: 4.8
+  cvss_vector: "CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:L/VI:N/VA:N/SC:N/SI:N/SA:N"
+  records:
+    account: [uid, shell]
+  no_weakness: "CWE-272 concerns dropping an elevated privilege after an operation such as chroot(), which an account with a login shell is not."
+  description: >
+    An account outside the range pw(8) assigns to regular accounts has a
+    shell that starts a session. FreeBSD ships its system accounts with
+    /usr/sbin/nologin. root and toor, which keep a shell by design, and
+    uucp, whose shell is the program its transfers run, are not judged.
+  impact: >
+    A service account that is taken over, or given a password or a key,
+    provides a session on the host under an identity no person is
+    answerable for.
+  resolution: >
+    Set the shell to nologin: pw usermod <username> -s /usr/sbin/nologin.
+  references:
+    - source: NIST
+      id: "AC-2"
+
+users.nologin_account_password_set:
+  title: "Account with the nologin shell has a usable password"
+  severity: "MEDIUM"
+  cvss_score: 4.8
+  cvss_vector: "CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:L/VI:N/VA:N/SC:N/SI:N/SA:N"
+  records:
+    account: [uid, shell]
+  no_weakness: "No CWE entry describes an account kept from a session by its shell alone while its password stays usable."
+  description: >
+    An account whose shell is nologin has a password field in
+    /etc/master.passwd that a password can match, or an empty one. The
+    shell refuses a session; it does not stop a service that asks only for
+    the password. passwd(5): "A password of ‘*’ indicates that password
+    authentication is disabled for that account". FreeBSD ships every
+    account that has the nologin shell with that field.
+  impact: >
+    The account authenticates to any service that does not start its shell,
+    under an identity that is meant to be unusable.
+  resolution: >
+    Lock the account: pw lock <username>.
+  references:
+    - source: NIST
+      id: "AC-2"
+    - source: NIST
+      id: "IA-5"

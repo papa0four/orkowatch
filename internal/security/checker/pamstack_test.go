@@ -26,9 +26,9 @@ func TestParsePAMRules(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []pamRule{
-		{line: 3, typ: "auth", control: "success=2 default=ignore", target: "pam_sss.so"},
+		{line: 3, typ: "auth", control: "success=2 default=ignore", target: "pam_sss.so", args: []string{"use_first_pass"}},
 		{line: 4, typ: "account", control: "required", target: "pam_unix.so"},
-		{line: 7, typ: "password", control: "requisite", target: "pam_pwq.so"},
+		{line: 7, typ: "password", control: "requisite", target: "pam_pwq.so", args: []string{"a=]b c"}},
 		{line: 8, typ: "session", control: "optional", target: "pam_x.so"},
 		{line: 9, typ: "session", control: "optional", target: "pam_y.so"},
 	}

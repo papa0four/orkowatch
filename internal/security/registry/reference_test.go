@@ -88,7 +88,6 @@ func TestNISTReferencesResolveAgainstCatalog(t *testing.T) {
 func TestAuditedReferencesReachFindings(t *testing.T) {
 	const (
 		rhelSELinux = "https://docs.redhat.com/en/documentation/red_hat_enterprise_linux/9/html/using_selinux/changing-selinux-states-and-modes_using-selinux#changing-to-enforcing-mode_changing-selinux-states-and-modes"
-		rhelSudo    = "https://docs.redhat.com/en/documentation/red_hat_enterprise_linux/9/html/configuring_basic_system_settings/managing-sudo-access_configuring-basic-system-settings"
 		msSSH       = "https://learn.microsoft.com/en-us/windows-server/administration/openssh/openssh-server-configuration"
 	)
 	windows := OSContext{Platform: PlatformWindows}
@@ -100,9 +99,7 @@ func TestAuditedReferencesReachFindings(t *testing.T) {
 		url  string
 	}{
 		{rhel, "permissions.selinux_disabled", rhelSELinux},
-		{rhel, "users.wheel_group_empty", rhelSudo},
 		{arch, "users.aur_helper_installed", "https://wiki.archlinux.org/title/Arch_User_Repository#Verify_the_PKGBUILD"},
-		{arch, "users.wheel_group_unrestricted", "https://wiki.archlinux.org/title/Sudo#Example_entries"},
 		{arch, "users.sudo_nopasswd", "https://wiki.archlinux.org/title/Security#Use_sudo_instead_of_su"},
 		{windows, "ssh.config_not_found", msSSH},
 		{windows, "ssh.root_login_permitted", msSSH},
@@ -200,7 +197,6 @@ func TestMappedTechniquesReachFindings(t *testing.T) {
 		key       FindingKey
 		technique string
 	}{
-		{linux(DistroArch), "users.wheel_group_unrestricted", "T1548.003"},
 		{linux(DistroDebian), "users.regular_user_admin_privileges", "T1548.003"},
 		{linux(DistroDebian), "permissions.sudoers_world_readable", "T1548.003"},
 		{linux(DistroRHEL), "permissions.sudoers_world_readable", "T1548.003"},

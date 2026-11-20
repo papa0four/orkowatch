@@ -138,23 +138,23 @@ firewall.firewalld_default_zone_public:
 # User checker findings
 # -------------------------
 
-# No checker emits this definition yet. It is kept for the Linux check that
-# will detect the condition.
 users.sudo_nopasswd:
   title: "Sudoers entry permits privilege escalation without password"
   severity: "HIGH"
   cvss_score: 8.5
   cvss_vector: "CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N"
-  records: {}
+  records:
+    account: [uid, shell, grant]
   cwe: "CWE-306"
   attack_techniques:
     - id: "T1548.003"
       basis:
         - "NIST AC-6 maps to this technique (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
   description: >
-    A sudoers rule contains the NOPASSWD tag, allowing one or more users
-    to execute commands with elevated privileges without providing a
-    password. On RHEL-family systems this is commonly found in
+    sudo, asked as root, lists for an account an entry that asks for no
+    password, by the NOPASSWD tag or with authenticate turned off, so the
+    account runs the entry's commands with elevated privileges on no
+    credential. The entries are recorded. On RHEL-family systems this is commonly found in
     /etc/sudoers or files under /etc/sudoers.d/.
   impact: >
     Any attacker or process that gains access to the affected user account
@@ -172,43 +172,6 @@ users.sudo_nopasswd:
       id: "5.3.7"
     - source: NIST
       id: "AC-6"
-
-# No checker emits this definition yet. It is kept for the Linux check that
-# will detect the condition.
-users.wheel_group_empty:
-  title: "The wheel group has no members"
-  severity: "MEDIUM"
-  cvss_score: 4.8
-  cvss_vector: "CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:N/VI:L/VA:N/SC:N/SI:N/SA:N"
-  records: {}
-  no_weakness: "An empty administrative group is not a weakness; CWE-269 is discouraged by MITRE."
-  description: >
-    The wheel group, which controls sudo access on RHEL-family systems,
-    has no members. On systems where the sudoers configuration grants
-    sudo access to the wheel group, an empty wheel group means no
-    standard user has a defined path to administrative access.
-  impact: >
-    Administrators may be using direct root login or undefined privilege
-    escalation paths that bypass audit logging. Lack of wheel group
-    membership may indicate sudo is not properly configured as the
-    primary escalation mechanism.
-  resolution: >
-    Add appropriate administrator accounts to the wheel group:
-    usermod -aG wheel <username>. Verify sudoers grants wheel group
-    access: grep wheel /etc/sudoers. Ensure direct root login is
-    disabled and sudo is the sole escalation path.
-  references:
-    - source: CIS
-      benchmark: "CIS Red Hat Enterprise Linux 9 Benchmark"
-      version: "v1.0.0"
-      id: "5.3"
-    - source: NIST
-      id: "AC-6"
-    - source: URL
-      title: "Red Hat Enterprise Linux 9, Configuring basic system settings: Managing sudo access"
-      url: "https://docs.redhat.com/en/documentation/red_hat_enterprise_linux/9/html/configuring_basic_system_settings/managing-sudo-access_configuring-basic-system-settings"
-      version: "Red Hat Enterprise Linux 9"
-      verified: "2026-11-15"
 
 # No checker emits this definition yet. It is kept for the Linux check that
 # will detect the condition.

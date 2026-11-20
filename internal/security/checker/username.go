@@ -1,4 +1,4 @@
-//go:build darwin || freebsd || openbsd || netbsd
+//go:build linux || darwin || freebsd || openbsd || netbsd
 
 // internal/security/checker/username.go
 

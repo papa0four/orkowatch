@@ -52,13 +52,15 @@ type (
 	}
 
 	// pamRule is one rule as libpam reads it: the service field, present only
-	// in pam.conf, then type, control and the module path or included file.
+	// in pam.conf, then type, control, the module path or included file, and
+	// the arguments the module is given.
 	pamRule struct {
 		line    int
 		service string
 		typ     string
 		control string
 		target  string
+		args    []string
 	}
 )
 
@@ -292,6 +294,9 @@ func splitPAMRule(text string, withService bool) (pamRule, bool) {
 		if i < len(tokens) {
 			*fields[i] = tokens[i]
 		}
+	}
+	if len(tokens) > len(fields) {
+		rule.args = tokens[len(fields):]
 	}
 	return rule, rule.typ != ""
 }
