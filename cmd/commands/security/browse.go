@@ -13,6 +13,7 @@ import (
 	"github.com/papa0four/orkowatch/internal/render"
 	"github.com/papa0four/orkowatch/internal/security/audit"
 	"github.com/papa0four/orkowatch/internal/security/finding"
+	"github.com/papa0four/orkowatch/internal/selection"
 	"github.com/papa0four/orkowatch/internal/sockets"
 	"github.com/papa0four/orkowatch/internal/softwarelist"
 	"github.com/papa0four/orkowatch/internal/tui"
@@ -74,25 +75,25 @@ func BrowserReport(src BrowserSource) tui.Report {
 			}
 		}
 	} else {
-		report.FindingsNote = notRun(src.Modules, "audit", "owatch audit")
+		report.FindingsNote = notRun(src.Modules, selection.NameAudit)
 	}
 
 	if src.System != nil {
 		report.Tabs = append(report.Tabs, systemTab(*src.System))
 	} else {
-		report.Tabs = append(report.Tabs, tui.Tab{ID: tui.TabSystem, Name: "System", Note: notRun(src.Modules, "osinfo", "owatch osinfo")})
+		report.Tabs = append(report.Tabs, tui.Tab{ID: tui.TabSystem, Name: "System", Note: notRun(src.Modules, selection.NameOS)})
 	}
 
 	if src.Software != nil {
 		report.Tabs = append(report.Tabs, softwareTab(*src.Software))
 	} else {
-		report.Tabs = append(report.Tabs, tui.Tab{ID: tui.TabSoftware, Name: "Software", Note: notRun(src.Modules, "software", "owatch software")})
+		report.Tabs = append(report.Tabs, tui.Tab{ID: tui.TabSoftware, Name: "Software", Note: notRun(src.Modules, selection.NameSoftware)})
 	}
 
 	if src.Sockets != nil {
 		report.Tabs = append(report.Tabs, socketsTab(*src.Sockets))
 	} else {
-		report.Tabs = append(report.Tabs, tui.Tab{ID: tui.TabSockets, Name: "Sockets", Note: notRun(src.Modules, "listeners", "owatch listeners")})
+		report.Tabs = append(report.Tabs, tui.Tab{ID: tui.TabSockets, Name: "Sockets", Note: notRun(src.Modules, selection.NameListeners)})
 	}
 
 	if src.Audit != nil {
@@ -164,26 +165,19 @@ func attackTab(view *audit.View) (tui.Tab, bool) {
 // collected. A module counts as run unless it was excluded; one that ran and
 // failed still counts, and its tab says what went wrong.
 func landingTab(modules []ModuleNote) string {
+	tabs := map[string]string{
+		selection.NameOS:        tui.TabSystem,
+		selection.NameSoftware:  tui.TabSoftware,
+		selection.NameListeners: tui.TabSockets,
+	}
 	first := tui.TabFindings
 	for _, m := range modules {
-		if m.Result == finding.ResultNotSelected {
-			continue
-		}
-		switch m.Name {
-		case "audit":
+		switch tab, inventory := tabs[m.Name]; {
+		case m.Result == finding.ResultNotSelected:
+		case m.Name == selection.NameAudit:
 			return tui.TabFindings
-		case "osinfo":
-			if first == tui.TabFindings {
-				first = tui.TabSystem
-			}
-		case "software":
-			if first == tui.TabFindings {
-				first = tui.TabSoftware
-			}
-		case "listeners":
-			if first == tui.TabFindings {
-				first = tui.TabSockets
-			}
+		case inventory && first == tui.TabFindings:
+			first = tab
 		}
 	}
 	return first
@@ -191,13 +185,14 @@ func landingTab(modules []ModuleNote) string {
 
 // notRun says why a source has no data: the run's own account of the module
 // when it recorded one, as an all run does, and otherwise that the command
-// never included it, with the command that collects it.
-func notRun(modules []ModuleNote, name, command string) string {
+// never included it, with the command that collects it, which carries the
+// module's name.
+func notRun(modules []ModuleNote, name string) string {
 	if note, ok := moduleNote(modules, name); ok {
 		return note
 	}
-	return "not collected: this command does not run the " + name + " module. owatch all collects every source; " +
-		command + " collects only this one"
+	return "not collected: this command does not run the " + name + " module. owatch all collects every source; owatch " +
+		name + " collects only this one"
 }
 
 // triggerBlock describes one finding that made a technique available: its

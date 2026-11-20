@@ -201,3 +201,28 @@ func TestFindingDetailShowsBothScores(t *testing.T) {
 		}
 	}
 }
+
+// A finding with more evidence than the detail pane loads says how many
+// lines it left out and names the key that loads them, which is the key that
+// does: pressing it shows every line and the notice is gone.
+func TestEvidenceNoticeNamesTheKeyThatLoadsTheRest(t *testing.T) {
+	const extra = 3
+	r := sidebarReport(0)
+	item := Item{Check: "permissions", Key: "permissions.world_writable_file", Result: "fail", Severity: "HIGH", Title: "a finding"}
+	for i := 0; i < evidencePreview+extra; i++ {
+		item.Evidence = append(item.Evidence, fmt.Sprintf("- /tmp/file%d", i))
+	}
+	r.Items = []Item{item}
+
+	b := sized(newBrowser(r), 120, 40)
+	notice := fmt.Sprintf("%d more; press x to load all", extra)
+	if detail := plain(b.detailText(item)); !strings.Contains(detail, notice) {
+		t.Errorf("the detail does not say %q", notice)
+	}
+
+	b = press(b, "x")
+	detail := plain(b.detailText(item))
+	if strings.Contains(detail, "more; press") || !strings.Contains(detail, fmt.Sprintf("- /tmp/file%d", evidencePreview+extra-1)) {
+		t.Error("pressing the key the notice names did not load the rest of the evidence")
+	}
+}

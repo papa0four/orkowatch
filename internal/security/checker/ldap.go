@@ -34,28 +34,20 @@ var (
 	nslcdPasswords = []string{"bindpw", "rootpwmodpw"}
 )
 
-// ldapEvidence is the evidence of one option of file as set, by the name the
-// program's manual gives it.
-func ldapEvidence(file, option string, set ldapSetting) finding.Evidence {
-	return evidence(finding.KindSetting, option,
-		fact(finding.FactValue, set.value), fact(finding.FactLine, lineRef(file, set.line)))
-}
-
 // recordNslcd judges /etc/nslcd.conf under fsys. Every distribution packages
 // the file naming a server on the host itself, so what it sets is judged only
 // where the host is wired to nslcd: lookups are the name service lines naming
 // its service and logins the PAM rules naming its module. A password in the
 // file is judged for who can read it whether or not nslcd is used.
 func recordNslcd(r *report, fsys fs.FS, owner fileOwner, lookups, logins []finding.Evidence) {
-	const file = "/" + nslcdConfFile
 	all := append(slices.Clone(nslcdUseRules), ruleNslcdReadable)
 	config, err := readNslcdConfig(fsys)
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
-		r.inconclusive(finding.ResultNotChecked, file+" is not present", all...)
+		r.inconclusive(finding.ResultNotChecked, nslcdConfPath+" is not present", all...)
 		return
 	case err != nil:
-		r.inconclusive(finding.ResultError, fmt.Sprintf("%s could not be read: %v", file, err), all...)
+		r.inconclusive(finding.ResultError, fmt.Sprintf("%s could not be read: %v", nslcdConfPath, err), all...)
 		return
 	}
 	recordNslcdUse(r, config, lookups, logins)
@@ -65,7 +57,6 @@ func recordNslcd(r *report, fsys fs.FS, owner fileOwner, lookups, logins []findi
 // recordNslcdUse concludes the rules on what nslcd.conf sets, where the host
 // is wired to nslcd and nslcd starts with the file.
 func recordNslcdUse(r *report, config nslcdConfig, lookups, logins []finding.Evidence) {
-	const file = "/" + nslcdConfFile
 	switch {
 	case len(lookups)+len(logins) == 0:
 		r.inconclusive(finding.ResultNotApplicable,
@@ -82,11 +73,11 @@ func recordNslcdUse(r *report, config nslcdConfig, lookups, logins []finding.Evi
 	for _, server := range config.servers() {
 		switch nslcdReach(server.value) {
 		case ldapInClear:
-			judge.clear = append(judge.clear, ldapEvidence(file, "uri", server))
+			judge.clear = append(judge.clear, settingEvidence("uri", server))
 		case ldapOverTLS:
-			judge.tls = append(judge.tls, ldapEvidence(file, "uri", server))
+			judge.tls = append(judge.tls, settingEvidence("uri", server))
 		case ldapUnrecognised:
-			judge.unrecognised = append(judge.unrecognised, fmt.Sprintf("%s names %q", lineRef(file, server.line), server.value))
+			judge.unrecognised = append(judge.unrecognised, fmt.Sprintf("%s names %q", server.at(), server.value))
 		}
 	}
 	judge.unencrypted(ruleNslcdLookups, lookups, "the name service switch does not name ldap")
@@ -100,39 +91,29 @@ func recordNslcdUse(r *report, config nslcdConfig, lookups, logins []finding.Evi
 // should consider changing the permissions of the nslcd.conf file to only
 // grant access to the root user." The password is not recorded.
 func recordNslcdPassword(r *report, fsys fs.FS, owner fileOwner, config nslcdConfig) {
-	const file = "/" + nslcdConfFile
 	var passwords []finding.Evidence
 	for _, option := range nslcdPasswords {
 		for _, set := range config.options[option] {
 			if set.value != "" {
-				passwords = append(passwords, evidence(finding.KindSetting, option, fact(finding.FactLine, lineRef(file, set.line))))
+				passwords = append(passwords, evidence(finding.KindSetting, option, fact(finding.FactLine, set.at())))
 			}
 		}
 	}
 	if len(passwords) == 0 {
-		r.inconclusive(finding.ResultNotApplicable, file+" sets neither bindpw nor rootpwmodpw", ruleNslcdReadable)
+		r.inconclusive(finding.ResultNotApplicable, nslcdConfPath+" sets neither bindpw nor rootpwmodpw", ruleNslcdReadable)
 		return
 	}
 
-	info, err := fs.Stat(fsys, nslcdConfFile)
-	if err != nil {
-		r.inconclusive(finding.ResultError, fmt.Sprintf("%s could not be checked: %v", file, err), ruleNslcdReadable)
+	conf, unread := statOwned(fsys, nslcdConfFile, owner)
+	if unread != "" {
+		r.inconclusive(finding.ResultError, unread, ruleNslcdReadable)
 		return
 	}
-	uid, gid, ok := owner(info)
-	if !ok {
-		r.inconclusive(finding.ResultError, file+" ownership could not be determined", ruleNslcdReadable)
-		return
-	}
-	if read, _ := fileExcess(info.Mode().Perm(), uid, gid, localAccount{}); !read {
+	if read, _ := conf.excess(localAccount{}); !read {
 		r.pass(ruleNslcdReadable)
 		return
 	}
-	r.observed(ruleNslcdReadable, append([]finding.Evidence{evidence(finding.KindFile, file,
-		fact(finding.FactMode, formatMode(info.Mode())),
-		fact(finding.FactUID, fmt.Sprint(uid)),
-		fact(finding.FactGID, fmt.Sprint(gid)),
-		fact(finding.FactExpected, "owned by root, with no access for its group or others"))}, passwords...)...)
+	r.observed(ruleNslcdReadable, append([]finding.Evidence{conf.evidence(expectRootOnly)}, passwords...)...)
 }
 
 // nslcdJudge concludes the rules that read what nslcd.conf sets. clear are
@@ -172,9 +153,9 @@ func (j nslcdJudge) unencrypted(key registry.FindingKey, wiring []finding.Eviden
 	case encrypted || len(j.clear) == 0:
 		j.r.pass(key)
 	default:
-		ssl := evidence(finding.KindSetting, "ssl", fact(finding.FactState, "not set"))
+		ssl := unsetEvidence("ssl")
 		if set, ok := j.config.options.last("ssl"); ok {
-			ssl = ldapEvidence("/"+nslcdConfFile, "ssl", set)
+			ssl = settingEvidence("ssl", set)
 		}
 		j.r.observed(key, slices.Concat(wiring, []finding.Evidence{ssl}, j.clear)...)
 	}
@@ -187,11 +168,11 @@ func (j nslcdJudge) unencrypted(key registry.FindingKey, wiring []finding.Eviden
 // not take the setting from ldap.conf, and with none of its own it was seen
 // to refuse such a certificate.
 func (j nslcdJudge) certificate() {
-	const file, option = "/" + nslcdConfFile, "tls_reqcert"
+	const option = "tls_reqcert"
 	reqcert, _ := j.config.options.last(option)
 	via := j.tls
 	if ssl, encrypted := j.config.encrypted(); encrypted {
-		via = append([]finding.Evidence{ldapEvidence(file, "ssl", ssl)}, via...)
+		via = append([]finding.Evidence{settingEvidence("ssl", ssl)}, via...)
 	}
 	switch {
 	case !nslcdReqcert[strings.ToLower(reqcert.value)]:
@@ -200,7 +181,7 @@ func (j nslcdJudge) certificate() {
 	case len(via) == 0:
 		j.r.pass(ruleNslcdCertificate)
 	default:
-		j.r.observed(ruleNslcdCertificate, append([]finding.Evidence{ldapEvidence(file, option, reqcert)}, via...)...)
+		j.r.observed(ruleNslcdCertificate, append([]finding.Evidence{settingEvidence(option, reqcert)}, via...)...)
 	}
 }
 
@@ -212,7 +193,7 @@ func (j nslcdJudge) certificate() {
 func (j nslcdJudge) ignorecase() {
 	const option = "ignorecase"
 	if set, ok := j.config.options.last(option); ok && slices.Contains(nslcdTrue, strings.ToLower(set.value)) {
-		j.r.observed(ruleNslcdCase, ldapEvidence("/"+nslcdConfFile, option, set))
+		j.r.observed(ruleNslcdCase, settingEvidence(option, set))
 		return
 	}
 	j.r.pass(ruleNslcdCase)
@@ -243,11 +224,11 @@ func recordOpenLDAP(r *report, fsys fs.FS, path string) {
 		return
 	}
 
-	options := readLDAPOptions(data)
+	options := readLDAPOptions(strings.TrimPrefix(path, "/"), data)
 	var servers []finding.Evidence
 	for _, option := range []string{"uri", "host"} {
 		for _, set := range options[option] {
-			servers = append(servers, ldapEvidence(path, strings.ToUpper(option), set))
+			servers = append(servers, settingEvidence(strings.ToUpper(option), set))
 		}
 	}
 	if len(servers) == 0 {
@@ -263,7 +244,7 @@ func recordOpenLDAP(r *report, fsys fs.FS, path string) {
 		case !accepted:
 			continue
 		case weak:
-			r.observed(ruleLDAPCertificate, append([]finding.Evidence{ldapEvidence(path, "TLS_REQCERT", settings[i])}, servers...)...)
+			r.observed(ruleLDAPCertificate, append([]finding.Evidence{settingEvidence("TLS_REQCERT", settings[i])}, servers...)...)
 		default:
 			r.pass(ruleLDAPCertificate)
 		}

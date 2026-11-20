@@ -121,6 +121,18 @@ const (
 	categoryCount
 )
 
+// The canonical names of the modules that run, as --skip-modules and the
+// module rows of a report spell them. They are declared here because the
+// registry binds each to its bit, and the commands that run a module and the
+// browser that shows what it collected name it by these and not by a string
+// of their own.
+const (
+	NameAudit     = "audit"
+	NameListeners = "listeners"
+	NameOS        = "osinfo"
+	NameSoftware  = "software"
+)
+
 var (
 	// registry is the canonical ordered list of all check, module, and
 	// enrichment adapter entries. Iteration order determines the
@@ -137,13 +149,13 @@ var (
 		// Modules have no individual CLI flags; name and flag are identical.
 		// Reserved entries are wired now to lock in bit positions permanently;
 		// implementation lands in a future branch.
-		{bit: ModuleAudit, code: 'a', name: "audit", flag: "audit", category: CategoryModule},
+		{bit: ModuleAudit, code: 'a', name: NameAudit, flag: NameAudit, category: CategoryModule},
 		{bit: ModuleHistory, code: 'h', name: "history", flag: "history", category: CategoryModule},
 		{bit: ModuleLogs, code: 'l', name: "logs", flag: "logs", category: CategoryModule},
-		{bit: ModuleListeners, code: 'n', name: "listeners", flag: "listeners", category: CategoryModule},
-		{bit: ModuleOS, code: 'o', name: "osinfo", flag: "osinfo", category: CategoryModule},
+		{bit: ModuleListeners, code: 'n', name: NameListeners, flag: NameListeners, category: CategoryModule},
+		{bit: ModuleOS, code: 'o', name: NameOS, flag: NameOS, category: CategoryModule},
 		{bit: ModuleRemote, code: 'r', name: "remote", flag: "remote", category: CategoryModule},
-		{bit: ModuleSoftware, code: 's', name: "software", flag: "software", category: CategoryModule},
+		{bit: ModuleSoftware, code: 's', name: NameSoftware, flag: NameSoftware, category: CategoryModule},
 
 		// Audit checks -- alphabetical by code within category.
 		// flag is the CLI flag name the analyst passes (e.g. --fwall, --fperms).

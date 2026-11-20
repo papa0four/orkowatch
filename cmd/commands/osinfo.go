@@ -3,8 +3,6 @@
 package cmd
 
 import (
-	"context"
-
 	"github.com/spf13/cobra"
 
 	"github.com/papa0four/orkowatch/internal/selection"
@@ -13,7 +11,7 @@ import (
 // newOsinfoCmd returns the command that gathers the OS fingerprint.
 func newOsinfoCmd() *cobra.Command {
 	return newInventoryCmd(standaloneModule{
-		use:   "osinfo",
+		use:   selection.NameOS,
 		short: "Gather OS Fingerprint information",
 		long: `osinfo will scan the host machine and retrieve basic OS fingerprint information such as platform, version, and kernel details.
 
@@ -26,7 +24,5 @@ The report opens in the results browser on a terminal, with the same layout as a
 
   # Save it to a directory in JSON format
   owatch osinfo -o json --report-file /path/to/reports`,
-		mask:    selection.ModuleOS,
-		collect: func(_ context.Context, result *ScanResult) { collectOSInfo(result) },
 	})
 }

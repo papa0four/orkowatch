@@ -11,7 +11,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -126,11 +125,9 @@ const (
 	bitGroupExecute  os.FileMode = 0010
 	bitOtherExecute  os.FileMode = 0001
 
-	// Account databases consulted before the name service, and the
-	// colon-delimited field holding each numeric identifier.
+	// Account databases consulted before the name service.
 	unixPasswdFile = "/etc/passwd"
 	unixGroupFile  = "/etc/group"
-	unixIDField    = 2
 
 	identityKindUser  identityKind = "user"
 	identityKindGroup identityKind = "group"
@@ -408,7 +405,7 @@ func checkCriticalPath(cp criticalPath, r *report) {
 	case uid != rootUID:
 		r.observed(ruleNotRootOwned, evidence(finding.KindFile, cp.path,
 			fact(finding.FactDescription, cp.description),
-			fact(finding.FactUID, strconv.FormatUint(uint64(uid), decimalBase)),
+			fact(finding.FactUID, formatUnixID(uid)),
 			fact(finding.FactExpected, "root")))
 	case modeOK:
 		r.note(finding.SymbolOK, "%s has correct permissions and ownership: %s root", cp.path, formatMode(mode))
@@ -625,8 +622,8 @@ func fileIdentity(info fs.FileInfo) (uid, gid uint32, dev uint64, ok bool) {
 func (e scanEntry) evidence() finding.Evidence {
 	return evidence(finding.KindFile, e.path,
 		fact(finding.FactMode, formatMode(e.mode)),
-		fact(finding.FactUID, strconv.FormatUint(uint64(e.uid), decimalBase)),
-		fact(finding.FactGID, strconv.FormatUint(uint64(e.gid), decimalBase)),
+		fact(finding.FactUID, formatUnixID(e.uid)),
+		fact(finding.FactGID, formatUnixID(e.gid)),
 		fact(finding.FactUnresolved, e.unresolved()),
 		fact(finding.FactReach, e.reach.label()),
 		fact(finding.FactLocation, locationOf(e.path)))

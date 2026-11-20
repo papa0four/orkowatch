@@ -37,7 +37,7 @@ func NewSSHChecker(osCtx registry.OSContext, listeners ListenersFunc) *UnixSSHCh
 // Check implements SSHChecker interface for Unix systems
 func (s *UnixSSHChecker) Check(ctx context.Context) finding.AuditResult {
 	r := newReport(s.checkIdentity)
-	checkSSHDConfig(r, sshdConfigPath, sshdAbsentKeys{
+	checkSSHDConfig(ctx, r, sshdConfigPath, sshdAbsentKeys{
 		rootLogin:    "ssh.permit_root_login_not_set",
 		passwordAuth: "ssh.password_auth_not_set",
 	}, s.listeners(ctx))

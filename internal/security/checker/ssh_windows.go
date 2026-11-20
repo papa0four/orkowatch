@@ -17,13 +17,9 @@ import (
 	"github.com/papa0four/orkowatch/internal/winfolder"
 )
 
-// The rules the Windows SSH check concludes.
-const (
-	ruleSSHDNotRunning registry.FindingKey = "ssh.server_not_running"
-	ruleSSHDNoConfig   registry.FindingKey = "ssh.config_not_found"
-	ruleSSHRootLogin   registry.FindingKey = "ssh.root_login_permitted"
-	ruleSSHPassword    registry.FindingKey = "ssh.password_auth_enabled"
-)
+// ruleSSHDNotRunning is the rule the Windows SSH check concludes beside those
+// the configuration decides.
+const ruleSSHDNotRunning registry.FindingKey = "ssh.server_not_running"
 
 // WindowsSSHChecker implements SSHChecker for Windows systems. listeners
 // returns the host's sockets, from which where sshd listens is recorded.
@@ -65,7 +61,7 @@ func (s *WindowsSSHChecker) Check(ctx context.Context) finding.AuditResult {
 			r.inconclusive(finding.ResultError, "OpenSSH configuration could not be located: "+err.Error(),
 				ruleSSHDNoConfig, ruleSSHRootLogin, ruleSSHPassword)
 		} else {
-			checkSSHDConfig(r, config, sshdAbsentKeys{}, s.listeners(ctx))
+			checkSSHDConfig(ctx, r, config, sshdAbsentKeys{}, s.listeners(ctx))
 		}
 	}
 	s.checkPuTTY(ctx, r)

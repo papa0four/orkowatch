@@ -89,11 +89,11 @@ func TestEnvironmentRefusals(t *testing.T) {
 // and evidence within the declaration is not.
 func TestCheckEvidence(t *testing.T) {
 	d := ruleDefinition()
-	declared := finding.Evidence{Kind: string(finding.KindFile), Subject: "/x", Facts: []finding.Fact{{Name: "reach", Value: "root-only"}}}
+	declared := finding.Evidence{Kind: finding.KindFile, Subject: "/x", Facts: []finding.Fact{{Name: "reach", Value: "root-only"}}}
 	if err := d.CheckEvidence(declared); err != nil {
 		t.Errorf("declared evidence refused: %v", err)
 	}
-	if err := d.CheckEvidence(finding.Evidence{Kind: string(finding.KindAccount), Subject: "a"}); err == nil {
+	if err := d.CheckEvidence(finding.Evidence{Kind: finding.KindAccount, Subject: "a"}); err == nil {
 		t.Error("evidence of an undeclared kind was accepted")
 	}
 	undeclared := declared
@@ -112,18 +112,18 @@ func TestShippedRulesDeriveEachCase(t *testing.T) {
 		for _, rule := range d.Environment {
 			rules++
 			for _, c := range rule.Cases {
-				subject := finding.Evidence{Kind: string(rule.Kind), Subject: "s", Facts: []finding.Fact{{Name: string(rule.Fact), Value: c.Value}}}
+				subject := finding.Evidence{Kind: rule.Kind, Subject: "s", Facts: []finding.Fact{{Name: rule.Fact, Value: c.Value}}}
 				got := d.Modified(subject)
 				want := guide.Passages[c.Guide]
 				if len(got) != 1 || got[0].Metric != rule.Metric || got[0].Value != c.Set || got[0].Quote != want.Text || got[0].Section != want.Section || got[0].Because != c.Because {
 					t.Errorf("%s: %s=%s derived %+v", label, rule.Fact, c.Value, got)
 				}
 			}
-			unmatched := finding.Evidence{Kind: string(rule.Kind), Subject: "s", Facts: []finding.Fact{{Name: string(rule.Fact), Value: "no case has this value"}}}
+			unmatched := finding.Evidence{Kind: rule.Kind, Subject: "s", Facts: []finding.Fact{{Name: rule.Fact, Value: "no case has this value"}}}
 			if got := d.Modified(unmatched); len(got) != 0 {
 				t.Errorf("%s: a value no case names derived %+v", label, got)
 			}
-			if got := d.Modified(finding.Evidence{Kind: string(rule.Kind), Subject: "s"}); len(got) != 0 {
+			if got := d.Modified(finding.Evidence{Kind: rule.Kind, Subject: "s"}); len(got) != 0 {
 				t.Errorf("%s: a subject without %s derived %+v", label, rule.Fact, got)
 			}
 		}
@@ -135,7 +135,7 @@ func TestShippedRulesDeriveEachCase(t *testing.T) {
 
 // fileSubject is file evidence recording reach.
 func fileSubject(path, reach string) finding.Evidence {
-	return finding.Evidence{Kind: string(finding.KindFile), Subject: path, Facts: []finding.Fact{{Name: string(finding.FactReach), Value: reach}}}
+	return finding.Evidence{Kind: finding.KindFile, Subject: path, Facts: []finding.Fact{{Name: finding.FactReach, Value: reach}}}
 }
 
 // The same condition scores differently on hosts whose evidence differs: every
@@ -169,11 +169,11 @@ func TestEnvironmentalFollowsTheEvidence(t *testing.T) {
 		reason   []string
 	}{
 		"one file reachable by others": {
-			[]finding.Evidence{fileSubject("/a", finding.ReachRootOnly), {Kind: string(finding.KindFile), Subject: "/b"}},
+			[]finding.Evidence{fileSubject("/a", finding.ReachRootOnly), {Kind: finding.KindFile, Subject: "/b"}},
 			[]string{"of the 2 file subjects, MPR:H on 1; the 1 that keep PR:L score higher, so PR:L stands"},
 		},
 		"reach not determined": {
-			[]finding.Evidence{fileSubject("/a", finding.ReachUndetermined), fileSubject("/b", finding.ReachUndetermined), {Kind: string(finding.KindFile), Subject: "/c"}},
+			[]finding.Evidence{fileSubject("/a", finding.ReachUndetermined), fileSubject("/b", finding.ReachUndetermined), {Kind: finding.KindFile, Subject: "/c"}},
 			[]string{"reach on the 3 file subjects is undetermined on 2, not recorded on 1, which no case of the rule modifies, so PR:L stands"},
 		},
 		"no file": {nil, []string{"no file evidence was recorded, so PR:L stands"}},
@@ -231,7 +231,7 @@ func TestShippedRulesScoreTheHost(t *testing.T) {
 func scoreShippedCase(t *testing.T, label string, d FindingDefinition, baseline v4.Vector, rule EnvironmentRule, c RuleCase) bool {
 	t.Helper()
 	subject := func(value string) finding.Evidence {
-		return finding.Evidence{Kind: string(rule.Kind), Subject: "s", Facts: []finding.Fact{{Name: string(rule.Fact), Value: value}}}
+		return finding.Evidence{Kind: rule.Kind, Subject: "s", Facts: []finding.Fact{{Name: rule.Fact, Value: value}}}
 	}
 	want, err := baseline.With(rule.Metric, c.Set)
 	if err != nil {

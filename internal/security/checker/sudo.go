@@ -10,7 +10,8 @@ import (
 )
 
 // sudoShell is the command sudo is asked about: an account that may run it
-// as root holds the host. POSIX names sh, and Linux keeps it at this path.
+// as root holds the host. POSIX names sh, and Linux and FreeBSD keep it at
+// this path.
 const sudoShell = "/bin/sh"
 
 // sudoDenied is the exit status of sudo -l with a command the account may

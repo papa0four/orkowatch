@@ -148,20 +148,16 @@ Results can be output in various formats and saved to a file.`,
 // buildAllMask composes a CheckMask from the active module and security check flags
 func (c *allCmd) buildAllMask() (selection.CheckMask, error) {
 	var mask selection.CheckMask
-	if !c.isModuleSkipped("osinfo") {
-		mask |= selection.ModuleOS
+	for _, module := range inventoryModules() {
+		if !c.isModuleSkipped(module.name) {
+			mask |= module.mask
+		}
 	}
-	if !c.isModuleSkipped("software") {
-		mask |= selection.ModuleSoftware
-	}
-	if !c.isModuleSkipped("listeners") {
-		mask |= selection.ModuleListeners
-	}
-	if !c.isModuleSkipped("audit") {
+	if !c.isModuleSkipped(selection.NameAudit) {
 		allChecks := selection.CheckSSH | selection.CheckFirewall | selection.CheckUsers | selection.CheckPerms
 		allChecks &^= c.audit.SkipMask()
 		if allChecks == 0 {
-			return 0, fmt.Errorf("all audit checks were skipped; use --skip-modules audit to skip the audit module")
+			return 0, errors.New("all audit checks were skipped; use --skip-modules audit to skip the audit module")
 		}
 		mask |= allChecks
 	}
@@ -234,13 +230,14 @@ func (c *allCmd) runAllScans(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	if c.isModuleSkipped("osinfo") && c.isModuleSkipped("software") && c.isModuleSkipped("listeners") && c.isModuleSkipped("audit") {
-		return fmt.Errorf("all modules have been skipped, at least one module must be run")
-	}
-
+	// The audit module's own bit is never set into a mask, so a mask with
+	// no bit is a run with every module skipped.
 	mask, err := c.buildAllMask()
 	if err != nil {
 		return err
+	}
+	if mask == 0 {
+		return errors.New("all modules have been skipped, at least one module must be run")
 	}
 
 	interactive := render.StdoutIsTerminal()
@@ -292,30 +289,44 @@ func (c *allCmd) runAllScans(cmd *cobra.Command, args []string) error {
 	}
 }
 
-// Display task identifiers for the inventory modules. The audit's checks
-// use their own names.
-const (
-	taskOSInfo    = "osinfo"
-	taskSoftware  = "software"
-	taskListeners = "listeners"
-)
+// inventory is a module that enumerates facts about the host: its name, as
+// --skip-modules, the progress display and its row in the report spell it,
+// the bit that selects it, its label in the progress display, and the
+// function that runs it and records how it ended.
+type inventory struct {
+	name    string
+	mask    selection.CheckMask
+	label   string
+	collect func(ctx context.Context, result *ScanResult)
+}
+
+// inventoryModules lists the inventory modules in the order all runs them,
+// ahead of the audit, which reads what they collected. all selects, skips,
+// shows and runs a module from its entry here, and the command that runs one
+// alone takes it from here too, so a module is added in this one place.
+func inventoryModules() []inventory {
+	return []inventory{
+		{selection.NameOS, selection.ModuleOS, "OS fingerprint", collectOSInfo},
+		{selection.NameSoftware, selection.ModuleSoftware, "software inventory", collectSoftware},
+		{selection.NameListeners, selection.ModuleListeners, "sockets", collectListeners},
+	}
+}
 
 // auditMask returns the checks the audit module will run, which is none of
 // them when the module itself is skipped.
 func (c *allCmd) auditMask(mask selection.CheckMask) selection.CheckMask {
-	if c.isModuleSkipped("audit") {
+	if c.isModuleSkipped(selection.NameAudit) {
 		return 0
 	}
 	return mask
 }
 
 // tasks lists what the progress display shows a row for: the inventory
-// modules, then every audit check.
+// modules, each under its name, then every audit check.
 func (c *allCmd) tasks(mask selection.CheckMask) []tui.Task {
-	tasks := []tui.Task{
-		{ID: taskOSInfo, Label: "OS fingerprint", Skipped: c.isModuleSkipped("osinfo")},
-		{ID: taskSoftware, Label: "software inventory", Skipped: c.isModuleSkipped("software")},
-		{ID: taskListeners, Label: "sockets", Skipped: c.isModuleSkipped("listeners")},
+	var tasks []tui.Task
+	for _, module := range inventoryModules() {
+		tasks = append(tasks, tui.Task{ID: module.name, Label: module.label, Skipped: c.isModuleSkipped(module.name)})
 	}
 	return append(tasks, security.CheckTasks(c.auditMask(mask))...)
 }
@@ -323,38 +334,24 @@ func (c *allCmd) tasks(mask selection.CheckMask) []tui.Task {
 // runModules runs each module that was not skipped, recording its outcome in
 // result and reporting it to the display as it happens.
 func (c *allCmd) runModules(ctx context.Context, mask selection.CheckMask, result *ScanResult, reporter tui.Reporter) {
-	if c.isModuleSkipped("osinfo") {
-		result.Modules = append(result.Modules, skippedModule("osinfo"))
-	} else {
-		reporter.Start(taskOSInfo)
-		collectOSInfo(result)
-		reporter.Finish(taskOSInfo, moduleOutcome(result.Modules))
+	for _, module := range inventoryModules() {
+		if c.isModuleSkipped(module.name) {
+			result.Modules = append(result.Modules, skippedModule(module.name))
+			continue
+		}
+		reporter.Start(module.name)
+		module.collect(ctx, result)
+		reporter.Finish(module.name, moduleOutcome(result.Modules))
 	}
 
-	if c.isModuleSkipped("software") {
-		result.Modules = append(result.Modules, skippedModule("software"))
-	} else {
-		reporter.Start(taskSoftware)
-		collectSoftware(ctx, result)
-		reporter.Finish(taskSoftware, moduleOutcome(result.Modules))
-	}
-
-	if c.isModuleSkipped("listeners") {
-		result.Modules = append(result.Modules, skippedModule("listeners"))
-	} else {
-		reporter.Start(taskListeners)
-		collectListeners(ctx, result)
-		reporter.Finish(taskListeners, moduleOutcome(result.Modules))
-	}
-
-	if c.isModuleSkipped("audit") {
-		result.Modules = append(result.Modules, skippedModule("audit"))
+	if c.isModuleSkipped(selection.NameAudit) {
+		result.Modules = append(result.Modules, skippedModule(selection.NameAudit))
 		return
 	}
 	securityResult, err := c.runSecurityAuditModule(ctx, mask, result.OSInfo, result.Sockets, reporter)
 	if err != nil {
 		result.Errors = append(result.Errors, fmt.Sprintf("Security audit error: %v", err))
-		result.Modules = append(result.Modules, erroredModule("audit", err))
+		result.Modules = append(result.Modules, erroredModule(selection.NameAudit, err))
 		return
 	}
 	result.SecurityAudit = securityResult
@@ -362,16 +359,17 @@ func (c *allCmd) runModules(ctx context.Context, mask selection.CheckMask, resul
 }
 
 // collectOSInfo runs the OS fingerprint module and records how it ended in
-// result, whether the module returned or failed.
-func collectOSInfo(result *ScanResult) {
+// result, whether the module returned or failed. The fingerprint is read
+// without a context, so the one every module is given goes unused.
+func collectOSInfo(_ context.Context, result *ScanResult) {
 	osInfo, err := osfingerprint.GetOSFingerprint()
 	if err != nil {
 		result.Errors = append(result.Errors, fmt.Sprintf("OS fingerprint error: %v", err))
-		result.Modules = append(result.Modules, erroredModule("osinfo", err))
+		result.Modules = append(result.Modules, erroredModule(selection.NameOS, err))
 		return
 	}
 	result.OSInfo = osInfo
-	result.Modules = append(result.Modules, inventoryModule("osinfo"))
+	result.Modules = append(result.Modules, inventoryModule(selection.NameOS))
 }
 
 // collectSoftware runs the software inventory module and records how it ended
@@ -380,11 +378,11 @@ func collectSoftware(ctx context.Context, result *ScanResult) {
 	software, err := softwarelist.GetInstalledSoftwareList(ctx)
 	if err != nil {
 		result.Errors = append(result.Errors, fmt.Sprintf("Software inventory error: %v", err))
-		result.Modules = append(result.Modules, erroredModule("software", err))
+		result.Modules = append(result.Modules, erroredModule(selection.NameSoftware, err))
 		return
 	}
 	result.Software = software
-	result.Modules = append(result.Modules, inventoryModule("software"))
+	result.Modules = append(result.Modules, inventoryModule(selection.NameSoftware))
 }
 
 // collectListeners runs the sockets module and records how it ended in
@@ -394,13 +392,13 @@ func collectListeners(ctx context.Context, result *ScanResult) {
 	view, err := sockets.Read(ctx)
 	switch {
 	case errors.Is(err, sockets.ErrUnsupported):
-		result.Modules = append(result.Modules, moduleRun{Name: "listeners", Result: finding.ResultNotApplicable, Reason: err.Error()})
+		result.Modules = append(result.Modules, moduleRun{Name: selection.NameListeners, Result: finding.ResultNotApplicable, Reason: err.Error()})
 	case err != nil:
 		result.Errors = append(result.Errors, fmt.Sprintf("Sockets error: %v", err))
-		result.Modules = append(result.Modules, erroredModule("listeners", err))
+		result.Modules = append(result.Modules, erroredModule(selection.NameListeners, err))
 	default:
 		result.Sockets = &view
-		result.Modules = append(result.Modules, inventoryModule("listeners"))
+		result.Modules = append(result.Modules, inventoryModule(selection.NameListeners))
 	}
 }
 
@@ -435,7 +433,7 @@ func auditModule(result *audit.Result) moduleRun {
 			finding.Condition{Result: check.Result, Reason: check.Reason})
 	}
 	aggregate.Conclude()
-	return moduleRun{Name: "audit", Result: aggregate.Result, Reason: aggregate.Reason}
+	return moduleRun{Name: selection.NameAudit, Result: aggregate.Result, Reason: aggregate.Reason}
 }
 
 // incompleteDetail names the modules and checks that did not finish, so a
@@ -600,17 +598,17 @@ func writeSections(ew *render.ErrWriter, w io.Writer, sections []textSection) er
 // command, so a saved report is rendered as the run that wrote it was.
 func writeSingleModuleText(w io.Writer, v allResult) error {
 	switch v.Modules[0].Name {
-	case "osinfo":
+	case selection.NameOS:
 		if v.System != nil {
 			return osfingerprint.WriteViewText(w, *v.System)
 		}
-	case "software":
+	case selection.NameSoftware:
 		view := softwarelist.SoftwareView{}
 		if v.Software != nil {
 			view = *v.Software
 		}
 		return softwarelist.WriteText(w, view)
-	case "listeners":
+	case selection.NameListeners:
 		if v.Sockets != nil {
 			return sockets.WriteText(w, *v.Sockets)
 		}

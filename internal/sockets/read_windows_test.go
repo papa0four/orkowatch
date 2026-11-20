@@ -7,8 +7,14 @@ package sockets
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"net"
+	"slices"
+	"strings"
 	"testing"
+	"unicode/utf16"
+
+	"golang.org/x/sys/windows"
 )
 
 // dword and portBytes build the fields of a row as the host lays them out: a
@@ -136,5 +142,55 @@ func TestReadStatesWhyAProcessIsIncomplete(t *testing.T) {
 	}
 	if view := NewView(sockets); view.Unattributed != 2 {
 		t.Errorf("unattributed = %d, want the two sockets of the unreadable process", view.Unattributed)
+	}
+}
+
+// A path longer than the first buffer is read with a larger one, a query
+// that fails for any other reason is not made again, and a path the longest
+// buffer cannot hold is the host's error.
+func TestQueryPathGrowsItsBuffer(t *testing.T) {
+	long := strings.Repeat("a", 3*imagePath)
+	var rooms []int
+	answer := func(path string) func([]uint16, *uint32) error {
+		return func(buf []uint16, size *uint32) error {
+			rooms = append(rooms, len(buf))
+			units := utf16.Encode([]rune(path))
+			if len(units)+1 > len(buf) {
+				return windows.ERROR_INSUFFICIENT_BUFFER
+			}
+			copy(buf, units)
+			*size = uint32(len(units))
+			return nil
+		}
+	}
+
+	got, err := queryPath(answer(long))
+	if err != nil || got != long {
+		t.Errorf("a path of %d characters: %d characters, %v", len(long), len(got), err)
+	}
+	if want := []int{imagePath, 2 * imagePath, 4 * imagePath}; !slices.Equal(rooms, want) {
+		t.Errorf("buffers of %v, want %v", rooms, want)
+	}
+
+	rooms = nil
+	if got, err := queryPath(answer(`C:\Windows\System32\svchost.exe`)); err != nil || got != `C:\Windows\System32\svchost.exe` || len(rooms) != 1 {
+		t.Errorf("a short path: %q, %v, after %d queries", got, err, len(rooms))
+	}
+
+	rooms = nil
+	refused := func([]uint16, *uint32) error {
+		rooms = append(rooms, 0)
+		return windows.ERROR_ACCESS_DENIED
+	}
+	if _, err := queryPath(refused); !errors.Is(err, windows.ERROR_ACCESS_DENIED) || len(rooms) != 1 {
+		t.Errorf("a refused query: %v, after %d queries", err, len(rooms))
+	}
+
+	rooms = nil
+	if _, err := queryPath(answer(strings.Repeat("a", 2*imagePathLimit))); !errors.Is(err, windows.ERROR_INSUFFICIENT_BUFFER) {
+		t.Errorf("a path longer than any Windows has: %v", err)
+	}
+	if last := rooms[len(rooms)-1]; last != imagePathLimit {
+		t.Errorf("the largest buffer tried holds %d, want %d", last, imagePathLimit)
 	}
 }

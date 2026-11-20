@@ -46,7 +46,12 @@ const (
 
 	addressV4 = 4
 	addressV6 = 16
-	imagePath = 1024
+
+	// imagePath is the room first given to an executable's path, in UTF-16
+	// units, and imagePathLimit the most a path is given: the longest path
+	// Windows has is 32,767 characters and its terminator.
+	imagePath      = 1024
+	imagePathLimit = 32768
 
 	decimalBase = 10
 
@@ -388,12 +393,28 @@ func inspectProcess(pid uint32, elevated bool) (Process, string) {
 
 // imageName returns the path of the executable a process was started from.
 func imageName(handle windows.Handle) (string, error) {
-	buf := make([]uint16, imagePath)
-	size := uint32(imagePath)
-	if err := windows.QueryFullProcessImageName(handle, 0, &buf[0], &size); err != nil {
-		return "", err
+	return queryPath(func(buf []uint16, size *uint32) error {
+		return windows.QueryFullProcessImageName(handle, 0, &buf[0], size)
+	})
+}
+
+// queryPath returns the path query writes into the buffer it is given, whose
+// length it is told in size and replaces there with the length written. A
+// buffer the host says is too small is doubled and the query made again, up
+// to the longest path Windows has, so a long path is read and not reported
+// as one that could not be.
+func queryPath(query func(buf []uint16, size *uint32) error) (string, error) {
+	for room := imagePath; ; room *= 2 {
+		buf := make([]uint16, room)
+		size := uint32(room)
+		err := query(buf, &size)
+		switch {
+		case err == nil:
+			return windows.UTF16ToString(buf[:size]), nil
+		case !errors.Is(err, windows.ERROR_INSUFFICIENT_BUFFER) || room >= imagePathLimit:
+			return "", err
+		}
 	}
-	return windows.UTF16ToString(buf[:size]), nil
 }
 
 // tokenAccount returns the account a process runs as, as DOMAIN\name, or its

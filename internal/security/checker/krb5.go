@@ -22,8 +22,13 @@ const (
 )
 
 // krb5DefaultKeytab is the keytab the library on every supported family uses
-// when default_keytab_name is not set.
-const krb5DefaultKeytab = "etc/krb5.keytab"
+// when default_keytab_name is not set. krb5VendorFile is the vendor copy of
+// krb5.conf the library of some families reads. Both are relative to the root
+// of the file system read.
+const (
+	krb5DefaultKeytab = "etc/krb5.keytab"
+	krb5VendorFile    = "usr/etc/krb5.conf"
+)
 
 // The encryption types kdc.conf(5) lists, by the first name it gives each.
 const (
@@ -102,7 +107,7 @@ type (
 	// krb5Host is what the Kerberos rules need from the host besides its
 	// files: the release installed.
 	krb5Host struct {
-		release func() (krb5Release, error)
+		release func() (programRelease, error)
 	}
 
 	// krb5List is one encryption type list in force: the types in it, and
@@ -112,6 +117,13 @@ type (
 		defaults bool
 	}
 )
+
+// krb5ReadsVendorFile reports whether the library of a host of families
+// reads the vendor copy of krb5.conf, as the SUSE family's and Alpine's were
+// seen to.
+func krb5ReadsVendorFile(families []registry.Distro) bool {
+	return slices.Contains(families, registry.DistroSUSE) || slices.Contains(families, registry.DistroAlpine)
+}
 
 // recordKerberos judges the Kerberos client configuration of a host of
 // families. With no configuration there is nothing to judge. A distribution
@@ -137,7 +149,7 @@ func recordKerberos(r *report, fsys fs.FS, families []registry.Distro, host krb5
 	signals := krb5Use(fsys, config, sssd)
 	recorded := signals
 	if realm, ok := config.libdefaults["default_realm"]; ok {
-		recorded = append(recorded, krb5Evidence("default_realm", realm))
+		recorded = append(recorded, settingEvidence(krb5Subject("default_realm"), realm))
 	}
 	if len(recorded) > 0 {
 		r.observed(ruleKrb5Present, recorded...)
@@ -181,27 +193,24 @@ func krb5Use(fsys fs.FS, config krb5Config, sssd sssdConfig) []finding.Evidence 
 			continue
 		}
 		provider, _ := sssd.get(domain.section, "auth_provider")
-		signals = append(signals, evidence(finding.KindSetting, "["+domain.section+"] auth_provider",
-			fact(finding.FactValue, provider.value), fact(finding.FactLine, lineRef("/"+provider.file, provider.line))))
+		signals = append(signals, settingEvidence("["+domain.section+"] auth_provider", provider))
 	}
 	return signals
 }
 
-// krb5Evidence is the evidence of one [libdefaults] relation a file sets.
-func krb5Evidence(relation string, set krb5Setting, facts ...finding.Fact) finding.Evidence {
-	return evidence(finding.KindSetting, "["+krb5Libdefaults+"] "+relation, append([]finding.Fact{
-		fact(finding.FactValue, set.value), fact(finding.FactLine, lineRef("/"+set.file, set.line)),
-	}, facts...)...)
+// krb5Subject names a [libdefaults] relation as its evidence does.
+func krb5Subject(relation string) string {
+	return "[" + krb5Libdefaults + "] " + relation
 }
 
 // krb5BuildOf returns the observed build matching the host's most specific
 // family and its release, or nil when the release is unknown or the build was
 // not observed.
-func krb5BuildOf(families []registry.Distro, release krb5Release, releaseErr error) *krb5Build {
+func krb5BuildOf(families []registry.Distro, release programRelease, releaseErr error) *krb5Build {
 	if releaseErr != nil {
 		return nil
 	}
-	series := fmt.Sprintf("%d.%d", release.major, release.minor)
+	series := release.series()
 	for _, family := range families {
 		for i, build := range krb5Builds {
 			if build.family == family && slices.Contains(build.releases, series) {
@@ -217,7 +226,7 @@ type krb5Judge struct {
 	r       *report
 	config  krb5Config
 	build   *krb5Build
-	release krb5Release
+	release programRelease
 }
 
 // judge concludes both rules. A weak type is in force only where
@@ -232,7 +241,7 @@ func (j krb5Judge) judge() {
 		case !known:
 			j.r.inconclusive(finding.ResultUnknown, fmt.Sprintf(
 				"%s is %q at %s, which the library refuses, so it does not start with this configuration",
-				flag, set.value, lineRef("/"+set.file, set.line)), krb5Rules...)
+				flag, set.value, set.at()), krb5Rules...)
 			return
 		case j.config.undecided[flag] != "":
 			j.r.inconclusive(finding.ResultUnknown, j.config.undecided[flag], ruleKrb5Weak)
@@ -255,7 +264,7 @@ func (j krb5Judge) judge() {
 		}
 	}
 	if len(weak) > 0 {
-		j.r.observed(ruleKrb5Weak, append([]finding.Evidence{krb5Evidence(flag, j.config.libdefaults[flag])}, weak...)...)
+		j.r.observed(ruleKrb5Weak, append([]finding.Evidence{settingEvidence(krb5Subject(flag), j.config.libdefaults[flag])}, weak...)...)
 	} else {
 		j.r.pass(ruleKrb5Weak)
 	}
@@ -348,10 +357,9 @@ func (j krb5Judge) list(relation string) (krb5List, string) {
 func (j krb5Judge) listEvidence(relation string, found []string) finding.Evidence {
 	inForce := fact(finding.FactDescription, "in force: "+strings.Join(found, ", "))
 	if set, ok := j.config.libdefaults[relation]; ok {
-		return krb5Evidence(relation, set, inForce)
+		return settingEvidence(krb5Subject(relation), set, inForce)
 	}
-	return evidence(finding.KindSetting, "["+krb5Libdefaults+"] "+relation,
-		fact(finding.FactState, "not set"), fact(finding.FactVersion, j.release.text), inForce)
+	return unsetEvidence(krb5Subject(relation), fact(finding.FactVersion, j.release.text), inForce)
 }
 
 // intersect returns the members of list that are in set, in list's order.

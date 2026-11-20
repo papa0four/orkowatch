@@ -13,6 +13,10 @@ import (
 	"github.com/papa0four/orkowatch/internal/security/registry"
 )
 
+// hostContext is the platform the tests shared with Linux judge accounts
+// on: the rules a platform's reader names are the ones that platform defines.
+var hostContext = registry.OSContext{Platform: registry.PlatformUnix, Families: []registry.Distro{registry.DistroFreeBSD}}
+
 // freebsdAccounts are accounts as FreeBSD ships and pw creates them, with the
 // password state master.passwd gives each.
 var freebsdAccounts = []userAccount{
@@ -31,22 +35,22 @@ var freebsdAccounts = []userAccount{
 // judgeFreeBSD applies a su policy to the accounts and judges them as the
 // users check does on a host without sudo.
 func judgeFreeBSD(gate suGate, credentialsRead bool) map[registry.FindingKey]finding.Condition {
-	u := NewUserChecker(registry.OSContext{Platform: registry.PlatformUnix, Families: []registry.Distro{registry.DistroFreeBSD}})
-	u.credentialsRead = credentialsRead
+	u := NewUserChecker(hostContext)
 
-	users := slices.Clone(freebsdAccounts)
+	host := hostAccounts{accounts: slices.Clone(freebsdAccounts)}
 	if !credentialsRead {
-		for i := range users {
-			users[i].password = passwordUnknown
+		host.credentialsUnread = credentialStore + " is not readable without elevated privileges"
+		for i := range host.accounts {
+			host.accounts[i].password = passwordUnknown
 		}
 	}
 	src := privilegeSources{euid: rootUID, installed: func(string) bool { return false }}
-	u.readPrivilege(context.Background(), src, users)
+	host.readPrivilege(context.Background(), src)
 	lookup := func(context.Context, string) ([]byte, error) { return []byte("wheel:*:0:root,a_w\n"), nil }
-	u.applySUGate(context.Background(), suPolicyFile, gate, lookup, users)
+	host.applySUGate(context.Background(), suPolicyFile, gate, lookup)
 
 	r := newReport(u.checkIdentity)
-	u.analyzeUsers(users, r)
+	analyzeUsers(host, r)
 	return conditions(r)
 }
 
@@ -85,7 +89,7 @@ func TestFreeBSDAccountsAsRoot(t *testing.T) {
 	if c := got["users.su_group_member"]; len(c.Evidence) == 1 {
 		group := ""
 		for _, f := range c.Evidence[0].Facts {
-			if f.Name == string(finding.FactGroup) {
+			if f.Name == finding.FactGroup {
 				group = f.Value
 			}
 		}

@@ -32,9 +32,9 @@ func suRules() []registry.FindingKey {
 // and records what the policy in file leaves without a judgment. A group the
 // policy names and the host does not have is left unknown: who su admits
 // then was not observed.
-func (u *UnixUserChecker) applySUGate(ctx context.Context, file string, gate suGate, lookup groupLookup, users []userAccount) {
+func (h *hostAccounts) applySUGate(ctx context.Context, file string, gate suGate, lookup groupLookup) {
 	unknown := func(reason string) {
-		u.unjudged = append(u.unjudged, unjudged{rules: suRules(), result: finding.ResultUnknown, reason: reason})
+		h.unjudged = append(h.unjudged, unjudged{rules: suRules(), result: finding.ResultUnknown, reason: reason})
 	}
 
 	switch {
@@ -42,8 +42,8 @@ func (u *UnixUserChecker) applySUGate(ctx context.Context, file string, gate suG
 		unknown(gate.undecided)
 		return
 	case gate.open:
-		u.hostwide = append(u.hostwide, observation{rule: ruleSUOpen, evidence: evidence(finding.KindFile, file)})
-		u.unjudged = append(u.unjudged, unjudged{
+		h.hostwide = append(h.hostwide, observation{rule: ruleSUOpen, evidence: evidence(finding.KindFile, file)})
+		h.unjudged = append(h.unjudged, unjudged{
 			rules:  []registry.FindingKey{platformRules.suMember},
 			result: finding.ResultNotApplicable,
 			reason: file + " requires no group of an account that asks for root",
@@ -57,16 +57,16 @@ func (u *UnixUserChecker) applySUGate(ctx context.Context, file string, gate suG
 	entry, err := lookup(ctx, gate.group)
 	switch {
 	case err != nil:
-		u.unjudged = append(u.unjudged, unjudged{rules: suRules(), result: finding.ResultError, reason: err.Error()})
+		h.unjudged = append(h.unjudged, unjudged{rules: suRules(), result: finding.ResultError, reason: err.Error()})
 		return
 	case entry == nil:
 		unknown(fmt.Sprintf("the group %s that %s names does not exist", gate.group, file))
 		return
 	}
 
-	groups := privilegedGroups{members: map[string]string{}, gids: map[uint32]string{}}
+	groups := newPrivilegedGroups()
 	groups.add(entry)
-	for i := range users {
-		users[i].suGroup = groups.groupOf(users[i])
+	for i := range h.accounts {
+		h.accounts[i].suGroup = groups.groupOf(h.accounts[i])
 	}
 }

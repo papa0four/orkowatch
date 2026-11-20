@@ -110,7 +110,7 @@ func TestRecordDirectoryClients(t *testing.T) {
 	sssd := got["users.sssd_configured"]
 	var subjects []string
 	for _, e := range sssd.Evidence {
-		subjects = append(subjects, e.Kind+" "+e.Subject+" "+factText(e))
+		subjects = append(subjects, string(e.Kind)+" "+e.Subject+" "+factText(e))
 	}
 	wantSubjects := []string{
 		"nss-database passwd line=/etc/nsswitch.conf:1 value=files sss",
@@ -150,7 +150,7 @@ func TestRecordDirectoryClientsUndetermined(t *testing.T) {
 func factText(e finding.Evidence) string {
 	parts := make([]string, 0, len(e.Facts))
 	for _, f := range e.Facts {
-		parts = append(parts, f.Name+"="+f.Value)
+		parts = append(parts, string(f.Name)+"="+f.Value)
 	}
 	return strings.Join(parts, " ")
 }

@@ -36,13 +36,17 @@ const (
 	pamInclude        = "include"
 	pamAuth           = "auth"
 	pamQuoting        = "\"'\\"
-
-	// pamIncludeDepth bounds how far includes are followed. pam.conf(5):
-	// "there is currently no loop detection in place".
-	pamIncludeDepth = 8
 )
 
 var (
+	// openPAMFacilities and openPAMControls are the facilities and control
+	// flags pam.conf(5) lists. OpenPAM reads both as written: with any
+	// other on a line, in whatever facility, su on FreeBSD 15.1 logged
+	// "invalid facility" or "invalid control flag" and ended in "pam_start:
+	// System error" for every applicant, a member of wheel included.
+	openPAMFacilities = []string{pamAuth, "account", "session", "password"}
+	openPAMControls   = []string{"required", "requisite", "sufficient", "binding", "optional", pamInclude}
+
 	// suGroupControls are the controls under which a rejection by pam_group
 	// refuses the applicant.
 	suGroupControls = []string{"requisite", "required"}
@@ -80,7 +84,8 @@ type (
 // from a different chain (specified by other-system-name) to be included in
 // the current one."
 func readSUGate(read pamPolicy) suGate {
-	chain, undecided := suAuthChain(suService, read, 0)
+	var reading includeChain
+	chain, undecided := suAuthChain(suService, read, &reading)
 	if undecided != "" {
 		return suGate{undecided: undecided}
 	}
@@ -115,14 +120,21 @@ func readSUGate(read pamPolicy) suGate {
 // suAuthChain returns the auth rules of a service in the order PAM runs
 // them, or why they could not be put in order. OpenPAM splits a rule by the
 // shell's quoting rules (pam.conf(5)), which the rule parser here does not
-// follow, so a policy that quotes or escapes anything is left undecided.
-func suAuthChain(service string, read pamPolicy, depth int) ([]suAuthRule, string) {
-	if depth > pamIncludeDepth {
-		return nil, fmt.Sprintf("includes are nested more than %d deep at %s", pamIncludeDepth, service)
-	}
+// follow, so a policy that quotes or escapes anything is left undecided. A
+// line OpenPAM refuses is not passed over: su was seen to admit no one with
+// a policy holding one, so the policy is left undecided with the line. An
+// include names a service and never a path ("invalid service name"), and
+// pam.conf(5) warns that "there is currently no loop detection in place", so
+// a policy that leads back to itself is left undecided as well.
+func suAuthChain(service string, read pamPolicy, reading *includeChain) ([]suAuthRule, string) {
 	if service == "" || strings.ContainsAny(service, `/\`) {
 		return nil, fmt.Sprintf("the included policy %q is not the name of a service", service)
 	}
+	leave, ok := reading.enter(service)
+	if !ok {
+		return nil, fmt.Sprintf("the policy of %s is included from a policy it includes", service)
+	}
+	defer leave()
 
 	data, err := read(service)
 	if err != nil {
@@ -138,18 +150,23 @@ func suAuthChain(service string, read pamPolicy, depth int) ([]suAuthRule, strin
 
 	var chain []suAuthRule
 	for _, rule := range rules {
-		if strings.TrimPrefix(rule.typ, pamOptionalPrefix) != pamAuth {
-			continue
+		entry := suAuthRule{pamRule: rule, service: service}
+		facility := strings.TrimPrefix(rule.typ, pamOptionalPrefix)
+		switch {
+		case !slices.Contains(openPAMFacilities, facility):
+			return nil, fmt.Sprintf("%s has the facility %q, which OpenPAM refuses, so su admits no one with this policy", entry.at(), rule.typ)
+		case !slices.Contains(openPAMControls, rule.control):
+			return nil, fmt.Sprintf("%s has the control flag %q, which OpenPAM refuses, so su admits no one with this policy", entry.at(), rule.control)
+		case facility != pamAuth:
+		case rule.control != pamInclude:
+			chain = append(chain, entry)
+		default:
+			included, undecided := suAuthChain(rule.target, read, reading)
+			if undecided != "" {
+				return nil, undecided
+			}
+			chain = append(chain, included...)
 		}
-		if rule.control != pamInclude {
-			chain = append(chain, suAuthRule{pamRule: rule, service: service})
-			continue
-		}
-		included, undecided := suAuthChain(rule.target, read, depth+1)
-		if undecided != "" {
-			return nil, undecided
-		}
-		chain = append(chain, included...)
 	}
 	return chain, ""
 }

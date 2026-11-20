@@ -35,8 +35,8 @@ func TestLocationOf(t *testing.T) {
 // A scanned entry carries its location as a fact when it has one and carries
 // no such fact otherwise, so the common entry adds nothing.
 func TestScanEntryEvidenceLocation(t *testing.T) {
-	names := func(e finding.Evidence) map[string]string {
-		facts := map[string]string{}
+	names := func(e finding.Evidence) map[finding.FactName]string {
+		facts := map[finding.FactName]string{}
 		for _, f := range e.Facts {
 			facts[f.Name] = f.Value
 		}
@@ -44,12 +44,12 @@ func TestScanEntryEvidenceLocation(t *testing.T) {
 	}
 
 	temp := names(scanEntry{path: "/tmp/dropper", mode: 0o4755}.evidence())
-	if temp[string(finding.FactLocation)] != finding.LocationTemporary || temp[string(finding.FactMode)] == "" {
+	if temp[finding.FactLocation] != finding.LocationTemporary || temp[finding.FactMode] == "" {
 		t.Errorf("a setuid file in /tmp lacks its location or mode: %v", temp)
 	}
 
 	system := names(scanEntry{path: "/usr/bin/su", mode: fs.FileMode(0o4755)}.evidence())
-	if _, ok := system[string(finding.FactLocation)]; ok {
+	if _, ok := system[finding.FactLocation]; ok {
 		t.Errorf("an entry in neither place has a location fact: %v", system)
 	}
 }

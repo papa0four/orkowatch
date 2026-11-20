@@ -36,21 +36,21 @@ func (u *UnixUserChecker) checkDirectoryClients(ctx context.Context, r *report) 
 	recordOpenLDAP(r, root, clientFor(clients, ruleLDAPPresent).path)
 	sssd, sssdErr := readSSSDConfig(root)
 	recordSSSD(r, root, sssdHost{
-		version: func() (sssdVersion, error) { return installedSSSD(ctx) },
+		version: func() (programRelease, error) { return installedSSSD(ctx) },
 		owner:   owner,
 	}, sssd, sssdErr)
 	recordKerberos(r, root, u.osCtx.Families, krb5Host{
-		release: func() (krb5Release, error) { return installedKerberos(ctx) },
+		release: func() (programRelease, error) { return installedKerberos(ctx) },
 	}, sssd, sssdErr)
 }
 
 // installedKerberos asks klist for the release of the library. The default
 // encryption types differ between builds, and the configuration does not
 // state which is installed.
-func installedKerberos(ctx context.Context) (krb5Release, error) {
+func installedKerberos(ctx context.Context) (programRelease, error) {
 	output, err := exec.CommandContext(ctx, "klist", "-V").Output()
 	if err != nil {
-		return krb5Release{}, fmt.Errorf("klist -V: %w", err)
+		return programRelease{}, fmt.Errorf("klist -V: %w", err)
 	}
 	return parseKrb5Release(string(output))
 }
@@ -58,10 +58,10 @@ func installedKerberos(ctx context.Context) (krb5Release, error) {
 // installedSSSD asks the sssd binary for its release. The configuration does
 // not state it, and the defaults and file ownership the manual gives differ
 // between releases.
-func installedSSSD(ctx context.Context) (sssdVersion, error) {
+func installedSSSD(ctx context.Context) (programRelease, error) {
 	output, err := exec.CommandContext(ctx, "sssd", "--version").Output()
 	if err != nil {
-		return sssdVersion{}, fmt.Errorf("sssd --version: %w", err)
+		return programRelease{}, fmt.Errorf("sssd --version: %w", err)
 	}
 	return parseSSSDVersion(string(output))
 }

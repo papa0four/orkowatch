@@ -8,6 +8,7 @@ package audit
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"runtime"
 	"strings"
@@ -233,11 +234,12 @@ func (sa *SecurityAuditor) RunAudit(ctx context.Context) (*Result, error) {
 
 	for i, r := range runners {
 		if !enabled[r.name] {
-			result.Results[i] = skippedResult(r)
+			result.Results[i] = unrunResult(r, finding.ResultNotSelected, "excluded by --skip-checks")
 			continue
 		}
 		if !registry.Defines(sa.osContext, r.name) {
-			result.Results[i] = undefinedResult(r, sa.osContext.DisplayLabel())
+			result.Results[i] = unrunResult(r, finding.ResultNotChecked,
+				fmt.Sprintf("no finding definitions for the %s check on %s", r.name, sa.osContext.DisplayLabel()))
 			continue
 		}
 		sa.observer.CheckStarted(r.name)
@@ -319,33 +321,23 @@ func enabledSet(runners []checkRunner, checks []string) (map[string]bool, error)
 		enabled[name] = true
 	}
 	if len(enabled) == 0 {
-		return nil, fmt.Errorf("all available checks were skipped; at least one must run")
+		return nil, errors.New("all available checks were skipped; at least one must run")
 	}
 	return enabled, nil
 }
 
-// skippedResult returns the result row for a check excluded by flag, so a
-// skip occupies its canonical index rather than vanishing from the set
-func skippedResult(r checkRunner) finding.AuditResult {
+// unrunResult returns the result row for a check that is not run, so it
+// occupies its canonical index rather than vanishing from the set: one the
+// operator excluded, and one the platform has no finding definitions for,
+// which could report nothing it observed and whose row must not read as a
+// clean one.
+func unrunResult(r checkRunner, result finding.Result, reason string) finding.AuditResult {
 	return finding.AuditResult{
 		Key:         r.name,
 		Name:        r.display,
 		Description: r.description,
-		Result:      finding.ResultNotSelected,
-		Reason:      "excluded by --skip-checks",
-	}
-}
-
-// undefinedResult returns the result row for a check the platform has no
-// finding definitions for. The check is not run: it could report nothing it
-// observed, and a row that says so is not a clean one.
-func undefinedResult(r checkRunner, platform string) finding.AuditResult {
-	return finding.AuditResult{
-		Key:         r.name,
-		Name:        r.display,
-		Description: r.description,
-		Result:      finding.ResultNotChecked,
-		Reason:      fmt.Sprintf("no finding definitions for the %s check on %s", r.name, platform),
+		Result:      result,
+		Reason:      reason,
 	}
 }
 

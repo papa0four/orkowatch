@@ -3,6 +3,7 @@
 package checker
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -39,7 +40,7 @@ func parseIn(t *testing.T, dir string) (sshConfig, error) {
 		t.Fatal(err)
 	}
 	defer file.Close() //nolint:errcheck // read-only test file
-	return parseSSHDConfig(file, path, dir)
+	return parseSSHDConfig(context.Background(), file, path, dir)
 }
 
 // The global value the parser takes is the one sshd uses. Each expectation is
@@ -210,7 +211,7 @@ func TestCheckSSHDConfigJudgesTheAssembledConfiguration(t *testing.T) {
 			osCtx: registry.OSContext{Platform: registry.PlatformLinux, Families: []registry.Distro{registry.DistroGeneric}},
 			index: make(map[registry.FindingKey]int),
 		}
-		checkSSHDConfig(r, filepath.Join(dir, "sshd_config"), sshdAbsentKeys{
+		checkSSHDConfig(context.Background(), r, filepath.Join(dir, "sshd_config"), sshdAbsentKeys{
 			rootLogin:    "ssh.permit_root_login_not_set",
 			passwordAuth: "ssh.password_auth_not_set",
 		}, Listeners{View: loopbackSSHD()})
@@ -256,7 +257,7 @@ func loopbackSSHD() *sockets.View {
 func evidenceOfKind(condition finding.Condition, kind finding.EvidenceKind) []finding.Evidence {
 	var out []finding.Evidence
 	for _, e := range condition.Evidence {
-		if e.Kind == string(kind) {
+		if e.Kind == kind {
 			out = append(out, e)
 		}
 	}
@@ -266,7 +267,7 @@ func evidenceOfKind(condition finding.Condition, kind finding.EvidenceKind) []fi
 // factValue returns the value e records for name, or empty.
 func factValue(e finding.Evidence, name finding.FactName) string {
 	for _, f := range e.Facts {
-		if f.Name == string(name) {
+		if f.Name == name {
 			return f.Value
 		}
 	}
@@ -341,7 +342,7 @@ func TestSSHDListening(t *testing.T) {
 		"configuration not read in full": {parse(""), errors.New("partial"), loopbackSSHD(), finding.ListeningUndetermined},
 	} {
 		got := sshdListening(r, c.config, c.readErr, Listeners{View: c.view, Unread: "not read"})
-		if v := factValue(got, finding.FactListening); v != c.want || got.Kind != string(finding.KindListening) {
+		if v := factValue(got, finding.FactListening); v != c.want || got.Kind != finding.KindListening {
 			t.Errorf("%s: %+v, want %s", name, got, c.want)
 		}
 	}

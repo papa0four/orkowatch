@@ -45,6 +45,43 @@ func TestObservedHoldsEvidenceToRecords(t *testing.T) {
 	}
 }
 
+// A key the platform does not define is refused whatever a checker concludes
+// for it, so a mistyped key cannot report a rule that does not exist as
+// passed or as not evaluated. The empty key, which a platform uses for a rule
+// it does not define, records nothing.
+func TestRecordRefusesUndefinedKeys(t *testing.T) {
+	const undefined registry.FindingKey = "permissions.no_such_rule"
+	newLinuxReport := func() *report {
+		return &report{
+			osCtx: registry.OSContext{Platform: registry.PlatformLinux, Families: []registry.Distro{registry.DistroGeneric}},
+			index: make(map[registry.FindingKey]int),
+		}
+	}
+
+	for name, conclude := range map[string]func(*report){
+		"pass":         func(r *report) { r.pass(undefined) },
+		"inconclusive": func(r *report) { r.inconclusive(finding.ResultError, "could not look", undefined) },
+		"observed":     func(r *report) { r.observed(undefined) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			defer func() {
+				if recover() == nil {
+					t.Error("a key with no definition was recorded")
+				}
+			}()
+			conclude(newLinuxReport())
+		})
+	}
+
+	r := newLinuxReport()
+	r.pass("", "permissions.suid_sgid_binary")
+	r.inconclusive(finding.ResultError, "could not look", "")
+	r.observed("")
+	if got := r.result.Conditions; len(got) != 1 || got[0].Key != "permissions.suid_sgid_binary" {
+		t.Errorf("the empty key was recorded: %+v", got)
+	}
+}
+
 // A finding is scored on all the evidence recorded for it, including subjects
 // observed after the first: a file any user can reach, recorded second, keeps
 // the baseline that the first file alone would have modified, and the severity
@@ -87,7 +124,7 @@ func TestFinishScoresTheCompleteEvidence(t *testing.T) {
 // no value.
 func TestEvidenceOmitsEmptyFacts(t *testing.T) {
 	got := evidence(finding.KindFile, "/x", fact(finding.FactMode, "-rw-r--r--"), fact(finding.FactReach, ""), fact(finding.FactUID, "0"))
-	if len(got.Facts) != 2 || got.Facts[0].Name != string(finding.FactMode) || got.Facts[1].Name != string(finding.FactUID) {
+	if len(got.Facts) != 2 || got.Facts[0].Name != finding.FactMode || got.Facts[1].Name != finding.FactUID {
 		t.Errorf("facts = %v", got.Facts)
 	}
 }

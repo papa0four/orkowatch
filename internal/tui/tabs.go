@@ -13,8 +13,8 @@ import (
 )
 
 // Tab identifiers. A tab's identifier fixes the key that jumps to it, so a
-// source has the same letter in every run. The identifiers after software
-// are reserved for the sources that arrive with the enrichment work.
+// source has the same letter in every run. tabLetters also reserves a letter
+// for each source that arrives with the enrichment work.
 const (
 	TabFindings = "findings"
 	TabSystem   = "system"

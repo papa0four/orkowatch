@@ -8,7 +8,6 @@ import (
 	"io/fs"
 	"path"
 	"slices"
-	"strconv"
 	"strings"
 	"unicode"
 )
@@ -21,13 +20,6 @@ const (
 )
 
 type (
-	// sssdSetting is one option as a file states it.
-	sssdSetting struct {
-		value string
-		file  string
-		line  int
-	}
-
 	// sssdConfig is the configuration SSSD assembles from sssd.conf and the
 	// snippets in conf.d (sssd.conf(5)). files are the files read, in the
 	// order SSSD applies them. Each option holds every setting of it in that
@@ -36,15 +28,8 @@ type (
 	// manual describes, in which case what SSSD takes from it is not known.
 	sssdConfig struct {
 		files     []string
-		sections  map[string]map[string][]sssdSetting
+		sections  map[string]map[string][]setting
 		malformed []string
-	}
-
-	// sssdVersion is the release of SSSD installed, which decides the defaults
-	// and the file ownership its manual states.
-	sssdVersion struct {
-		major, minor int
-		text         string
 	}
 )
 
@@ -54,7 +39,7 @@ type (
 // (sssd.conf(5)). It returns fs.ErrNotExist when there is neither a file nor a
 // snippet.
 func readSSSDConfig(fsys fs.FS) (sssdConfig, error) {
-	config := sssdConfig{sections: map[string]map[string][]sssdSetting{}}
+	config := sssdConfig{sections: map[string]map[string][]setting{}}
 	if _, err := fs.Stat(fsys, sssdConfFile); err == nil {
 		config.files = append(config.files, sssdConfFile)
 	} else if !errors.Is(err, fs.ErrNotExist) {
@@ -75,7 +60,7 @@ func readSSSDConfig(fsys fs.FS) (sssdConfig, error) {
 		if err != nil {
 			return config, err
 		}
-		config.parse(file, data)
+		config.malformed = append(config.malformed, parseSSSDFile(config.sections, file, data)...)
 	}
 	return config, nil
 }
@@ -99,11 +84,13 @@ func sssdSnippets(fsys fs.FS) ([]string, error) {
 	return snippets, nil
 }
 
-// parse adds one file's settings. The syntax is the one sssd.conf(5) gives: a
-// section name in square brackets, key = value, and a comment line beginning
-// with # or ;. Inline comments are not supported, so the value runs to the end
-// of the line.
-func (c *sssdConfig) parse(file string, data []byte) {
+// parseSSSDFile adds one file's settings to sections and returns the lines it
+// could not read as the manual describes. The syntax is the one sssd.conf(5)
+// gives: a section name in square brackets, key = value, and a comment line
+// beginning with # or ;. Inline comments are not supported, so the value runs
+// to the end of the line.
+func parseSSSDFile(sections map[string]map[string][]setting, file string, data []byte) []string {
+	var malformed []string
 	section := ""
 	for i, raw := range strings.Split(string(data), "\n") {
 		text := strings.TrimSpace(raw)
@@ -113,27 +100,27 @@ func (c *sssdConfig) parse(file string, data []byte) {
 			section = strings.TrimSpace(text[1 : len(text)-1])
 		default:
 			key, value, ok := strings.Cut(text, "=")
+			set := setting{value: strings.TrimSpace(value), file: file, line: i + 1}
 			if !ok || section == "" {
-				c.malformed = append(c.malformed,
-					lineRef("/"+file, i+1)+" is neither a section nor a key = value inside one")
+				malformed = append(malformed, set.at()+" is neither a section nor a key = value inside one")
 				continue
 			}
 			key = strings.TrimSpace(key)
-			if c.sections[section] == nil {
-				c.sections[section] = map[string][]sssdSetting{}
+			if sections[section] == nil {
+				sections[section] = map[string][]setting{}
 			}
-			c.sections[section][key] = append(c.sections[section][key],
-				sssdSetting{value: strings.TrimSpace(value), file: file, line: i + 1})
+			sections[section][key] = append(sections[section][key], set)
 		}
 	}
+	return malformed
 }
 
 // get returns the setting of key in section that is in force, and whether any
 // file sets it.
-func (c sssdConfig) get(section, key string) (sssdSetting, bool) {
+func (c sssdConfig) get(section, key string) (setting, bool) {
 	settings := c.sections[section][key]
 	if len(settings) == 0 {
-		return sssdSetting{}, false
+		return setting{}, false
 	}
 	return settings[len(settings)-1], true
 }
@@ -216,27 +203,21 @@ func sssdBool(value string) (bool, bool) {
 }
 
 // parseSSSDVersion reads the release sssd --version prints, such as 2.9.9.
-func parseSSSDVersion(output string) (sssdVersion, error) {
+func parseSSSDVersion(output string) (programRelease, error) {
 	text := strings.TrimSpace(output)
-	parts := strings.Split(text, ".")
-	const majorMinor = 2
-	if len(parts) < majorMinor {
-		return sssdVersion{}, fmt.Errorf("sssd --version printed %q, which is not a release", text)
+	release, ok := parseRelease(text)
+	if !ok {
+		return programRelease{}, fmt.Errorf("sssd --version printed %q, which is not a release", text)
 	}
-	major, errMajor := strconv.Atoi(parts[0])
-	minor, errMinor := strconv.Atoi(parts[1])
-	if errMajor != nil || errMinor != nil {
-		return sssdVersion{}, fmt.Errorf("sssd --version printed %q, which is not a release", text)
-	}
-	return sssdVersion{major: major, minor: minor, text: text}, nil
+	return release, nil
 }
 
-// runsAsServiceUser reports whether v is SSSD 2.10.0 or later. From that
+// sssdRunsAsServiceUser reports whether v is SSSD 2.10.0 or later. From that
 // release the service runs as the sssd user and its configuration may belong
 // to that user, and ldap_id_use_start_tls defaults to true; before it the
 // configuration is root's alone and the default is false (SSSD 2.10.0 release
 // notes).
-func (v sssdVersion) runsAsServiceUser() bool {
+func sssdRunsAsServiceUser(v programRelease) bool {
 	const major, minor = 2, 10
-	return v.major > major || v.major == major && v.minor >= minor
+	return v.atLeast(major, minor)
 }

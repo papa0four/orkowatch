@@ -8,7 +8,6 @@ import (
 	"io/fs"
 	"path"
 	"slices"
-	"strconv"
 	"strings"
 
 	"github.com/papa0four/orkowatch/internal/security/registry"
@@ -19,13 +18,6 @@ import (
 const krb5Libdefaults = "libdefaults"
 
 type (
-	// krb5Setting is one relation as a file states it.
-	krb5Setting struct {
-		value string
-		file  string
-		line  int
-	}
-
 	// krb5Config is the [libdefaults] section as the MIT library assembles it
 	// from krb5.conf and every file it includes. Each relation holds its first
 	// value, which is the one the library uses. refused says why the library
@@ -33,7 +25,7 @@ type (
 	// whose value in force depends on the release, with the reason.
 	krb5Config struct {
 		files       []string
-		libdefaults map[string]krb5Setting
+		libdefaults map[string]setting
 		refused     []string
 		undecided   map[string]string
 	}
@@ -45,7 +37,7 @@ type (
 	krb5Parser struct {
 		fsys    fs.FS
 		config  krb5Config
-		reading []string
+		reading includeChain
 		closed  bool
 	}
 
@@ -56,12 +48,6 @@ type (
 		final   bool
 		depth   int
 	}
-
-	// krb5Release is the release of MIT Kerberos installed.
-	krb5Release struct {
-		major, minor int
-		text         string
-	}
 )
 
 // krb5ConfigFiles returns the configuration files the library of a host of
@@ -71,9 +57,8 @@ type (
 // was seen to behave.
 func krb5ConfigFiles(fsys fs.FS, families []registry.Distro) ([]string, error) {
 	candidates := []string{"etc/krb5.conf"}
-	vendor := slices.Contains(families, registry.DistroSUSE) || slices.Contains(families, registry.DistroAlpine)
-	if vendor {
-		candidates = append(candidates, "usr/etc/krb5.conf")
+	if krb5ReadsVendorFile(families) {
+		candidates = append(candidates, krb5VendorFile)
 	}
 	var present []string
 	for _, file := range candidates {
@@ -99,7 +84,7 @@ func krb5ConfigFiles(fsys fs.FS, families []registry.Distro) ([]string, error) {
 func readKrb5Config(fsys fs.FS, files []string) (krb5Config, error) {
 	p := &krb5Parser{fsys: fsys, config: krb5Config{
 		files:       files,
-		libdefaults: map[string]krb5Setting{},
+		libdefaults: map[string]setting{},
 		undecided:   map[string]string{},
 	}}
 	for _, file := range files {
@@ -107,7 +92,7 @@ func readKrb5Config(fsys fs.FS, files []string) (krb5Config, error) {
 		if err != nil {
 			return p.config, err
 		}
-		p.reading = []string{file}
+		p.reading = includeChain{file}
 		p.parse(file, data)
 	}
 	return p.config, nil
@@ -137,7 +122,7 @@ func (p *krb5Parser) parse(file string, data []byte) {
 		case text[0] == '}':
 			scope.depth = max(scope.depth-1, 0)
 		default:
-			p.relation(&scope, text, krb5Setting{file: file, line: i + 1})
+			p.relation(&scope, text, setting{file: file, line: i + 1})
 		}
 	}
 	p.leave(scope)
@@ -165,10 +150,10 @@ func (p *krb5Parser) leave(scope krb5Scope) {
 // relation reads a line that is neither a comment, a directive nor a header.
 // Only relations directly inside [libdefaults] are kept: a subsection there
 // holds settings for one realm.
-func (p *krb5Parser) relation(scope *krb5Scope, text string, at krb5Setting) {
+func (p *krb5Parser) relation(scope *krb5Scope, text string, at setting) {
 	tag, value, ok := strings.Cut(text, "=")
 	if !ok {
-		p.refuse("%s is neither a section, a relation nor a directive", lineRef("/"+at.file, at.line))
+		p.refuse("%s is neither a section, a relation nor a directive", at.at())
 		return
 	}
 	value = strings.TrimSpace(value)
@@ -184,15 +169,15 @@ func (p *krb5Parser) relation(scope *krb5Scope, text string, at krb5Setting) {
 // set keeps a relation's first value. One first set after a [libdefaults]
 // section marked final is used before release 1.22 and ignored from it
 // (krb5.conf(5)), so which holds is left undecided.
-func (p *krb5Parser) set(tag string, setting krb5Setting) {
+func (p *krb5Parser) set(tag string, first setting) {
 	if _, ok := p.config.libdefaults[tag]; ok {
 		return
 	}
-	p.config.libdefaults[tag] = setting
+	p.config.libdefaults[tag] = first
 	if p.closed {
 		p.config.undecided[tag] = fmt.Sprintf(
 			"%s is first set at %s, after a [libdefaults] section marked final, which the library honours within a file only from release 1.22",
-			tag, lineRef("/"+setting.file, setting.line))
+			tag, first.at())
 	}
 }
 
@@ -232,18 +217,19 @@ func (p *krb5Parser) include(directive, name, at string) {
 // includeFile reads one included file. It is syntactically independent of the
 // file including it, so it starts outside any section.
 func (p *krb5Parser) includeFile(file, at string) {
-	if slices.Contains(p.reading, file) {
+	leave, ok := p.reading.enter(file)
+	if !ok {
 		p.refuse("%s includes /%s, which leads back to a file already being read", at, file)
 		return
 	}
+	defer leave()
+
 	data, err := fs.ReadFile(p.fsys, file)
 	if err != nil {
 		p.refuse("%s includes /%s, which could not be read: %v", at, file, err)
 		return
 	}
 	p.config.files = append(p.config.files, file)
-	p.reading = append(p.reading, file)
-	defer func() { p.reading = p.reading[:len(p.reading)-1] }()
 	p.parse(file, data)
 }
 
@@ -289,21 +275,14 @@ func krb5Bool(value string) (bool, bool) {
 
 // parseKrb5Release reads the release klist -V prints, such as "Kerberos 5
 // version 1.19.2".
-func parseKrb5Release(output string) (krb5Release, error) {
+func parseKrb5Release(output string) (programRelease, error) {
 	fields := strings.Fields(output)
 	if len(fields) == 0 {
-		return krb5Release{}, errors.New("klist -V printed nothing")
+		return programRelease{}, errors.New("klist -V printed nothing")
 	}
-	text := fields[len(fields)-1]
-	parts := strings.Split(text, ".")
-	const majorMinor = 2
-	if len(parts) < majorMinor {
-		return krb5Release{}, fmt.Errorf("klist -V printed %q, which names no release", strings.TrimSpace(output))
+	release, ok := parseRelease(fields[len(fields)-1])
+	if !ok {
+		return programRelease{}, fmt.Errorf("klist -V printed %q, which names no release", strings.TrimSpace(output))
 	}
-	major, errMajor := strconv.Atoi(parts[0])
-	minor, errMinor := strconv.Atoi(parts[1])
-	if errMajor != nil || errMinor != nil {
-		return krb5Release{}, fmt.Errorf("klist -V printed %q, which names no release", strings.TrimSpace(output))
-	}
-	return krb5Release{major: major, minor: minor, text: text}, nil
+	return release, nil
 }
