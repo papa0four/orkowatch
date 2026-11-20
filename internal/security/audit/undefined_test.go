@@ -16,7 +16,7 @@ import (
 // notchecked with the reason, takes no time, and its text ends after the
 // header where a check that ran would say it found nothing.
 func TestCheckWithoutDefinitionsIsNotRun(t *testing.T) {
-	undefined := []string{"firewall", permissionsCheck}
+	undefined := []string{"firewall"}
 	sa := NewSecurityAuditor(Options{Checks: undefined, HostInfo: &osfingerprint.OSInfo{}})
 	sa.osContext = registry.OSContext{Platform: registry.PlatformUnix, Families: []registry.Distro{registry.DistroFreeBSD}}
 
@@ -28,7 +28,7 @@ func TestCheckWithoutDefinitionsIsNotRun(t *testing.T) {
 	view := result.View(finding.SeverityNone)
 	for _, check := range view.Results {
 		switch {
-		case check.Key == "users", check.Key == "ssh":
+		case check.Key == "users", check.Key == "ssh", check.Key == permissionsCheck:
 			if check.Result != finding.ResultNotSelected {
 				t.Errorf("%s: %s, want notselected", check.Key, check.Result)
 			}

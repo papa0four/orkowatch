@@ -107,8 +107,9 @@ type (
 // Expected file and directory permission modes: the shared vocabulary every
 // platform's critical paths draw from, declared together so a platform picks an
 // expectation rather than inventing one inline. Not every value is referenced on
-// every platform. permPrivateDir is used by Linux and the BSDs, permReadOnlyDir
-// only by Linux, and a constant no build references compiles away.
+// every platform. permPrivateDir is used by Linux, OpenBSD and NetBSD,
+// permGroupReadDir only by FreeBSD, permReadOnlyDir only by Linux, and a
+// constant no build references compiles away.
 const (
 	permStandardFile        os.FileMode = 0644
 	permOwnerWriteGroupRead os.FileMode = 0640
@@ -117,6 +118,7 @@ const (
 	permStandardDir         os.FileMode = 0755
 	permGroupWritableDir    os.FileMode = 0775
 	permPrivateDir          os.FileMode = 0700
+	permGroupReadDir        os.FileMode = 0750
 	permReadOnlyDir         os.FileMode = 0555
 
 	// Permission bit masks
@@ -271,7 +273,7 @@ func NewPermissionChecker(osCtx registry.OSContext, scanRoot string, progress Sc
 			analyzes: "file and directory permissions",
 			osCtx:    osCtx,
 		},
-		paths:    append(commonCriticalPaths(), platformCriticalPaths()...),
+		paths:    criticalPaths(),
 		scanRoot: scanRoot,
 		progress: progress,
 	}
@@ -349,20 +351,6 @@ func pathWithin(target, base string) bool {
 		return false
 	}
 	return rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
-}
-
-// commonCriticalPaths lists the paths every Unix-like platform is expected
-// to protect; platformCriticalPaths adds the platform's own.
-func commonCriticalPaths() []criticalPath {
-	return []criticalPath{
-		{"/etc/passwd", "Password file", permStandardFile},
-		{"/etc/shadow", "Shadow password file", permOwnerWriteGroupRead},
-		{"/etc/group", "Group file", permStandardFile},
-		{"/etc/sudoers", "Sudo configuration", permSudoers},
-		{"/etc/ssh/sshd_config", "SSH daemon configuration", permOwnerReadWrite},
-		{"/var/log", "Log directory", permGroupWritableDir},
-		{"/home", "User home directories", permStandardDir},
-	}
 }
 
 // checkCriticalPath records every way cp departs from what a critical system

@@ -12,12 +12,12 @@ func platformLocations() []pathLocation {
 	return []pathLocation{{"/dev/shm", finding.LocationTemporary}}
 }
 
-// platformCriticalPaths lists the paths Linux adds to the common set.
-func platformCriticalPaths() []criticalPath {
-	return []criticalPath{
-		{"/boot", "Boot directory", permStandardDir},
-		{"/root", "Root user directory", permPrivateDir},
-		{"/proc", "Process information", permReadOnlyDir},
-		{"/sys", "System information", permReadOnlyDir},
-	}
+// criticalPaths lists the common paths and the ones Linux adds.
+func criticalPaths() []criticalPath {
+	return append(commonCriticalPaths(),
+		criticalPath{"/boot", "Boot directory", permStandardDir},
+		criticalPath{"/root", "Root user directory", permPrivateDir},
+		criticalPath{"/proc", "Process information", permReadOnlyDir},
+		criticalPath{"/sys", "System information", permReadOnlyDir},
+	)
 }

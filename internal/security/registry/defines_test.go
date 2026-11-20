@@ -5,8 +5,9 @@ package registry
 import "testing"
 
 // A platform defines a check when a key of that check is in one of its
-// definition sets. FreeBSD has the users and SSH rules, a Linux family every
-// check through the common set, and a platform with no definitions none.
+// definition sets. FreeBSD has the users, SSH and permissions rules, a Linux
+// family every check through the common set, and a platform with no
+// definitions none.
 func TestDefines(t *testing.T) {
 	freebsd := OSContext{Platform: PlatformUnix, Families: []Distro{DistroFreeBSD}}
 	linux := OSContext{Platform: PlatformLinux, Families: []Distro{DistroSUSE}}
@@ -20,7 +21,7 @@ func TestDefines(t *testing.T) {
 		{freebsd, "users", true},
 		{freebsd, "ssh", true},
 		{freebsd, "firewall", false},
-		{freebsd, "permissions", false},
+		{freebsd, "permissions", true},
 		{linux, "users", true},
 		{linux, "ssh", true},
 		{linux, "firewall", true},
@@ -59,6 +60,27 @@ func TestFreeBSDSSHRules(t *testing.T) {
 	for _, key := range []FindingKey{"ssh.permit_root_login_not_set", "ssh.password_auth_not_set"} {
 		if _, ok := Lookup(freebsd, key); ok {
 			t.Errorf("%s is defined for FreeBSD", key)
+		}
+	}
+}
+
+// The FreeBSD file defines the five permissions rules, each scored as Linux
+// scores the same condition.
+func TestFreeBSDPermissionsRules(t *testing.T) {
+	freebsd := OSContext{Platform: PlatformUnix, Families: []Distro{DistroFreeBSD}}
+	linux := OSContext{Platform: PlatformLinux, Families: []Distro{DistroGeneric}}
+
+	for _, key := range []FindingKey{
+		"permissions.path_exceeds_expected_mode",
+		"permissions.critical_path_not_root_owned",
+		"permissions.suid_sgid_binary",
+		"permissions.world_writable_file",
+		"permissions.unowned_file",
+	} {
+		here, ok := Lookup(freebsd, key)
+		there, _ := Lookup(linux, key)
+		if !ok || here.CVSSVector != there.CVSSVector || here.CWE != there.CWE {
+			t.Errorf("%s: FreeBSD %v %s %s, Linux %s %s", key, ok, here.CVSSVector, here.CWE, there.CVSSVector, there.CWE)
 		}
 	}
 }

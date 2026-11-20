@@ -8,11 +8,12 @@
 # bundled catalog (nist.yaml), which load checks it against. The weakness a
 # definition maps to is its cwe field, and its reference is built from that.
 # The manual pages quoted are those of FreeBSD 15.1-RELEASE, read on that release
-# on 2026-11-19 for the users check and on 2026-11-20 for the SSH check, and each
-# condition was produced there and seen to behave as its definition says. A
-# definition for a condition the Linux file also defines carries the same baseline.
-# The users and SSH checks have definitions here: a check with none for the
-# platform is reported as not checked.
+# on 2026-11-19 for the users check and on 2026-11-20 for the SSH and permissions
+# checks, and each condition was produced there and seen to behave as its
+# definition says. A definition for a condition the Linux file also defines
+# carries the same baseline.
+# The users, SSH and permissions checks have definitions here: a check with
+# none for the platform is reported as not checked.
 
 # -------------------------
 # User checker findings
@@ -494,3 +495,181 @@ ssh.empty_passwords_permitted:
   references:
     - source: NIST
       id: "IA-5(1)"
+
+# -------------------------
+# Permissions checker findings
+# -------------------------
+# The critical paths are FreeBSD's own, each expected at the mode FreeBSD
+# 15.1 installs it with and owned by root: master.passwd and spwd.db 0600,
+# passwd, pwd.db, group and sshd_config 0644, the sudoers file of the sudo
+# package 0440, /root 0750, and /var/log, /home, /boot and /usr/local/etc 0755.
+# Each condition was produced on that release and seen to be reported.
+
+permissions.critical_path_not_root_owned:
+  title: "Critical system path is not owned by root"
+  severity: "HIGH"
+  cvss_score: 8.5
+  cvss_vector: "CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N"
+  records:
+    file: [description, uid, expected]
+  cwe: "CWE-282"
+  description: >
+    A path the system relies on for accounts, privilege or service
+    configuration is owned by an account other than root. FreeBSD installs
+    each of these paths owned by root, and passwd(5) states of the file
+    holding the password hashes: "The master.passwd file is readable only by
+    root". The owner of a file can change its mode whatever the mode is, so
+    a path owned by another account is as open as that account makes it.
+  impact: >
+    The owning account can rewrite the path and relax its mode without
+    escalating. For the password files or the sudo configuration this is a
+    path to root; for a service configuration it lets the service be
+    redirected or disabled.
+  resolution: >
+    Restore root ownership: chown root <path>. FreeBSD installs each of these
+    paths owned by root:wheel. Find out how the ownership changed before
+    restoring it, since the change is either a mistaken administrative
+    action or a sign of unauthorized access.
+  references:
+    - source: NIST
+      id: "AC-3"
+
+permissions.path_exceeds_expected_mode:
+  title: "File or directory permissions exceed expected mode"
+  severity: "MEDIUM"
+  cvss_score: 6.8
+  cvss_vector: "CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:H/VI:N/VA:N/SC:N/SI:N/SA:N"
+  records:
+    file: [description, mode, expected]
+  cwe: "CWE-732"
+  description: >
+    A critical path sets a mode bit that the mode FreeBSD installs it with
+    does not. The password hashes are in /etc/master.passwd and
+    /etc/spwd.db. passwd(5): "Because this file contains the encrypted user
+    passwords, it should not be readable by anyone without appropriate
+    privileges." pwd_mkdb(8): "The two databases differ in that the secure
+    version contains the user's encrypted password and the insecure version
+    has an asterisk". A mode stricter than the expected one is not reported.
+  impact: >
+    A password file or database readable by other accounts gives them the
+    password hashes to crack offline. A configuration file or directory
+    writable by other accounts lets them change how accounts, sudo or the SSH
+    server behave.
+  resolution: >
+    Restore the mode FreeBSD installs: chmod 600 /etc/master.passwd
+    /etc/spwd.db, chmod 644 /etc/passwd /etc/pwd.db /etc/group
+    /etc/ssh/sshd_config, chmod 440 /usr/local/etc/sudoers, chmod 750 /root,
+    and chmod 755 for /var/log, /home, /boot and /usr/local/etc. Tightening
+    further is never reported.
+  references:
+    - source: NIST
+      id: "AC-3"
+
+permissions.world_writable_file:
+  title: "World-writable file found on the scanned filesystem"
+  severity: "HIGH"
+  cvss_score: 8.5
+  cvss_vector: "CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N"
+  records:
+    file: [mode, uid, gid, unresolved, reach, location]
+  environment:
+    - metric: MPR
+      kind: file
+      fact: reach
+      cases:
+        - value: root-only
+          set: H
+          guide: mpr-restricting-access-to-administrative-users
+          because: "no principal other than root can traverse the directories leading to the file, so only root can reach it to write it"
+  cwe: "CWE-732"
+  description: >
+    A regular file grants write to other, the bit chmod(2) defines as
+    "S_IWOTH 0000002 /* W for other */", so every local account can change
+    it whoever owns it. The sticky bit does not protect it: sticky(7) says
+    the bit "is ignored for regular files". FreeBSD 15.1 installs no
+    world-writable regular file on its root filesystem.
+  impact: >
+    Any local account or process can overwrite the file. If a privileged
+    process runs or reads it, that is a path to the privilege of that
+    process; if it is a configuration file, the service it configures can be
+    changed.
+  resolution: >
+    Remove write for other: chmod o-w <path>. Find out why it was set and
+    whether the file was changed, and check what runs or reads it.
+  references:
+    - source: NIST
+      id: "AC-3"
+
+permissions.suid_sgid_binary:
+  title: "SUID or SGID binary found"
+  severity: "HIGH"
+  cvss_score: 8.5
+  cvss_vector: "CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N"
+  records:
+    file: [mode, uid, gid, unresolved, reach, location]
+  environment:
+    - metric: MPR
+      kind: file
+      fact: reach
+      cases:
+        - value: root-only
+          set: H
+          guide: mpr-low-privileged-user-cannot-execute
+          because: "no principal other than root can traverse the directories leading to the binary, so a low-privileged user cannot reach it to execute it"
+  cwe: "CWE-267"
+  attack_techniques:
+    - id: "T1548.001"
+      basis:
+        - "NIST AC-6 maps to its parent technique T1548 (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
+        - "NIST CM-7 maps to this technique (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
+  description: >
+    A regular file has the setuid or setgid bit, so it runs with its owner's
+    or group's privilege whoever runs it. security(7): "The other big
+    potential root hole in a system are the SUID-root and SGID binaries
+    installed on the system." FreeBSD 15.1 installs 34 such files on its root
+    filesystem, among them su, passwd, login and ping, and each is reported,
+    so the list can be held against what the release installs.
+  impact: >
+    A flaw in such a file lets an account that can run it act with the
+    file's owner or group, which for most of them is root. security(7) notes
+    that an intruder who breaks an SGID-kmem binary "might be able to read
+    /dev/kmem and thus read the crypted password file".
+  resolution: >
+    Compare the list with what the release and the installed packages
+    install. security(7): "the prudent sysadmin will restrict SUID binaries
+    that only staff should run to a special group that only staff can
+    access, and get rid of ("chmod 000") any SUID binaries that nobody
+    uses." Remove the bit from a file that does not need it: chmod u-s,g-s
+    <path>.
+  references:
+    - source: NIST
+      id: "AC-6"
+    - source: NIST
+      id: "CM-7"
+
+permissions.unowned_file:
+  title: "File with no valid owner or group found"
+  severity: "MEDIUM"
+  cvss_score: 4.8
+  cvss_vector: "CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:L/VI:L/VA:N/SC:N/SI:N/SA:N"
+  records:
+    file: [mode, uid, gid, unresolved, reach, location]
+  cwe: "CWE-732"
+  description: >
+    An entry's owner or group is a number no account or group has, which
+    find(1) describes as "the file belongs to an unknown user" or "an
+    unknown group". On FreeBSD 15.1 a file an account owned outside its
+    home directory keeps the account's numbers after pw userdel, and
+    neither resolves afterwards: pw(8) removes only "the user's home
+    directory and all of its contents", and with -r alone.
+  impact: >
+    The next account or group created with the same number owns the entry.
+    In a sensitive place that hands it control of a file it was never meant
+    to have.
+  resolution: >
+    Give the entry an owner and group: chown <user>:<group> <path>, or
+    remove it if it is not needed. Check which accounts were removed to find
+    where it came from.
+  references:
+    - source: NIST
+      id: "AC-3"
