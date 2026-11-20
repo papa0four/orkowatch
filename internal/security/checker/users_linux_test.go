@@ -4,7 +4,15 @@
 
 package checker
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/papa0four/orkowatch/internal/security/registry"
+)
+
+// hostContext is the platform the tests shared with FreeBSD judge accounts
+// on: the rules a platform's reader names are the ones that platform defines.
+var hostContext = registry.OSContext{Platform: registry.PlatformLinux, Families: []registry.Distro{registry.DistroDebian, registry.DistroGeneric}}
 
 // The range of regular accounts is the one login.defs sets, key by key, and
 // the documented default for a key it does not set or sets to something that

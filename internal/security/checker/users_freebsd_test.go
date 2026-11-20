@@ -13,6 +13,10 @@ import (
 	"github.com/papa0four/orkowatch/internal/security/registry"
 )
 
+// hostContext is the platform the tests shared with Linux judge accounts
+// on: the rules a platform's reader names are the ones that platform defines.
+var hostContext = registry.OSContext{Platform: registry.PlatformUnix, Families: []registry.Distro{registry.DistroFreeBSD}}
+
 // freebsdAccounts are accounts as FreeBSD ships and pw creates them, with the
 // password state master.passwd gives each.
 var freebsdAccounts = []userAccount{
@@ -31,7 +35,7 @@ var freebsdAccounts = []userAccount{
 // judgeFreeBSD applies a su policy to the accounts and judges them as the
 // users check does on a host without sudo.
 func judgeFreeBSD(gate suGate, credentialsRead bool) map[registry.FindingKey]finding.Condition {
-	u := NewUserChecker(registry.OSContext{Platform: registry.PlatformUnix, Families: []registry.Distro{registry.DistroFreeBSD}})
+	u := NewUserChecker(hostContext)
 
 	host := hostAccounts{accounts: slices.Clone(freebsdAccounts)}
 	if !credentialsRead {

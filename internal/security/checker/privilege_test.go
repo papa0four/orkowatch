@@ -70,8 +70,7 @@ type privilegeHost struct {
 // judge runs the reader and the judgment over accounts, and returns what was
 // recorded with what the report narrates and the requests made of sudo.
 func (h privilegeHost) judge(accounts []userAccount) (map[registry.FindingKey]finding.Condition, []string, []string) {
-	linux := registry.OSContext{Platform: registry.PlatformLinux, Families: []registry.Distro{registry.DistroDebian, registry.DistroGeneric}}
-	u := NewUserChecker(linux)
+	u := NewUserChecker(hostContext)
 
 	var asked []string
 	src := privilegeSources{
