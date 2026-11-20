@@ -11,7 +11,7 @@ import (
 // newListenersCmd returns the command that lists the host's sockets.
 func newListenersCmd() *cobra.Command {
 	return newInventoryCmd(standaloneModule{
-		use:   "listeners",
+		use:   selection.NameListeners,
 		short: "List the host's sockets and the processes holding them",
 		long: `The listeners command lists every socket the host reports, in every state: listening and connected TCP, UDP, raw, unix-domain and packet sockets, with the address each is bound to, its peer, and the processes holding it with their executables and accounts. It reads the host's own tables and connects to nothing.
 
@@ -29,7 +29,5 @@ The report opens in the results browser on a terminal, with the same layout as a
 
   # Save them to a directory in JSON format
   owatch listeners -o json --report-file /path/to/reports`,
-		mask:    selection.ModuleListeners,
-		collect: collectListeners,
 	})
 }

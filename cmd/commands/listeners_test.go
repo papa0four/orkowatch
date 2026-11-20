@@ -12,6 +12,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/papa0four/orkowatch/cmd/commands/delivery"
+	"github.com/papa0four/orkowatch/internal/selection"
 	"github.com/papa0four/orkowatch/internal/sockets"
 	"github.com/papa0four/orkowatch/internal/tui"
 )
@@ -26,7 +27,7 @@ func listenersRun() allReport {
 	view.NotRead = []string{sockets.CategoryPacket}
 	return allReport{title: "owatch listeners", result: &ScanResult{
 		Timestamp: time.Date(2026, 11, 16, 12, 0, 0, 0, time.UTC),
-		Modules:   []moduleRun{inventoryModule("listeners")},
+		Modules:   []moduleRun{inventoryModule(selection.NameListeners)},
 		Sockets:   &view,
 	}}
 }
