@@ -5,6 +5,7 @@ package registry
 import (
 	"bytes"
 	_ "embed"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -157,7 +158,7 @@ func (d FindingDefinition) validateWeakness() (FindingDefinition, error) {
 		return d, fmt.Errorf("names %s and also says no weakness applies", d.CWE)
 	case d.CWE == "" && reason == "":
 		if d.Result == finding.ResultFail {
-			return d, fmt.Errorf("names no weakness and does not say why none applies (cwe or no_weakness)")
+			return d, errors.New("names no weakness and does not say why none applies (cwe or no_weakness)")
 		}
 		return d, nil
 	case reason != "":

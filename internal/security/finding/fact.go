@@ -142,12 +142,6 @@ func (n FactName) Known() bool {
 	return ok
 }
 
-// Enumerated reports whether n takes its value from a closed set, which is
-// what lets a rule compare it with a fixed value.
-func (n FactName) Enumerated() bool {
-	return factValues[n] != nil
-}
-
 // Takes reports whether value is one n can record. A fact that is not
 // enumerated takes any value.
 func (n FactName) Takes(value string) bool {

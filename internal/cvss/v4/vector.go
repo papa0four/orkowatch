@@ -16,6 +16,7 @@ package v4
 
 import (
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 )
@@ -173,10 +174,7 @@ func (v Vector) With(name, value string) (Vector, error) {
 	if !slices.Contains(metrics[at].values, value) {
 		return Vector{}, fmt.Errorf("metric %s does not take the value %q, which is not one of %s", name, value, strings.Join(metrics[at].values, ", "))
 	}
-	values := make(map[string]string, len(v.values))
-	for k, val := range v.values {
-		values[k] = val
-	}
+	values := maps.Clone(v.values)
 	values[name] = value
 
 	parts := []string{prefix}

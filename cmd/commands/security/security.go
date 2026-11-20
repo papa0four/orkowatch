@@ -221,7 +221,7 @@ func (c *auditCmd) buildMask() (selection.CheckMask, error) {
 	mask &^= c.audit.SkipMask()
 
 	if mask == 0 {
-		return 0, fmt.Errorf("all available checks were skipped; at least one must run")
+		return 0, errors.New("all available checks were skipped; at least one must run")
 	}
 
 	return mask, nil
@@ -274,7 +274,7 @@ func (c *auditCmd) validateFilePermsPath(cmd *cobra.Command) error {
 		return nil
 	}
 	if c.checkFilePerms == "" {
-		return fmt.Errorf("--fperms: requires a path")
+		return errors.New("--fperms: requires a path")
 	}
 	if _, err := os.Stat(c.checkFilePerms); err != nil {
 		return fmt.Errorf("--fperms: path is not accessible: %w", err)
@@ -371,7 +371,7 @@ func (c *auditCmd) progressOptions(mask selection.CheckMask) tui.Options {
 
 func (c *auditCmd) outputResults(result *audit.Result, mask selection.CheckMask) error {
 	if result == nil || len(result.Results) == 0 {
-		return fmt.Errorf("audit produced no results")
+		return errors.New("audit produced no results")
 	}
 
 	return c.out.Deliver(auditReport{c: c, result: result}, mask)

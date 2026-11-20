@@ -103,7 +103,7 @@ func checkModifiedValue(metric, value string) error {
 	switch {
 	case !ok:
 		return fmt.Errorf("%q is not a Modified Base metric", metric)
-	case value == "X" || !slices.Contains(values, value):
+	case value == notDefined || !slices.Contains(values, value):
 		return fmt.Errorf("%s value %q is not one of %s other than X", metric, value, strings.Join(values, ", "))
 	}
 	return nil

@@ -3,6 +3,7 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"os"
 
@@ -26,7 +27,7 @@ func newRootCmd() *cobra.Command {
 			if err := cmd.Help(); err != nil {
 				return fmt.Errorf("displaying help: %w", err)
 			}
-			return fmt.Errorf("owatch requires a subcommand (e.g., all, osinfo, audit, software)")
+			return errors.New("owatch requires a subcommand (e.g., all, osinfo, software, listeners, audit)")
 		},
 	}
 
