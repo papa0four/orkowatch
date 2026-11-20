@@ -260,7 +260,7 @@ func (c *allCmd) runAllScans(cmd *cobra.Command, args []string) error {
 		Errors:    make([]string, 0),
 	}
 
-	runErr := tui.Run(ctx, tui.Options{
+	ending, err := tui.Run(ctx, tui.Options{
 		Title:       "owatch all",
 		Tasks:       c.tasks(mask),
 		Interactive: interactive,
@@ -269,20 +269,22 @@ func (c *allCmd) runAllScans(cmd *cobra.Command, args []string) error {
 		c.runModules(ctx, mask, result, reporter)
 		return nil
 	})
-	interrupted := errors.Is(runErr, tui.ErrInterrupted)
-	if runErr != nil && !interrupted {
-		return runErr
+	if err != nil {
+		return err
 	}
 
+	// How the scan ended was settled when it returned. Delivering can keep
+	// the results browser open for as long as the operator reads, and that
+	// time is not the scan's.
 	result.Duration = time.Since(startTime)
 	if err := c.out.Deliver(allReport{title: "owatch all", minSeverity: c.audit.MinSeverity(), result: result}, mask); err != nil {
 		return err
 	}
 
-	switch {
-	case interrupted:
+	switch ending {
+	case tui.Interrupted:
 		return fmt.Errorf("scan interrupted; %s", incompleteDetail(result))
-	case ctx.Err() == context.DeadlineExceeded:
+	case tui.TimedOut:
 		return fmt.Errorf("scan timed out after %v; %s", c.timeout, incompleteDetail(result))
 	default:
 		return nil

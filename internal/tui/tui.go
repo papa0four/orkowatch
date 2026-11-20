@@ -19,11 +19,28 @@ import (
 	"github.com/papa0four/orkowatch/internal/security/finding"
 )
 
-// ErrInterrupted is returned by Run when the operator stopped the work from
-// the display. The work has returned by then, with whatever it finished.
-var ErrInterrupted = errors.New("interrupted by operator")
+// The ways the work Run shows comes to an end.
+const (
+	// Finished means the work returned of its own accord with its deadline
+	// not yet passed.
+	Finished Ending = iota
+
+	// Interrupted means the operator stopped the work from the display. The
+	// work has returned by then, with whatever it finished.
+	Interrupted
+
+	// TimedOut means the deadline of the context Run was given had passed
+	// when the work returned.
+	TimedOut
+)
 
 type (
+	// Ending is how the work Run showed came to an end. It is read at the
+	// moment the work returns, so nothing a caller does with the results
+	// afterwards, such as showing them for as long as the operator reads,
+	// is counted against the work's deadline.
+	Ending uint8
+
 	// Task is one unit of work the display has a row for. Skipped marks a
 	// task the operator excluded: it keeps its row, so the display accounts
 	// for everything the run could have done.
@@ -81,15 +98,18 @@ type (
 	}
 )
 
-// Run calls work and shows its progress until it returns. The context passed
-// to work is cancelled when the operator interrupts from the display, in
-// which case Run returns ErrInterrupted once work has returned, unless work
-// itself failed. Otherwise Run returns work's error.
-func Run(ctx context.Context, opts Options, work func(context.Context, Reporter) error) error {
+// Run calls work and shows its progress until it returns, and says how it
+// ended. The context passed to work is cancelled when the operator
+// interrupts from the display, and Run returns once work has. An interrupt
+// is reported over a deadline that passed while the work was stopping. The
+// error is work's own, or the display's, and the ending says nothing then.
+func Run(ctx context.Context, opts Options, work func(context.Context, Reporter) error) (Ending, error) {
 	if !opts.Interactive {
-		return work(ctx, newLineReporter(opts))
+		err := work(ctx, newLineReporter(opts))
+		return endingOf(ctx), err
 	}
 
+	deadline := ctx
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -97,12 +117,15 @@ func Run(ctx context.Context, opts Options, work func(context.Context, Reporter)
 
 	// The display ends when the work does: the work's goroutine sends the
 	// message that makes the program quit, so by the time Run on the program
-	// returns normally, workErr has been written and is safe to read.
+	// returns normally, workErr has been written and is safe to read. Whether
+	// the deadline had passed is read there too, before the display settles.
 	var workErr error
+	var ending Ending
 	finished := make(chan struct{})
 	go func() {
 		defer close(finished)
 		workErr = work(ctx, programReporter{program: program})
+		ending = endingOf(deadline)
 		program.Send(workDoneMsg{})
 	}()
 
@@ -117,16 +140,25 @@ func Run(ctx context.Context, opts Options, work func(context.Context, Reporter)
 	m, _ := final.(model)
 	switch {
 	case workErr != nil:
-		return workErr
+		return ending, workErr
 	case errors.Is(err, tea.ErrInterrupted), err == nil && m.interrupted:
 		// An interrupt signal ends the display from outside; the key press
 		// ends it from inside. Both mean the operator stopped the run.
-		return ErrInterrupted
+		return Interrupted, nil
 	case err != nil:
-		return fmt.Errorf("progress display: %w", err)
+		return ending, fmt.Errorf("progress display: %w", err)
 	default:
-		return nil
+		return ending, nil
 	}
+}
+
+// endingOf reads whether work that has just returned was cut short by the
+// deadline of ctx or finished inside it.
+func endingOf(ctx context.Context) Ending {
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		return TimedOut
+	}
+	return Finished
 }
 
 func (r programReporter) Start(id string) {
