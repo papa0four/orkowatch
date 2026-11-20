@@ -98,7 +98,22 @@ func TestReadSUGate(t *testing.T) {
 		{name: "an included path", su: "auth include /etc/pam.d/system\n" + group,
 			undecided: `the included policy "/etc/pam.d/system" is not the name of a service`},
 		{name: "a policy that includes itself", su: "auth include su\n",
-			undecided: "includes are nested more than 8 deep at su"},
+			undecided: "the policy of su is included from a policy it includes"},
+		{name: "two policies that include each other", su: system, system: "auth include su\n",
+			undecided: "the policy of su is included from a policy it includes"},
+		{name: "a policy included twice", su: system + system + group, want: suGate{group: "wheel"}},
+		{name: "a facility in another case", su: replaced("auth\t\trequisite", "Auth\t\trequisite"),
+			undecided: `line 9 of the policy of su has the facility "Auth", which OpenPAM refuses, so su admits no one with this policy`},
+		{name: "a facility OpenPAM does not have", su: suPolicyShipped + "bogus required pam_permit.so\n",
+			undecided: `line 17 of the policy of su has the facility "bogus", which OpenPAM refuses, so su admits no one with this policy`},
+		{name: "a control flag in another case", su: replaced("requisite", "Requisite"),
+			undecided: `line 9 of the policy of su has the control flag "Requisite", which OpenPAM refuses, so su admits no one with this policy`},
+		{name: "an include in another case", su: replaced("auth\t\tinclude", "auth\t\tInclude"),
+			undecided: `line 10 of the policy of su has the control flag "Include", which OpenPAM refuses, so su admits no one with this policy`},
+		{name: "a substack", su: replaced("auth\t\tinclude", "auth\t\tsubstack"),
+			undecided: `line 10 of the policy of su has the control flag "substack", which OpenPAM refuses, so su admits no one with this policy`},
+		{name: "a refused line in an included policy", su: suPolicyShipped, system: "Account required pam_unix.so\n",
+			undecided: `line 1 of the policy of system has the facility "Account", which OpenPAM refuses, so su admits no one with this policy`},
 	}
 
 	for _, tc := range cases {
