@@ -4,7 +4,6 @@ package checker
 
 import (
 	"context"
-	"strings"
 
 	"github.com/papa0four/orkowatch/internal/security/finding"
 )
@@ -25,18 +24,4 @@ const hostSubject = "host"
 // as these can be reached.
 func hostListening(r *report, listeners Listeners) finding.Evidence {
 	return listeningEvidence(r, hostSubject, listeners, nil)
-}
-
-// filterLines returns the trimmed lines of output that keep accepts. Every
-// firewall tool's rule listing is reduced this way; only the predicate
-// differs between them.
-func filterLines(output []byte, keep func(string) bool) []string {
-	lines := make([]string, 0)
-	for _, line := range strings.Split(string(output), "\n") {
-		line = strings.TrimSpace(line)
-		if keep(line) {
-			lines = append(lines, line)
-		}
-	}
-	return lines
 }
