@@ -1,9 +1,9 @@
-//go:build darwin || freebsd || openbsd || netbsd
+//go:build darwin || openbsd || netbsd
 
 // internal/security/checker/users_group.go
 
 // What the readers that decide administrative accounts by group membership
-// share: macOS by the admin group, the BSDs by wheel.
+// share: macOS by the admin group, OpenBSD and NetBSD by wheel.
 
 package checker
 

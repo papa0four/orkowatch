@@ -54,8 +54,12 @@ func (r *report) lines(lines ...string) {
 // condition, so it panics rather than letting a detected condition report
 // clean. Evidence carrying a kind or fact the definition does not declare
 // panics for the same reason: the rules that read the evidence would no longer
-// match what the checker records.
+// match what the checker records. The empty key is ignored, as pass ignores
+// it: the platform defines no rule for the condition.
 func (r *report) observed(key registry.FindingKey, evidence ...finding.Evidence) {
+	if key == "" {
+		return
+	}
 	def, ok := registry.Lookup(r.osCtx, key)
 	if !ok {
 		panic("checker: no registry definition for finding key " + string(key) + " on platform " + string(r.osCtx.Platform))

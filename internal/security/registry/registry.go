@@ -181,6 +181,22 @@ func HasDefinitions(ctx OSContext) bool {
 	return false
 }
 
+// Defines reports whether any definition for ctx belongs to check, which is
+// what a finding key carries before its first dot. A check with none must not
+// run: it would observe conditions it has no definition to report, and a
+// platform gains its rules one check at a time.
+func Defines(ctx OSContext, check string) bool {
+	prefix := check + "."
+	for _, defs := range definitionsFor(ctx) {
+		for key := range defs {
+			if strings.HasPrefix(string(key), prefix) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // definitionsFor returns the definition sets that apply to ctx, most specific
 // first. Linux ends with the common set; other platforms have no fallback.
 func definitionsFor(ctx OSContext) []map[FindingKey]FindingDefinition {

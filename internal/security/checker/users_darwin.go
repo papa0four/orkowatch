@@ -18,7 +18,14 @@ const (
 
 	// dsclFields is the attribute name and value a dscl read line consists of.
 	dsclFields = 2
+
+	// credentialsUnread is why the credential rules have no judgment: this
+	// reader takes no password state from Directory Services.
+	credentialsUnread = "password state is not read from Directory Services"
 )
+
+// platformRules are the rules of platformRuleSet macOS defines.
+var platformRules = platformRuleSet{rootUnlocked: "users.root_account_unlocked"}
 
 // getUsers enumerates accounts through Directory Services, resolving
 // administrative membership from the admin group and account state from

@@ -19,21 +19,41 @@ import (
 type (
 	// UnixUserChecker implements UserChecker for Unix-like systems. The
 	// platform reader supplies getUsers under its own build constraint.
-	// shadowReadable is set when the reader could open the credential store;
-	// it gates the no-password findings and surfaces a diagnostic when the
+	// credentialsRead is set when the reader read the credential store; it
+	// gates the no-password findings and surfaces a diagnostic when the
 	// check runs without sufficient privileges. unjudged holds the rules on
 	// administrative access the reader could not decide; analyzeUsers reports
-	// them rather than presenting every account as unprivileged. adminHeading
-	// titles the list of administrative accounts by how the reader decided
-	// them. readWarnings holds what else the reader could not see, so reduced
-	// coverage is stated in the report rather than read as a complete account
-	// list.
+	// them rather than presenting every account as unprivileged. hostwide
+	// holds what the reader observed of the host and of no one account.
+	// adminHeading titles the list of administrative accounts by how the
+	// reader decided them. readWarnings holds what else the reader could not
+	// see, so reduced coverage is stated in the report rather than read as a
+	// complete account list.
 	UnixUserChecker struct {
 		checkIdentity
-		shadowReadable bool
-		unjudged       []unjudged
-		adminHeading   string
-		readWarnings   []string
+		credentialsRead bool
+		unjudged        []unjudged
+		hostwide        []observation
+		adminHeading    string
+		readWarnings    []string
+	}
+
+	// observation is a condition the reader saw, with its evidence.
+	observation struct {
+		rule     registry.FindingKey
+		evidence finding.Evidence
+	}
+
+	// platformRuleSet names the rules only some platforms define, and what a
+	// platform's own accounts are exempt from. An empty key is a rule the
+	// platform does not define: it is neither observed nor passed there.
+	// shellExempt are the system accounts systemShell does not judge.
+	platformRuleSet struct {
+		rootUnlocked    registry.FindingKey
+		systemShell     registry.FindingKey
+		nologinPassword registry.FindingKey
+		suMember        registry.FindingKey
+		shellExempt     []string
 	}
 
 	// unjudged is why rules on administrative access have no judgment, with
@@ -54,7 +74,8 @@ type (
 	// unprompted and borrowed are what sudo said of the account where the
 	// reader asked it: the entries behind isAdmin, the entries that ask for no
 	// password, and the setting under which sudo asks for a password that is
-	// not the account's.
+	// not the account's. suGroup is the group by which su admits the account
+	// to root, where the reader read what su requires.
 	userAccount struct {
 		username   string
 		uid        uint32
@@ -68,6 +89,7 @@ type (
 		grants     []string
 		unprompted []string
 		borrowed   string
+		suGroup    string
 	}
 
 	// passwordState is what the credential store says about an account.
@@ -122,18 +144,25 @@ const grantDivider = "; "
 var (
 	accountRules = []registry.FindingKey{
 		"users.uid_zero_non_root",
-		"users.root_account_unlocked",
+		platformRules.rootUnlocked,
 		"users.empty_password_hash",
 		"users.no_password_login_shell",
 		"users.login_shell_present",
+		platformRules.systemShell,
+		platformRules.nologinPassword,
 	}
 
 	credentialRules = []registry.FindingKey{
-		"users.root_account_unlocked",
+		platformRules.rootUnlocked,
 		"users.empty_password_hash",
 		"users.no_password_login_shell",
+		platformRules.nologinPassword,
 	}
 )
+
+// nologinShell is the name of the shell that refuses a login, wherever the
+// platform installs it.
+const nologinShell = "nologin"
 
 // NewUserChecker returns the user account checker for Unix-like hosts.
 func NewUserChecker(osCtx registry.OSContext) *UnixUserChecker {
@@ -194,9 +223,11 @@ func (u *UnixUserChecker) analyzeUsers(users []userAccount, r *report) {
 		judgeAccount(user, r)
 	}
 
-	if !u.shadowReadable {
-		r.inconclusive(finding.ResultError,
-			"/etc/shadow is not readable without elevated privileges", credentialRules...)
+	if !u.credentialsRead {
+		r.inconclusive(finding.ResultError, credentialsUnread, credentialRules...)
+	}
+	for _, seen := range u.hostwide {
+		r.observed(seen.rule, seen.evidence)
 	}
 	r.pass(accountRules...)
 	u.concludePrivilege(r)
@@ -248,7 +279,7 @@ func judgeAccount(user userAccount, r *report) {
 	}
 
 	if user.username == "root" && user.password == passwordSet {
-		r.observed("users.root_account_unlocked", account)
+		r.observed(platformRules.rootUnlocked, account)
 	}
 
 	// An empty credential field admits anyone who reaches a login prompt
@@ -268,8 +299,22 @@ func judgeAccount(user userAccount, r *report) {
 		r.observed(ruleSudoUnprompted, accountEvidence(user, fact(finding.FactGrant, strings.Join(user.unprompted, grantDivider))))
 	}
 
-	if isInteractiveShell(user.shell) && !user.isSystem {
+	if user.suGroup != "" && !user.isSystem {
+		r.observed(platformRules.suMember, accountEvidence(user, fact(finding.FactGroup, user.suGroup)))
+	}
+
+	switch interactive := isInteractiveShell(user.shell); {
+	case interactive && !user.isSystem:
 		r.observed("users.login_shell_present", account)
+	case interactive && !slices.Contains(platformRules.shellExempt, user.username):
+		r.observed(platformRules.systemShell, account)
+	}
+
+	// A shell that refuses a login does not stop a service that asks only
+	// for the password, so a usable one is reported beside it.
+	usable := user.password == passwordSet || user.password == passwordEmpty
+	if usable && strings.HasSuffix(user.shell, nologinShell) {
+		r.observed(platformRules.nologinPassword, account)
 	}
 }
 
