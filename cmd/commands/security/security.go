@@ -305,13 +305,15 @@ func (c *auditCmd) logVerboseConfig(mask selection.CheckMask) {
 // progress while it runs. Cancellation propagates through RunAudit into
 // checker exec and filesystem work, so on timeout or interrupt nothing owatch
 // started is left running. Whatever finished is reported before the error
-// that says the run was cut short.
+// that says the run was cut short, and whether it was is settled when the
+// audit returns: the time the results browser then stays open is not the
+// audit's.
 func (c *auditCmd) runAuditWithTimeout(cmd *cobra.Command, mask selection.CheckMask) error {
 	ctx, cancel := context.WithTimeout(cmd.Context(), c.timeout)
 	defer cancel()
 
 	var result *audit.Result
-	runErr := tui.Run(ctx, c.progressOptions(mask), func(ctx context.Context, reporter tui.Reporter) error {
+	ending, runErr := tui.Run(ctx, c.progressOptions(mask), func(ctx context.Context, reporter tui.Reporter) error {
 		auditor := audit.NewSecurityAuditor(audit.Options{
 			Observer:      Observe(reporter),
 			FilePermsPath: c.checkFilePerms,
@@ -323,8 +325,7 @@ func (c *auditCmd) runAuditWithTimeout(cmd *cobra.Command, mask selection.CheckM
 		result, err = auditor.RunAudit(ctx)
 		return err
 	})
-	interrupted := errors.Is(runErr, tui.ErrInterrupted)
-	if runErr != nil && !interrupted {
+	if runErr != nil {
 		return fmt.Errorf("audit failed: %w", runErr)
 	}
 
@@ -337,10 +338,10 @@ func (c *auditCmd) runAuditWithTimeout(cmd *cobra.Command, mask selection.CheckM
 	}
 
 	var cause string
-	switch {
-	case interrupted:
+	switch ending {
+	case tui.Interrupted:
 		cause = "audit interrupted"
-	case ctx.Err() == context.DeadlineExceeded:
+	case tui.TimedOut:
 		cause = fmt.Sprintf("audit timeout after %v", c.timeout)
 	default:
 		return nil
