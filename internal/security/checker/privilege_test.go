@@ -1,6 +1,6 @@
-//go:build linux
+//go:build linux || freebsd
 
-// internal/security/checker/users_linux_test.go
+// internal/security/checker/privilege_test.go
 
 package checker
 
@@ -20,8 +20,8 @@ import (
 func TestLookupGroup(t *testing.T) {
 	ctx := context.Background()
 
-	if entry, err := lookupGroup(ctx, getentProgram, "root"); err != nil || !strings.HasPrefix(string(entry), "root:") {
-		t.Errorf("root: entry %q, err %v; want its entry", entry, err)
+	if entry, err := lookupGroup(ctx, getentProgram, "daemon"); err != nil || !strings.HasPrefix(string(entry), "daemon:") {
+		t.Errorf("daemon: entry %q, err %v; want its entry", entry, err)
 	}
 	if entry, err := lookupGroup(ctx, getentProgram, "owatch-no-such-group"); err != nil || entry != nil {
 		t.Errorf("a group that does not exist: entry %q, err %v; want neither", entry, err)
@@ -72,7 +72,7 @@ type privilegeHost struct {
 func (h privilegeHost) judge(accounts []userAccount) (map[registry.FindingKey]finding.Condition, []string, []string) {
 	linux := registry.OSContext{Platform: registry.PlatformLinux, Families: []registry.Distro{registry.DistroDebian, registry.DistroGeneric}}
 	u := NewUserChecker(linux)
-	u.shadowReadable = true
+	u.credentialsRead = true
 
 	var asked []string
 	src := privilegeSources{
@@ -254,7 +254,7 @@ func TestReadPrivilegeWithoutSudo(t *testing.T) {
 
 	for _, euid := range []int{rootUID, 1000} {
 		got, _, asked := privilegeHost{euid: euid, groups: "wheel:x:10:alice\n"}.judge(privilegeAccounts)
-		for _, key := range privilegeRules {
+		for _, key := range sudoRules {
 			if c := got[key]; c.Result != finding.ResultNotApplicable || c.Reason != absent {
 				t.Errorf("euid %d: %s = %s %q, want notapplicable %q", euid, key, c.Result, c.Reason, absent)
 			}

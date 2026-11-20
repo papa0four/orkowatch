@@ -58,9 +58,10 @@ func WriteViewText(w io.Writer, v View) error {
 
 // writeCheck renders one check: its header, then for a check that ran, its
 // duration, findings, the remaining conditions and its narration. A check
-// that was not selected ends after the header because it produced nothing
-// else. Result values are shown in upper case here; the canonical lowercase
-// spelling belongs to the structured encodings.
+// that did not run, not selected or with no definitions on the platform, ends
+// after the header because it produced nothing else. Result values are shown
+// in upper case here; the canonical lowercase spelling belongs to the
+// structured encodings.
 func writeCheck(ew *render.ErrWriter, check CheckView, minSeverity string) error {
 	ew.Printf("Check: %s\n", check.Name)
 	ew.Printf("Result: %s\n", strings.ToUpper(string(check.Result)))
@@ -70,7 +71,7 @@ func writeCheck(ew *render.ErrWriter, check CheckView, minSeverity string) error
 	if check.Description != "" {
 		ew.Printf("Description: %s\n", check.Description)
 	}
-	if check.Result == finding.ResultNotSelected {
+	if check.Duration == "" {
 		ew.Printf("\n")
 		return ew.Err()
 	}

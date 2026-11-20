@@ -1,6 +1,10 @@
-//go:build freebsd || openbsd || netbsd
+//go:build openbsd || netbsd
 
-// internal/security/checker/users_bsd.go
+// internal/security/checker/users_otherbsd.go
+
+// The users reader of the BSDs that have no finding definitions yet. It reads
+// what it read before FreeBSD gained its own reader and is changed only when
+// a host of its platform has been observed.
 
 package checker
 
@@ -11,8 +15,17 @@ import (
 	"strings"
 )
 
-// minRegularUID is the first UID adduser assigns to a regular account.
-const minRegularUID = 1000
+const (
+	// minRegularUID is the first UID adduser assigns to a regular account.
+	minRegularUID = 1000
+
+	// credentialsUnread is why the credential rules have no judgment: this
+	// reader takes no password state.
+	credentialsUnread = "password state is not read on this platform"
+)
+
+// platformRules are the rules of platformRuleSet these platforms name.
+var platformRules = platformRuleSet{rootUnlocked: "users.root_account_unlocked"}
 
 // getUsers reads /etc/passwd and resolves administrative membership through
 // each account's group list.
