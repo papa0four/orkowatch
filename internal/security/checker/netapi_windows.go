@@ -45,26 +45,27 @@ const (
 )
 
 type (
-	// userInfo1 is USER_INFO_1.
+	// userInfo1 is USER_INFO_1. A member this reader does not use keeps its
+	// place in the layout under the blank name, with its own name beside it.
 	userInfo1 struct {
-		name        *uint16
-		password    *uint16
-		passwordAge uint32
-		priv        uint32
-		homeDir     *uint16
-		comment     *uint16
-		flags       uint32
-		scriptPath  *uint16
+		name  *uint16
+		_     *uint16 // usri1_password
+		_     uint32  // usri1_password_age
+		_     uint32  // usri1_priv
+		_     *uint16 // usri1_home_dir
+		_     *uint16 // usri1_comment
+		flags uint32
+		_     *uint16 // usri1_script_path
 	}
 
 	// userInfo24 is USER_INFO_24, which reports whether an account is
 	// connected to an Internet identity and carries the account's SID.
 	userInfo24 struct {
-		internetIdentity      int32
-		flags                 uint32
-		internetProviderName  *uint16
-		internetPrincipalName *uint16
-		sid                   *windows.SID
+		internetIdentity int32
+		_                uint32  // usri24_flags
+		_                *uint16 // usri24_internet_provider_name
+		_                *uint16 // usri24_internet_principal_name
+		sid              *windows.SID
 	}
 
 	// userModals0 is USER_MODALS_INFO_0: the password policy.
@@ -72,7 +73,7 @@ type (
 		minPasswordLen     uint32
 		maxPasswordAge     uint32
 		minPasswordAge     uint32
-		forceLogoff        uint32
+		_                  uint32 // usrmod0_force_logoff
 		passwordHistoryLen uint32
 	}
 
@@ -121,6 +122,24 @@ var (
 	procNetLocalGroupGetMembers = netapi32.NewProc("NetLocalGroupGetMembers")
 )
 
+// errNoBuffer is the answer to a Network Management call that reported
+// success and entries and returned no buffer to read them from.
+var errNoBuffer = errors.New("the call reported success and returned no buffer")
+
+// netEntries returns the count entries of layout T that a Network Management
+// call returned at buf. Every structure these calls return is read through
+// it, so a call that reports entries and hands back no buffer is an error the
+// check reports, where reading the layout from nothing would end the run.
+func netEntries[T any](buf *byte, count uint32) ([]T, error) {
+	switch {
+	case count == 0:
+		return nil, nil
+	case buf == nil:
+		return nil, errNoBuffer
+	}
+	return unsafe.Slice((*T)(unsafe.Pointer(buf)), count), nil // #nosec G103 -- the call returned count entries of this layout at buf, which is not nil
+}
+
 // localAccounts enumerates the local account database.
 func localAccounts() ([]windowsAccount, error) {
 	var accounts []windowsAccount
@@ -134,7 +153,11 @@ func localAccounts() ([]windowsAccount, error) {
 			return nil, fmt.Errorf("enumerate local accounts: %w", err)
 		}
 
-		for _, entry := range unsafe.Slice((*userInfo1)(unsafe.Pointer(buf)), read) { // #nosec G103 -- NetUserEnum returned read entries of this layout at buf
+		entries, entriesErr := netEntries[userInfo1](buf, read)
+		if entriesErr != nil {
+			return nil, fmt.Errorf("enumerate local accounts: %w", entriesErr)
+		}
+		for _, entry := range entries {
 			account := windowsAccount{
 				name:             windows.UTF16PtrToString(entry.name),
 				enabled:          entry.flags&ufAccountDisable == 0,
@@ -161,11 +184,14 @@ func accountIdentity(name *uint16) (sid string, internetIdentity bool, err error
 	}
 	defer freeNetBuffer(buf)
 
-	info := (*userInfo24)(unsafe.Pointer(buf)) // #nosec G103 -- NetUserGetInfo returned one entry of this layout at buf
-	if info.sid == nil {
+	info, err := netEntries[userInfo24](buf, 1)
+	switch {
+	case err != nil:
+		return "", false, err
+	case info[0].sid == nil:
 		return "", false, errors.New("account record carries no SID")
 	}
-	return info.sid.String(), info.internetIdentity != 0, nil
+	return info[0].sid.String(), info[0].internetIdentity != 0, nil
 }
 
 // administratorSIDs returns the SIDs of the members of the local
@@ -203,8 +229,12 @@ func administratorSIDs() (map[string]bool, error) {
 	}
 	defer freeNetBuffer(buf)
 
+	entries, err := netEntries[localGroupMember0](buf, read)
+	if err != nil {
+		return nil, fmt.Errorf("list administrators group members: %w", err)
+	}
 	members := make(map[string]bool, read)
-	for _, member := range unsafe.Slice((*localGroupMember0)(unsafe.Pointer(buf)), read) { // #nosec G103 -- NetLocalGroupGetMembers returned read entries of this layout at buf
+	for _, member := range entries {
 		if member.sid != nil {
 			members[member.sid.String()] = true
 		}
@@ -216,39 +246,43 @@ func administratorSIDs() (map[string]bool, error) {
 func passwordPolicy() (windowsPasswordPolicy, error) {
 	var policy windowsPasswordPolicy
 
-	password, err := userModals(modalsLevelPassword)
+	info, err := userModals[userModals0](modalsLevelPassword)
 	if err != nil {
 		return policy, fmt.Errorf("read password policy: %w", err)
 	}
-	info := (*userModals0)(unsafe.Pointer(password)) // #nosec G103 -- NetUserModalsGet returned this layout for level 0
 	policy.minLength = info.minPasswordLen
 	policy.historyLength = info.passwordHistoryLen
 	policy.maxAge = policyDuration(info.maxPasswordAge)
 	policy.minAge = policyDuration(info.minPasswordAge)
-	freeNetBuffer(password)
 
-	lockout, err := userModals(modalsLevelLockout)
+	limits, err := userModals[userModals3](modalsLevelLockout)
 	if err != nil {
 		return policy, fmt.Errorf("read lockout policy: %w", err)
 	}
-	limits := (*userModals3)(unsafe.Pointer(lockout)) // #nosec G103 -- NetUserModalsGet returned this layout for level 3
 	policy.lockoutThreshold = limits.lockoutThreshold
 	policy.lockoutDuration = policyDuration(limits.lockoutDuration)
 	policy.lockoutWindow = policyDuration(limits.lockoutObservationWindow)
-	freeNetBuffer(lockout)
 
 	return policy, nil
 }
 
-// userModals returns the policy structure for level. The caller frees it.
-func userModals(level uintptr) (*byte, error) {
+// userModals returns a copy of the policy structure for level, whose layout
+// T is, and frees what the call allocated.
+func userModals[T any](level uintptr) (T, error) {
+	var policy T
 	var buf *byte
 	out := uintptr(unsafe.Pointer(&buf))                     // #nosec G103 -- out parameter receiving the buffer
 	status, _, _ := procNetUserModalsGet.Call(0, level, out) //nolint:errcheck // the third result is GetLastError, which this API does not set; status carries the outcome
 	if status != 0 {
-		return nil, syscall.Errno(status)
+		return policy, syscall.Errno(status)
 	}
-	return buf, nil
+	defer freeNetBuffer(buf)
+
+	entries, err := netEntries[T](buf, 1)
+	if err != nil {
+		return policy, err
+	}
+	return entries[0], nil
 }
 
 // policyDuration converts a policy value in seconds, returning zero for a
