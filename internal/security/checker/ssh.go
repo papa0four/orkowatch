@@ -71,7 +71,7 @@ type (
 	sshdParser struct {
 		dir     string
 		config  sshConfig
-		reading []string
+		reading includeChain
 	}
 
 	// sshRule pairs a directive with the rules it decides. absentKey is empty
@@ -90,6 +90,15 @@ type (
 		rootLogin    registry.FindingKey
 		passwordAuth registry.FindingKey
 	}
+)
+
+// The rules the configuration decides on every platform. Each platform names
+// the two for a directive left unset, where it defines them, in the
+// sshdAbsentKeys it passes.
+const (
+	ruleSSHDNoConfig registry.FindingKey = "ssh.config_not_found"
+	ruleSSHRootLogin registry.FindingKey = "ssh.root_login_permitted"
+	ruleSSHPassword  registry.FindingKey = "ssh.password_auth_enabled"
 )
 
 // The keywords the parser acts on, in the lower case it compares them in.
@@ -127,19 +136,19 @@ var sshdValues = map[string][]string{
 // Match line or at the end of the file it began in. On a read error what was
 // read is returned with it: a value already found is the one sshd uses whatever
 // follows, and one not yet found is unknown.
-func parseSSHDConfig(main io.Reader, path, dir string) (sshConfig, error) {
+func parseSSHDConfig(ctx context.Context, main io.Reader, path, dir string) (sshConfig, error) {
 	p := &sshdParser{
 		dir:     dir,
 		config:  sshConfig{global: map[string]sshSetting{}},
-		reading: []string{filepath.Clean(path)},
+		reading: includeChain{filepath.Clean(path)},
 	}
-	err := p.read(main, path, -1)
+	err := p.read(ctx, main, path, -1)
 	return p.config, err
 }
 
 // read parses one file's lines into block, the index of the Match block the
 // file was included from, or -1 for the global section.
-func (p *sshdParser) read(file io.Reader, path string, block int) error {
+func (p *sshdParser) read(ctx context.Context, file io.Reader, path string, block int) error {
 	scanner := bufio.NewScanner(file)
 	for line := 1; scanner.Scan(); line++ {
 		keyword, args, err := splitSSHDLine(scanner.Text())
@@ -155,14 +164,14 @@ func (p *sshdParser) read(file io.Reader, path string, block int) error {
 			p.config.blocks = append(p.config.blocks, sshMatchBlock{criteria: strings.Join(args, " "), settings: map[string]sshSetting{}})
 			block = len(p.config.blocks) - 1
 		case keywordInclude:
-			if err := p.include(args, block); err != nil {
+			if err := p.include(ctx, args, block); err != nil {
 				return fmt.Errorf("%s line %d: %w", path, line, err)
 			}
 		case keywordPort, keywordListenAddress:
 			if block >= 0 {
 				return fmt.Errorf("%s line %d: %s is not allowed within a Match block", path, line, keyword)
 			}
-			if err := p.listen(keyword, args); err != nil {
+			if err := p.listen(ctx, keyword, args); err != nil {
 				return fmt.Errorf("%s line %d: %w", path, line, err)
 			}
 		default:
@@ -188,14 +197,15 @@ func (p *sshdParser) set(block int, keyword string, setting sshSetting) {
 
 // listen records a Port or a ListenAddress. Every one applies, unlike the
 // directives the audit judges. A port may be a number or a service name, as
-// sshd accepts either; a ListenAddress may be followed by a routing domain.
-func (p *sshdParser) listen(keyword string, args []string) error {
+// sshd accepts either, and a service name is looked up under ctx; a
+// ListenAddress may be followed by a routing domain.
+func (p *sshdParser) listen(ctx context.Context, keyword string, args []string) error {
 	const rdomainArgs = 3
 	switch {
 	case keyword == keywordPort && len(args) != 1:
 		return errors.New("port takes exactly one value")
 	case keyword == keywordPort:
-		port, err := net.LookupPort("tcp", args[0])
+		port, err := net.DefaultResolver.LookupPort(ctx, "tcp", args[0])
 		if err != nil {
 			return fmt.Errorf("port %q is not a port: %w", args[0], err)
 		}
@@ -248,7 +258,7 @@ func (c sshConfig) listeningPorts() []string {
 // and its matches read in lexical order, and one that matches nothing is
 // skipped, as sshd skips it. A file that is matched but cannot be read is an
 // error, because what it sets is unknown.
-func (p *sshdParser) include(patterns []string, block int) error {
+func (p *sshdParser) include(ctx context.Context, patterns []string, block int) error {
 	if len(patterns) == 0 {
 		return errors.New("no file follows the Include keyword")
 	}
@@ -259,7 +269,7 @@ func (p *sshdParser) include(patterns []string, block int) error {
 		}
 		slices.Sort(matches)
 		for _, match := range matches {
-			if err := p.includeFile(filepath.Clean(match), block); err != nil {
+			if err := p.includeFile(ctx, filepath.Clean(match), block); err != nil {
 				return err
 			}
 		}
@@ -269,19 +279,20 @@ func (p *sshdParser) include(patterns []string, block int) error {
 
 // includeFile reads one included file. A file already being read would be
 // read again without end, which sshd also refuses.
-func (p *sshdParser) includeFile(path string, block int) error {
-	if slices.Contains(p.reading, path) {
+func (p *sshdParser) includeFile(ctx context.Context, path string, block int) error {
+	leave, ok := p.reading.enter(path)
+	if !ok {
 		return fmt.Errorf("including %s leads back to a file already being read", path)
 	}
+	defer leave()
+
 	file, err := os.Open(path) // #nosec G304 -- an Include the sshd configuration names, read as sshd reads it
 	if err != nil {
 		return fmt.Errorf("cannot read included %s: %w", path, err)
 	}
 	defer file.Close() //nolint:errcheck // read-only file; close error does not affect scan results
 
-	p.reading = append(p.reading, path)
-	defer func() { p.reading = p.reading[:len(p.reading)-1] }()
-	return p.read(file, path, block)
+	return p.read(ctx, file, path, block)
 }
 
 // includePath resolves an Include pattern as sshd does: a pattern beginning
@@ -360,42 +371,39 @@ func splitSSHDLine(line string) (keyword string, args []string, err error) {
 // own rule and leaves the directive rules unchecked; an unreadable one is an
 // error on all of them. Each directive finding carries where sshd listens,
 // which decides how far it can be exploited from.
-func checkSSHDConfig(r *report, path string, absent sshdAbsentKeys, listeners Listeners) {
-	directives := []registry.FindingKey{
-		"ssh.root_login_permitted", "ssh.password_auth_enabled",
-		absent.rootLogin, absent.passwordAuth,
-	}
+func checkSSHDConfig(ctx context.Context, r *report, path string, absent sshdAbsentKeys, listeners Listeners) {
+	directives := []registry.FindingKey{ruleSSHRootLogin, ruleSSHPassword, absent.rootLogin, absent.passwordAuth}
 
 	file, err := os.Open(path) // #nosec G304 -- path is a platform constant naming the sshd configuration
 	switch {
 	case errors.Is(err, os.ErrNotExist):
-		r.observed("ssh.config_not_found", evidence(finding.KindFile, path))
+		r.observed(ruleSSHDNoConfig, evidence(finding.KindFile, path))
 		r.inconclusive(finding.ResultNotChecked, "OpenSSH configuration file not found: "+path, directives...)
 		return
 	case err != nil:
 		r.inconclusive(finding.ResultError, fmt.Sprintf("cannot read OpenSSH configuration: %v", err),
-			append(directives, "ssh.config_not_found")...)
+			append(directives, ruleSSHDNoConfig)...)
 		return
 	}
 	defer file.Close() //nolint:errcheck // read-only file; close error does not affect scan results
 
-	r.pass("ssh.config_not_found")
+	r.pass(ruleSSHDNoConfig)
 	r.note(finding.SymbolInfo, "Configuration file: %s", path)
 
-	config, readErr := parseSSHDConfig(file, path, filepath.Dir(path))
+	config, readErr := parseSSHDConfig(ctx, file, path, filepath.Dir(path))
 	reach := sshdListening(r, config, readErr, listeners)
 
 	reportSSHDirective(r, config, readErr, keywordRootLogin, reach, sshRule{
 		name:      "PermitRootLogin",
 		unsafe:    func(value string) bool { return !strings.EqualFold(value, "no") },
-		unsafeKey: "ssh.root_login_permitted",
+		unsafeKey: ruleSSHRootLogin,
 		absentKey: absent.rootLogin,
 	})
 
 	reportSSHDirective(r, config, readErr, keywordPasswordAuth, reach, sshRule{
 		name:      "PasswordAuthentication",
 		unsafe:    func(value string) bool { return strings.EqualFold(value, "yes") },
-		unsafeKey: "ssh.password_auth_enabled",
+		unsafeKey: ruleSSHPassword,
 		absentKey: absent.passwordAuth,
 	})
 }

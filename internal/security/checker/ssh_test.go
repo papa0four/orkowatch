@@ -3,6 +3,7 @@
 package checker
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -39,7 +40,7 @@ func parseIn(t *testing.T, dir string) (sshConfig, error) {
 		t.Fatal(err)
 	}
 	defer file.Close() //nolint:errcheck // read-only test file
-	return parseSSHDConfig(file, path, dir)
+	return parseSSHDConfig(context.Background(), file, path, dir)
 }
 
 // The global value the parser takes is the one sshd uses. Each expectation is
@@ -210,7 +211,7 @@ func TestCheckSSHDConfigJudgesTheAssembledConfiguration(t *testing.T) {
 			osCtx: registry.OSContext{Platform: registry.PlatformLinux, Families: []registry.Distro{registry.DistroGeneric}},
 			index: make(map[registry.FindingKey]int),
 		}
-		checkSSHDConfig(r, filepath.Join(dir, "sshd_config"), sshdAbsentKeys{
+		checkSSHDConfig(context.Background(), r, filepath.Join(dir, "sshd_config"), sshdAbsentKeys{
 			rootLogin:    "ssh.permit_root_login_not_set",
 			passwordAuth: "ssh.password_auth_not_set",
 		}, Listeners{View: loopbackSSHD()})

@@ -45,7 +45,7 @@ type (
 	krb5Parser struct {
 		fsys    fs.FS
 		config  krb5Config
-		reading []string
+		reading includeChain
 		closed  bool
 	}
 
@@ -107,7 +107,7 @@ func readKrb5Config(fsys fs.FS, files []string) (krb5Config, error) {
 		if err != nil {
 			return p.config, err
 		}
-		p.reading = []string{file}
+		p.reading = includeChain{file}
 		p.parse(file, data)
 	}
 	return p.config, nil
@@ -232,18 +232,19 @@ func (p *krb5Parser) include(directive, name, at string) {
 // includeFile reads one included file. It is syntactically independent of the
 // file including it, so it starts outside any section.
 func (p *krb5Parser) includeFile(file, at string) {
-	if slices.Contains(p.reading, file) {
+	leave, ok := p.reading.enter(file)
+	if !ok {
 		p.refuse("%s includes /%s, which leads back to a file already being read", at, file)
 		return
 	}
+	defer leave()
+
 	data, err := fs.ReadFile(p.fsys, file)
 	if err != nil {
 		p.refuse("%s includes /%s, which could not be read: %v", at, file, err)
 		return
 	}
 	p.config.files = append(p.config.files, file)
-	p.reading = append(p.reading, file)
-	defer func() { p.reading = p.reading[:len(p.reading)-1] }()
 	p.parse(file, data)
 }
 

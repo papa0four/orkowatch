@@ -31,7 +31,7 @@ type (
 		modules  []string
 		rules    map[pamRuleKey]map[string]bool
 		order    []pamRuleKey
-		reading  []string
+		reading  includeChain
 		problems []string
 	}
 
@@ -153,21 +153,25 @@ func (s *pamStack) readConf() {
 	if err != nil {
 		s.problem("%s: %v", "/"+s.layout.conf, err)
 	}
-	s.reading = append(s.reading, s.layout.conf)
+	if leave, ok := s.reading.enter(s.layout.conf); ok {
+		defer leave()
+	}
 	for _, rule := range rules {
 		s.follow(rule, s.layout.conf, rule.service, "")
 	}
-	s.reading = s.reading[:0]
 }
 
 // read reads one file of service's stack, keeping the rules of typ, or of
 // every type when typ is empty. A file already being read is not read again:
 // libpam would include it without end.
 func (s *pamStack) read(file, service, typ string) {
-	if slices.Contains(s.reading, file) {
+	leave, ok := s.reading.enter(file)
+	if !ok {
 		s.problem("/%s is included from a file it includes; the inclusion was not followed", file)
 		return
 	}
+	defer leave()
+
 	data, err := fs.ReadFile(s.fsys, file)
 	if err != nil {
 		s.problem("/%s could not be read: %v", file, err)
@@ -177,8 +181,6 @@ func (s *pamStack) read(file, service, typ string) {
 	if err != nil {
 		s.problem("/%s: %v", file, err)
 	}
-	s.reading = append(s.reading, file)
-	defer func() { s.reading = s.reading[:len(s.reading)-1] }()
 	for _, rule := range rules {
 		s.follow(rule, file, service, typ)
 	}
