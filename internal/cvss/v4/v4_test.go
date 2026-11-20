@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"math"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -252,6 +253,78 @@ func TestNomenclature(t *testing.T) {
 	} {
 		if got := mustParse(t, b+suffix).Nomenclature(); got != want {
 			t.Errorf("%s: label %s, want %s", suffix, got, want)
+		}
+	}
+}
+
+// Each of the eleven Modified Base metrics names the Base metric it replaces and
+// takes Not Defined and every value of that metric, and nothing else is one.
+func TestModifiedBase(t *testing.T) {
+	v := mustParse(t, "CVSS:4.0/AV:N/AC:L/AT:N/PR:L/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N/MPR:H")
+	for _, name := range []string{"MAV", "MAC", "MAT", "MPR", "MUI", "MVC", "MVI", "MVA", "MSC", "MSI", "MSA"} {
+		base, values, ok := ModifiedBase(name)
+		if !ok || "M"+base != name || values[0] != "X" {
+			t.Errorf("%s: base %q, values %v, ok %v", name, base, values, ok)
+			continue
+		}
+		if !slices.Contains(values, v.Value(base)) {
+			t.Errorf("%s does not take the value %s of its Base metric", name, v.Value(base))
+		}
+	}
+	for _, name := range []string{"AV", "PR", "CR", "E", "S", "MX", ""} {
+		if _, _, ok := ModifiedBase(name); ok {
+			t.Errorf("%q is taken for a Modified Base metric", name)
+		}
+	}
+	if v.Value("MPR") != "H" || v.Value("MAV") != "X" || v.Value("PR") != "L" {
+		t.Errorf("values MPR %q, MAV %q, PR %q", v.Value("MPR"), v.Value("MAV"), v.Value("PR"))
+	}
+}
+
+// With sets a metric and writes the vector in the specification's order, so the
+// result parses back to itself and scores as FIRST prints it: the Implementation
+// Guide's localhost example, Modified Attack Vector Local, scores 8.6.
+func TestWith(t *testing.T) {
+	const b = "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N"
+	v := mustParse(t, b)
+	local, err := v.With("MAV", "L")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if local.String() != b+"/MAV:L" || local.Score() != 8.6 || local.Nomenclature() != "CVSS-BE" {
+		t.Errorf("MAV:L gives %s scoring %.1f labelled %s", local, local.Score(), local.Nomenclature())
+	}
+
+	// Set out of order, written in order, and a metric set back to Not Defined
+	// leaves the string.
+	both, err := local.With("E", "P")
+	if err != nil {
+		t.Fatal(err)
+	}
+	both, err = both.With("MPR", "H")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := b + "/E:P/MAV:L/MPR:H"; both.String() != want {
+		t.Errorf("got %s, want %s", both, want)
+	}
+	if back := mustParse(t, both.String()); back.Score() != both.Score() {
+		t.Errorf("%s does not parse back to its own score", both)
+	}
+	cleared, err := both.With("E", "X")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := b + "/MAV:L/MPR:H"; cleared.String() != want {
+		t.Errorf("got %s, want %s", cleared, want)
+	}
+	if v.String() != b || v.Value("MAV") != "X" {
+		t.Errorf("the original vector changed to %s", v)
+	}
+
+	for _, c := range [][2]string{{"MXX", "L"}, {"MAV", "Q"}, {"MSC", "S"}, {"mav", "L"}} {
+		if _, err := v.With(c[0], c[1]); err == nil {
+			t.Errorf("%s:%s was accepted", c[0], c[1])
 		}
 	}
 }

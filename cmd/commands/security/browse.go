@@ -13,12 +13,14 @@ import (
 	"github.com/papa0four/orkowatch/internal/render"
 	"github.com/papa0four/orkowatch/internal/security/audit"
 	"github.com/papa0four/orkowatch/internal/security/finding"
+	"github.com/papa0four/orkowatch/internal/selection"
+	"github.com/papa0four/orkowatch/internal/sockets"
 	"github.com/papa0four/orkowatch/internal/softwarelist"
 	"github.com/papa0four/orkowatch/internal/tui"
 )
 
 // BrowserSource is what a finished run holds for the browser to show. Audit,
-// System and Software are the projections a saved report carries, so a live
+// System, Software and Sockets are the projections a saved report carries, so a live
 // run and a saved file are shown from the same data. Modules says how each
 // module of an all run ended, which is what a tab with no data explains
 // itself with; the audit command has none.
@@ -27,6 +29,7 @@ type BrowserSource struct {
 	Audit    *audit.View
 	System   *osfingerprint.SystemView
 	Software *softwarelist.SoftwareView
+	Sockets  *sockets.View
 	Modules  []ModuleNote
 	Text     string
 }
@@ -72,19 +75,25 @@ func BrowserReport(src BrowserSource) tui.Report {
 			}
 		}
 	} else {
-		report.FindingsNote = notRun(src.Modules, "audit", "owatch audit")
+		report.FindingsNote = notRun(src.Modules, selection.NameAudit)
 	}
 
 	if src.System != nil {
 		report.Tabs = append(report.Tabs, systemTab(*src.System))
 	} else {
-		report.Tabs = append(report.Tabs, tui.Tab{ID: tui.TabSystem, Name: "System", Note: notRun(src.Modules, "osinfo", "owatch osinfo")})
+		report.Tabs = append(report.Tabs, tui.Tab{ID: tui.TabSystem, Name: "System", Note: notRun(src.Modules, selection.NameOS)})
 	}
 
 	if src.Software != nil {
 		report.Tabs = append(report.Tabs, softwareTab(*src.Software))
 	} else {
-		report.Tabs = append(report.Tabs, tui.Tab{ID: tui.TabSoftware, Name: "Software", Note: notRun(src.Modules, "software", "owatch software")})
+		report.Tabs = append(report.Tabs, tui.Tab{ID: tui.TabSoftware, Name: "Software", Note: notRun(src.Modules, selection.NameSoftware)})
+	}
+
+	if src.Sockets != nil {
+		report.Tabs = append(report.Tabs, socketsTab(*src.Sockets))
+	} else {
+		report.Tabs = append(report.Tabs, tui.Tab{ID: tui.TabSockets, Name: "Sockets", Note: notRun(src.Modules, selection.NameListeners)})
 	}
 
 	if src.Audit != nil {
@@ -156,22 +165,19 @@ func attackTab(view *audit.View) (tui.Tab, bool) {
 // collected. A module counts as run unless it was excluded; one that ran and
 // failed still counts, and its tab says what went wrong.
 func landingTab(modules []ModuleNote) string {
+	tabs := map[string]string{
+		selection.NameOS:        tui.TabSystem,
+		selection.NameSoftware:  tui.TabSoftware,
+		selection.NameListeners: tui.TabSockets,
+	}
 	first := tui.TabFindings
 	for _, m := range modules {
-		if m.Result == finding.ResultNotSelected {
-			continue
-		}
-		switch m.Name {
-		case "audit":
+		switch tab, inventory := tabs[m.Name]; {
+		case m.Result == finding.ResultNotSelected:
+		case m.Name == selection.NameAudit:
 			return tui.TabFindings
-		case "osinfo":
-			if first == tui.TabFindings {
-				first = tui.TabSystem
-			}
-		case "software":
-			if first == tui.TabFindings {
-				first = tui.TabSoftware
-			}
+		case inventory && first == tui.TabFindings:
+			first = tab
 		}
 	}
 	return first
@@ -179,13 +185,14 @@ func landingTab(modules []ModuleNote) string {
 
 // notRun says why a source has no data: the run's own account of the module
 // when it recorded one, as an all run does, and otherwise that the command
-// never included it, with the command that collects it.
-func notRun(modules []ModuleNote, name, command string) string {
+// never included it, with the command that collects it, which carries the
+// module's name.
+func notRun(modules []ModuleNote, name string) string {
 	if note, ok := moduleNote(modules, name); ok {
 		return note
 	}
-	return "not collected: this command does not run the " + name + " module. owatch all collects every source; " +
-		command + " collects only this one"
+	return "not collected: this command does not run the " + name + " module. owatch all collects every source; owatch " +
+		name + " collects only this one"
 }
 
 // triggerBlock describes one finding that made a technique available: its
@@ -254,6 +261,60 @@ func systemTab(system osfingerprint.SystemView) tui.Tab {
 		Subtitle: safeLines(system.OS + " " + system.PlatformVersion),
 		Fields:   fields,
 	}}}
+}
+
+// socketsTab is the host's sockets, one record each, in the categories and
+// order the text report lists them. A socket whose processes are missing or
+// incomplete says why in its own record.
+func socketsTab(v sockets.View) tui.Tab {
+	var records []tui.Record
+	for _, group := range [][]sockets.Socket{v.Internet, v.Raw, v.Unix, v.Packet} {
+		for _, s := range group {
+			records = append(records, socketRecord(s))
+		}
+	}
+	tab := tui.Tab{ID: tui.TabSockets, Name: "Sockets", Records: records}
+	if len(v.NotRead) > 0 {
+		tab.Note = "not read on this platform: " + strings.Join(v.NotRead, ", ") + " sockets"
+	}
+	return tab
+}
+
+// socketRecord is one socket: its local end as the title, its protocol and
+// state beside it, and every fact the reader recorded, in order.
+func socketRecord(s sockets.Socket) tui.Record {
+	fields := []tui.SummaryLine{{Label: "protocol", Value: safeLines(s.Protocol)}}
+	add := func(label, value string) {
+		if value != "" {
+			fields = append(fields, tui.SummaryLine{Label: label, Value: safeLines(value)})
+		}
+	}
+	add("type", s.Type)
+	add("state", s.State)
+	add("local", s.Local)
+	add("remote", s.Remote)
+	add("scope", s.Scope)
+	add("owner", s.Owner)
+	for _, p := range s.Processes {
+		line := strconv.Itoa(p.PID)
+		for _, part := range []string{p.Name, p.Path, p.User} {
+			if part != "" {
+				line += "  " + part
+			}
+		}
+		add("process", line)
+	}
+	add("not attributed", s.Gap)
+	add("inode", s.Inode)
+	title := s.Local
+	if title == "" {
+		title = "unnamed, inode " + s.Inode
+	}
+	return tui.Record{
+		Title:    safeLines(title),
+		Subtitle: safeLines(strings.TrimSpace(s.Protocol + " " + s.State)),
+		Fields:   fields,
+	}
 }
 
 // softwareTab is the installed packages, one record each.
@@ -348,9 +409,10 @@ func browserItem(condition audit.ConditionView) tui.Item {
 }
 
 // setWeaknessAndCVSS fills the parts of a finding's detail that state what kind
-// of weakness it is and how the registry scores the condition: the CWE entry
-// with MITRE's description, or the reason none fits, and the CVSS score with
-// the label that says what it is a statement about.
+// of weakness it is and how it is scored: the CWE entry with MITRE's
+// description, or the reason none fits, the registry's baseline, the score on
+// this host with what it rests on, and which of them the severity is. The
+// scores are rendered as the text report renders them.
 func setWeaknessAndCVSS(item *tui.Item, def *audit.FindingView) {
 	switch {
 	case def.Weakness != nil:
@@ -360,12 +422,10 @@ func setWeaknessAndCVSS(item *tui.Item, def *audit.FindingView) {
 		item.Weakness = "none"
 		item.WeaknessAbout = safeLines(def.NoWeakness)
 	}
+	item.SeverityBasis = audit.SeverityBasis(def)
 	if def.CVSS != nil {
-		item.CVSS = audit.CVSSText(*def.CVSS)
-		if def.CVSS.CalculatorURL != "" {
-			item.CVSS += "\n" + def.CVSS.CalculatorURL
-		}
-		item.CVSS = safeLines(item.CVSS)
+		item.CVSS = safeLines(strings.Join(audit.ScoreLines(*def.CVSS), "\n"))
+		item.HostCVSS = safeLines(strings.Join(audit.HostScoreLines(def.Host), "\n"))
 	}
 }
 

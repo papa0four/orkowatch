@@ -88,7 +88,6 @@ func TestNISTReferencesResolveAgainstCatalog(t *testing.T) {
 func TestAuditedReferencesReachFindings(t *testing.T) {
 	const (
 		rhelSELinux = "https://docs.redhat.com/en/documentation/red_hat_enterprise_linux/9/html/using_selinux/changing-selinux-states-and-modes_using-selinux#changing-to-enforcing-mode_changing-selinux-states-and-modes"
-		rhelSudo    = "https://docs.redhat.com/en/documentation/red_hat_enterprise_linux/9/html/configuring_basic_system_settings/managing-sudo-access_configuring-basic-system-settings"
 		msSSH       = "https://learn.microsoft.com/en-us/windows-server/administration/openssh/openssh-server-configuration"
 	)
 	windows := OSContext{Platform: PlatformWindows}
@@ -100,9 +99,7 @@ func TestAuditedReferencesReachFindings(t *testing.T) {
 		url  string
 	}{
 		{rhel, "permissions.selinux_disabled", rhelSELinux},
-		{rhel, "users.wheel_group_empty", rhelSudo},
 		{arch, "users.aur_helper_installed", "https://wiki.archlinux.org/title/Arch_User_Repository#Verify_the_PKGBUILD"},
-		{arch, "users.wheel_group_unrestricted", "https://wiki.archlinux.org/title/Sudo#Example_entries"},
 		{arch, "users.sudo_nopasswd", "https://wiki.archlinux.org/title/Security#Use_sudo_instead_of_su"},
 		{windows, "ssh.config_not_found", msSSH},
 		{windows, "ssh.root_login_permitted", msSSH},
@@ -200,13 +197,17 @@ func TestMappedTechniquesReachFindings(t *testing.T) {
 		key       FindingKey
 		technique string
 	}{
-		{linux(DistroArch), "users.wheel_group_unrestricted", "T1548.003"},
 		{linux(DistroDebian), "users.regular_user_admin_privileges", "T1548.003"},
 		{linux(DistroDebian), "permissions.sudoers_world_readable", "T1548.003"},
 		{linux(DistroRHEL), "permissions.sudoers_world_readable", "T1548.003"},
-		{linux(DistroDebian), "users.sssd_configured", "T1003.005"},
-		{linux(DistroDebian), "users.kerberos_configured", "T1558.005"},
 		{linux(DistroDebian), "ssh.password_auth_not_set", "T1021.004"},
+		{linux(DistroDebian), "users.nslcd_lookups_unencrypted", "T1040"},
+		{linux(DistroRHEL), "users.nslcd_logins_unencrypted", "T1040"},
+		{linux(DistroSUSE), "users.sssd_ldap_id_unencrypted", "T1040"},
+		{linux(DistroArch), "users.nslcd_cert_unchecked", "T1557"},
+		{linux(DistroDebian), "users.ldap_cert_unchecked", "T1557"},
+		{linux(DistroRHEL), "users.sssd_ldap_cert_unchecked", "T1557"},
+		{linux(DistroDebian), "users.nslcd_password_readable", "T1552.001"},
 	}
 	for _, c := range cases {
 		d, ok := Lookup(c.host, c.key)

@@ -40,7 +40,8 @@ func EvidenceLine(w io.Writer, indent string, evidence finding.Evidence) error {
 }
 
 // EvidenceText renders one evidence entry as its subject followed by its
-// facts in recorded order. Subject and values come from the host and pass
+// facts in recorded order. Subject and values come from the host, and a fact
+// name comes from a file when a saved report is shown, so all three pass
 // through HostText. The text report and the results browser both render
 // evidence through it, so the two show an entry alike.
 func EvidenceText(evidence finding.Evidence) string {
@@ -49,7 +50,7 @@ func EvidenceText(evidence finding.Evidence) string {
 	line.WriteString(HostText(evidence.Subject))
 	for _, fact := range evidence.Facts {
 		line.WriteString("  ")
-		line.WriteString(fact.Name)
+		line.WriteString(HostText(string(fact.Name)))
 		line.WriteString("=")
 		line.WriteString(HostText(fact.Value))
 	}

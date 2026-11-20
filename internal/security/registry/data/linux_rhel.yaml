@@ -22,6 +22,18 @@ firewall.firewalld_not_running:
   severity: "HIGH"
   cvss_score: 8.8
   cvss_vector: "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:L/VI:L/VA:H/SC:N/SI:N/SA:N"
+  records:
+    firewall-manager: [state]
+    listening: [listening, addresses]
+  environment:
+    - metric: MAV
+      kind: listening
+      fact: listening
+      cases:
+        - value: loopback-only
+          set: L
+          guide: mav-exposed-on-localhost-only
+          because: "no socket on the host listens beyond loopback addresses, so without a firewall the host is still reached only from itself"
   cwe: "CWE-923"
   attack_techniques:
     - id: "T1686"
@@ -53,12 +65,14 @@ firewall.firewalld_not_running:
     - source: NIST
       id: "CM-6"
 
-# Consumer: #142. No checker emits this definition yet.
+# No checker emits this definition yet. It is kept for the Linux check that
+# will detect the condition.
 firewall.firewalld_not_installed:
   title: "No recognized firewall manager is installed"
   severity: "CRITICAL"
   cvss_score: 9.3
   cvss_vector: "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:N/SC:N/SI:N/SA:N"
+  records: {}
   cwe: "CWE-923"
   attack_techniques:
     - id: "T1686"
@@ -87,12 +101,14 @@ firewall.firewalld_not_installed:
     - source: NIST
       id: "CM-6"
 
-# Consumer: #142. No checker emits this definition yet.
+# No checker emits this definition yet. It is kept for the Linux check that
+# will detect the condition.
 firewall.firewalld_default_zone_public:
   title: "firewalld default zone is set to public"
   severity: "MEDIUM"
   cvss_score: 6.9
   cvss_vector: "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:L/VI:N/VA:N/SC:N/SI:N/SA:N"
+  records: {}
   no_weakness: "CWE 5.0 has no entry for a firewall zone choice of this kind."
   description: >
     The firewalld default zone is set to public, which is the least
@@ -122,21 +138,23 @@ firewall.firewalld_default_zone_public:
 # User checker findings
 # -------------------------
 
-# Consumer: #142. No checker emits this definition yet.
 users.sudo_nopasswd:
   title: "Sudoers entry permits privilege escalation without password"
   severity: "HIGH"
   cvss_score: 8.5
   cvss_vector: "CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N"
+  records:
+    account: [uid, shell, grant]
   cwe: "CWE-306"
   attack_techniques:
     - id: "T1548.003"
       basis:
         - "NIST AC-6 maps to this technique (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
   description: >
-    A sudoers rule contains the NOPASSWD tag, allowing one or more users
-    to execute commands with elevated privileges without providing a
-    password. On RHEL-family systems this is commonly found in
+    sudo, asked as root, lists for an account an entry that asks for no
+    password, by the NOPASSWD tag or with authenticate turned off, so the
+    account runs the entry's commands with elevated privileges on no
+    credential. The entries are recorded. On RHEL-family systems this is commonly found in
     /etc/sudoers or files under /etc/sudoers.d/.
   impact: >
     Any attacker or process that gains access to the affected user account
@@ -155,47 +173,14 @@ users.sudo_nopasswd:
     - source: NIST
       id: "AC-6"
 
-# Consumer: #142. No checker emits this definition yet.
-users.wheel_group_empty:
-  title: "The wheel group has no members"
-  severity: "MEDIUM"
-  cvss_score: 4.8
-  cvss_vector: "CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:N/VI:L/VA:N/SC:N/SI:N/SA:N"
-  no_weakness: "An empty administrative group is not a weakness; CWE-269 is discouraged by MITRE."
-  description: >
-    The wheel group, which controls sudo access on RHEL-family systems,
-    has no members. On systems where the sudoers configuration grants
-    sudo access to the wheel group, an empty wheel group means no
-    standard user has a defined path to administrative access.
-  impact: >
-    Administrators may be using direct root login or undefined privilege
-    escalation paths that bypass audit logging. Lack of wheel group
-    membership may indicate sudo is not properly configured as the
-    primary escalation mechanism.
-  resolution: >
-    Add appropriate administrator accounts to the wheel group:
-    usermod -aG wheel <username>. Verify sudoers grants wheel group
-    access: grep wheel /etc/sudoers. Ensure direct root login is
-    disabled and sudo is the sole escalation path.
-  references:
-    - source: CIS
-      benchmark: "CIS Red Hat Enterprise Linux 9 Benchmark"
-      version: "v1.0.0"
-      id: "5.3"
-    - source: NIST
-      id: "AC-6"
-    - source: URL
-      title: "Red Hat Enterprise Linux 9, Configuring basic system settings: Managing sudo access"
-      url: "https://docs.redhat.com/en/documentation/red_hat_enterprise_linux/9/html/configuring_basic_system_settings/managing-sudo-access_configuring-basic-system-settings"
-      version: "Red Hat Enterprise Linux 9"
-      verified: "2026-11-15"
-
-# Consumer: #142. No checker emits this definition yet.
+# No checker emits this definition yet. It is kept for the Linux check that
+# will detect the condition.
 users.passwd_no_shadow:
   title: "Password hashes stored in /etc/passwd instead of /etc/shadow"
   severity: "HIGH"
   cvss_score: 8.7
   cvss_vector: "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:N/VA:N/SC:N/SI:N/SA:N"
+  records: {}
   cwe: "CWE-522"
   attack_techniques:
     - id: "T1003.008"
@@ -226,12 +211,14 @@ users.passwd_no_shadow:
 # Permissions checker findings
 # -------------------------
 
-# Consumer: #142. No checker emits this definition yet.
+# No checker emits this definition yet. It is kept for the Linux check that
+# will detect the condition.
 permissions.shadow_world_readable:
   title: "/etc/shadow is readable by non-root users"
   severity: "HIGH"
   cvss_score: 8.4
   cvss_vector: "CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:H/VI:H/VA:N/SC:N/SI:N/SA:N"
+  records: {}
   cwe: "CWE-732"
   attack_techniques:
     - id: "T1003.008"
@@ -261,12 +248,14 @@ permissions.shadow_world_readable:
     - source: NIST
       id: "AC-3"
 
-# Consumer: #142. No checker emits this definition yet.
+# No checker emits this definition yet. It is kept for the Linux check that
+# will detect the condition.
 permissions.sudoers_world_readable:
   title: "/etc/sudoers has overly permissive permissions"
   severity: "HIGH"
   cvss_score: 8.4
   cvss_vector: "CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:H/VI:H/VA:N/SC:N/SI:N/SA:N"
+  records: {}
   cwe: "CWE-732"
   attack_techniques:
     - id: "T1548.003"
@@ -296,12 +285,14 @@ permissions.sudoers_world_readable:
     - source: NIST
       id: "AC-3"
 
-# Consumer: #142. No checker emits this definition yet.
+# No checker emits this definition yet. It is kept for the Linux check that
+# will detect the condition.
 permissions.ssh_dir_permissions:
   title: "SSH directory or authorized_keys has incorrect permissions"
   severity: "HIGH"
   cvss_score: 8.5
   cvss_vector: "CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N"
+  records: {}
   cwe: "CWE-732"
   attack_techniques:
     - id: "T1098.004"
@@ -339,12 +330,14 @@ permissions.ssh_dir_permissions:
     - source: NIST
       id: "IA-5"
 
-# Consumer: #142. No checker emits this definition yet.
+# No checker emits this definition yet. It is kept for the Linux check that
+# will detect the condition.
 permissions.selinux_disabled:
   title: "SELinux is disabled or set to permissive mode"
   severity: "HIGH"
   cvss_score: 8.5
   cvss_vector: "CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N"
+  records: {}
   no_weakness: "CWE 5.0 has no entry for a disabled mandatory access control mechanism; the nearest, CWE-693, is discouraged by MITRE."
   attack_techniques:
     - id: "T1685"

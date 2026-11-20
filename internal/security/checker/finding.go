@@ -9,24 +9,6 @@ import (
 	"github.com/papa0four/orkowatch/internal/security/registry"
 )
 
-// Evidence kinds: what sort of thing an evidence subject is. Not every kind
-// is produced on every platform, and a constant no build references compiles
-// away.
-const (
-	kindFile      = "file"
-	kindAccount   = "account"
-	kindDirective = "sshd-directive"
-	kindManager   = "firewall-manager"
-	kindProfile   = "firewall-profile"
-	kindService   = "service"
-	kindACL       = "acl-entry"
-	kindShare     = "share"
-	kindSetting   = "setting"
-
-	// factPair is the name and value one fact consists of.
-	factPair = 2
-)
-
 // report accumulates one check's outcome: a condition per rule the check
 // evaluated, and the narration that belongs to none of them. It is the single
 // path by which a checker records a result, so a rule is concluded once
@@ -65,21 +47,39 @@ func (r *report) lines(lines ...string) {
 	r.result.Details = append(r.result.Details, lines...)
 }
 
-// observed records that the condition key defines was seen on the subjects
-// in evidence. The definition decides what that means: fail for most, and
-// notapplicable for one describing a state the rule does not cover. A key
-// with no definition is a defect in the checker or the data file, not a host
-// condition, so it panics rather than letting a detected condition report
-// clean.
-func (r *report) observed(key registry.FindingKey, evidence ...finding.Evidence) {
-	if i, ok := r.index[key]; ok && r.result.Conditions[i].Finding != nil {
-		r.result.Conditions[i].Evidence = append(r.result.Conditions[i].Evidence, evidence...)
-		return
-	}
-
+// definition returns the platform's definition of key. A key with none is a
+// defect in the checker or the data file, not a host condition, so it panics
+// rather than letting a detected condition report clean or a rule that does
+// not exist be reported as evaluated.
+func (r *report) definition(key registry.FindingKey) registry.FindingDefinition {
 	def, ok := registry.Lookup(r.osCtx, key)
 	if !ok {
 		panic("checker: no registry definition for finding key " + string(key) + " on platform " + string(r.osCtx.Platform))
+	}
+	return def
+}
+
+// observed records that the condition key defines was seen on the subjects
+// in evidence. The definition decides what that means: fail for most, and
+// notapplicable for one describing a state the rule does not cover. Evidence
+// carrying a kind or fact the definition does not declare panics, as a key
+// with no definition does: the rules that read the evidence would no longer
+// match what the checker records. The empty key is ignored, as pass ignores
+// it: the platform defines no rule for the condition.
+func (r *report) observed(key registry.FindingKey, evidence ...finding.Evidence) {
+	if key == "" {
+		return
+	}
+	def := r.definition(key)
+	for _, subject := range evidence {
+		if err := def.CheckEvidence(subject); err != nil {
+			panic("checker: finding key " + string(key) + ": " + err.Error())
+		}
+	}
+
+	if i, ok := r.index[key]; ok && r.result.Conditions[i].Finding != nil {
+		r.result.Conditions[i].Evidence = append(r.result.Conditions[i].Evidence, evidence...)
+		return
 	}
 
 	condition := finding.Condition{
@@ -117,11 +117,14 @@ func (r *report) inconclusive(result finding.Result, reason string, keys ...regi
 
 // record merges condition into the rule's standing conclusion. The result
 // higher in precedence wins, so the order in which a checker reaches its
-// conclusions does not change what it reports.
+// conclusions does not change what it reports. Every conclusion passes
+// through here, so this is where a key the platform does not define is
+// refused whatever result it was given.
 func (r *report) record(key registry.FindingKey, condition finding.Condition) {
 	if key == "" {
 		return
 	}
+	r.definition(key)
 
 	i, ok := r.index[key]
 	if !ok {
@@ -139,23 +142,36 @@ func (r *report) record(key registry.FindingKey, condition finding.Condition) {
 	}
 }
 
-// finish derives the check's result from its conditions and returns it.
+// finish scores each finding on this host and derives the check's result from
+// its conditions. Scoring waits until here because a condition's evidence is
+// complete only once the checker stops recording: a finding scored when first
+// observed would be scored on part of its subjects.
 func (r *report) finish() finding.AuditResult {
+	for i := range r.result.Conditions {
+		condition := &r.result.Conditions[i]
+		if condition.Finding == nil {
+			continue
+		}
+		def := r.definition(registry.FindingKey(condition.Key))
+		condition.Finding.Host = def.Environmental(condition.Evidence)
+	}
 	r.result.Conclude()
 	return r.result
 }
 
-// evidence builds one evidence entry from a subject and alternating fact
-// names and values. A fact with an empty value is omitted, so a caller can
-// pass an observation that may not apply without branching.
-func evidence(kind, subject string, nameValues ...string) finding.Evidence {
-	if len(nameValues)%factPair != 0 {
-		panic("checker: evidence facts must be name and value pairs")
-	}
+// fact records one observation. An empty value records nothing, so a caller
+// can pass an observation that may not apply without branching.
+func fact(name finding.FactName, value string) finding.Fact {
+	return finding.Fact{Name: name, Value: value}
+}
+
+// evidence builds one evidence entry from a subject and the facts observed on
+// it, in the order given. A fact with an empty value is omitted.
+func evidence(kind finding.EvidenceKind, subject string, facts ...finding.Fact) finding.Evidence {
 	entry := finding.Evidence{Kind: kind, Subject: subject}
-	for ; len(nameValues) >= factPair; nameValues = nameValues[factPair:] {
-		if name, value := nameValues[0], nameValues[1]; value != "" {
-			entry.Facts = append(entry.Facts, finding.Fact{Name: name, Value: value})
+	for _, f := range facts {
+		if f.Value != "" {
+			entry.Facts = append(entry.Facts, f)
 		}
 	}
 	return entry

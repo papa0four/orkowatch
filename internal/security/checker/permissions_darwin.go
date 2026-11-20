@@ -8,8 +8,12 @@ import (
 	"bytes"
 	"context"
 	"os/exec"
-	"strconv"
 )
+
+// platformLocations adds none: macOS keeps home directories under /Users and
+// temporary files under /private, which have not been verified on a macOS
+// host here.
+func platformLocations() []pathLocation { return nil }
 
 // platformCriticalPaths lists the paths macOS adds to the common set.
 func platformCriticalPaths() []criticalPath {
@@ -24,8 +28,7 @@ func platformCriticalPaths() []criticalPath {
 // dscacheutil reports absence through empty output rather than its exit
 // status, so both conditions are treated as unresolved.
 func nameServiceKnows(ctx context.Context, kind identityKind, id uint32) bool {
-	value := strconv.FormatUint(uint64(id), decimalBase)
-	cmd := exec.CommandContext(ctx, "dscacheutil", "-q", string(kind), "-a", string(kind)+"id", value) // #nosec G204 -- command is fixed and the sole variable argument is a numeric identifier read from the filesystem
+	cmd := exec.CommandContext(ctx, "dscacheutil", "-q", string(kind), "-a", string(kind)+"id", formatUnixID(id)) // #nosec G204 -- command is fixed and the sole variable argument is a numeric identifier read from the filesystem
 	out, err := cmd.Output()
 	if err != nil {
 		return false

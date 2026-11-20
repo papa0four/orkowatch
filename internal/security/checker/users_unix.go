@@ -5,13 +5,10 @@
 package checker
 
 import (
+	"cmp"
 	"context"
-	"errors"
 	"fmt"
-	"io/fs"
-	"os"
-	"path"
-	"strconv"
+	"slices"
 	"strings"
 
 	"github.com/papa0four/orkowatch/internal/security/finding"
@@ -20,19 +17,56 @@ import (
 
 type (
 	// UnixUserChecker implements UserChecker for Unix-like systems. The
-	// platform reader supplies getUsers under its own build constraint.
-	// shadowReadable is set when the reader could open the credential store;
-	// it gates the no-password findings and surfaces a diagnostic when the
-	// check runs without sufficient privileges. adminLookupErr is set when no
-	// privileged group could be read at all; analyzeUsers reports that rather
-	// than presenting every account as unprivileged. readWarnings holds what
-	// else the reader could not see, so reduced coverage is stated in the
-	// report rather than read as a complete account list.
+	// platform reader supplies readHostAccounts under its own build
+	// constraint.
 	UnixUserChecker struct {
 		checkIdentity
-		shadowReadable bool
-		adminLookupErr error
-		readWarnings   []string
+	}
+
+	// hostAccounts is what a platform's reader found: the accounts and what
+	// bears on judging them. credentialsUnread says why the credential rules
+	// have no judgment and is empty when the reader saw each account's
+	// password state. unjudged holds the rules on administrative access the
+	// reader could not decide, which are reported as such rather than every
+	// account being presented as unprivileged. hostwide holds what the reader
+	// observed of the host and of no one account. adminHeading titles the
+	// list of administrative accounts by how the reader decided them.
+	// warnings holds what else the reader could not see, so reduced coverage
+	// is stated in the report rather than read as a complete account list.
+	hostAccounts struct {
+		accounts          []userAccount
+		credentialsUnread string
+		unjudged          []unjudged
+		hostwide          []observation
+		adminHeading      string
+		warnings          []string
+	}
+
+	// observation is a condition the reader saw, with its evidence.
+	observation struct {
+		rule     registry.FindingKey
+		evidence finding.Evidence
+	}
+
+	// platformRuleSet names the rules only some platforms define, and what a
+	// platform's own accounts are exempt from. An empty key is a rule the
+	// platform does not define: it is neither observed nor passed there.
+	// shellExempt are the system accounts systemShell does not judge.
+	platformRuleSet struct {
+		rootUnlocked    registry.FindingKey
+		systemShell     registry.FindingKey
+		nologinPassword registry.FindingKey
+		suMember        registry.FindingKey
+		shellExempt     []string
+	}
+
+	// unjudged is why rules on administrative access have no judgment, with
+	// what the reader did see that bears on them.
+	unjudged struct {
+		rules    []registry.FindingKey
+		result   finding.Result
+		reason   string
+		evidence []finding.Evidence
 	}
 
 	// userAccount is a parsed account from the platform's user database.
@@ -40,17 +74,26 @@ type (
 	// assigns to regular accounts. password and state stay at their unknown zero values
 	// unless the reader could inspect the credential store or the account's
 	// directory record, so a reader that cannot see either never reports an
-	// account as credential-less or judges a disabled one as live.
+	// account as credential-less or judges a disabled one as live. grants,
+	// unprompted and borrowed are what sudo said of the account where the
+	// reader asked it: the entries behind isAdmin, the entries that ask for no
+	// password, and the setting under which sudo asks for a password that is
+	// not the account's. suGroup is the group by which su admits the account
+	// to root, where the reader read what su requires.
 	userAccount struct {
-		username string
-		uid      uint32
-		gid      uint32
-		homeDir  string
-		shell    string
-		isSystem bool
-		isAdmin  bool
-		password passwordState
-		state    accountState
+		username   string
+		uid        uint32
+		gid        uint32
+		homeDir    string
+		shell      string
+		isSystem   bool
+		isAdmin    bool
+		password   passwordState
+		state      accountState
+		grants     []string
+		unprompted []string
+		borrowed   string
+		suGroup    string
 	}
 
 	// passwordState is what the credential store says about an account.
@@ -85,24 +128,51 @@ const (
 	rootGID = 0
 )
 
-// accountRules are the rules judged per account. credentialRules are the
-// subset that needs the credential store to be readable.
+// The rules judged on each account, and those on administrative access, of
+// which each platform's reader names the ones it judges in privilegeRules.
+const (
+	ruleUIDZero         registry.FindingKey = "users.uid_zero_non_root"
+	ruleRootUnlocked    registry.FindingKey = "users.root_account_unlocked"
+	ruleEmptyPassword   registry.FindingKey = "users.empty_password_hash"
+	ruleNoPasswordShell registry.FindingKey = "users.no_password_login_shell"
+	ruleLoginShell      registry.FindingKey = "users.login_shell_present"
+
+	ruleAdminAccount   registry.FindingKey = "users.regular_user_admin_privileges"
+	ruleSudoUnprompted registry.FindingKey = "users.sudo_nopasswd"
+)
+
+// defaultAdminHeading titles the administrative accounts of a reader that
+// decides them by group.
+const defaultAdminHeading = "Administrative Users:"
+
+// grantDivider separates the entries sudo lists for one account in a fact.
+const grantDivider = "; "
+
+// accountRules are the rules judged per account whatever the reader could
+// see of administrative access. credentialRules are the subset that needs
+// the credential store to be readable.
 var (
 	accountRules = []registry.FindingKey{
-		"users.uid_zero_non_root",
-		"users.root_account_unlocked",
-		"users.empty_password_hash",
-		"users.no_password_login_shell",
-		"users.regular_user_admin_privileges",
-		"users.login_shell_present",
+		ruleUIDZero,
+		platformRules.rootUnlocked,
+		ruleEmptyPassword,
+		ruleNoPasswordShell,
+		ruleLoginShell,
+		platformRules.systemShell,
+		platformRules.nologinPassword,
 	}
 
 	credentialRules = []registry.FindingKey{
-		"users.root_account_unlocked",
-		"users.empty_password_hash",
-		"users.no_password_login_shell",
+		platformRules.rootUnlocked,
+		ruleEmptyPassword,
+		ruleNoPasswordShell,
+		platformRules.nologinPassword,
 	}
 )
+
+// nologinShell is the name of the shell that refuses a login, wherever the
+// platform installs it.
+const nologinShell = "nologin"
 
 // NewUserChecker returns the user account checker for Unix-like hosts.
 func NewUserChecker(osCtx registry.OSContext) *UnixUserChecker {
@@ -117,15 +187,17 @@ func NewUserChecker(osCtx registry.OSContext) *UnixUserChecker {
 func (u *UnixUserChecker) Check(ctx context.Context) finding.AuditResult {
 	r := newReport(u.checkIdentity)
 
-	u.checkAuthConfig(r)
+	u.checkDirectoryClients(ctx, r)
 
-	users, err := u.getUsers(ctx)
+	host, err := readHostAccounts(ctx)
 	if err != nil {
-		r.inconclusive(finding.ResultError, fmt.Sprintf("user accounts could not be read: %v", err), accountRules...)
+		reason := fmt.Sprintf("user accounts could not be read: %v", err)
+		r.inconclusive(finding.ResultError, reason, accountRules...)
+		r.inconclusive(finding.ResultError, reason, privilegeRules...)
 		return r.finish()
 	}
 
-	u.analyzeUsers(users, r)
+	analyzeUsers(host, r)
 	return r.finish()
 }
 
@@ -133,17 +205,20 @@ func (u *UnixUserChecker) Check(ctx context.Context) finding.AuditResult {
 // tripped. A rule the reader could not see enough to judge is an error
 // rather than a pass: an unreadable credential store proves nothing about
 // the credentials in it.
-func (u *UnixUserChecker) analyzeUsers(users []userAccount, r *report) {
+func analyzeUsers(host hostAccounts, r *report) {
 	var (
 		regularUsers    []string
 		adminUsers      []string
 		suspiciousUsers []string
 	)
 
-	for _, user := range users {
+	for _, user := range host.accounts {
 		details := fmt.Sprintf("%s (UID: %d, Shell: %s)", user.username, user.uid, user.shell)
 		if user.state == accountDisabled {
 			details += " (disabled)"
+		}
+		if user.borrowed != "" {
+			details += fmt.Sprintf(" (sudo asks for another account's password: %s)", user.borrowed)
 		}
 
 		switch {
@@ -158,24 +233,41 @@ func (u *UnixUserChecker) analyzeUsers(users []userAccount, r *report) {
 		judgeAccount(user, r)
 	}
 
-	if !u.shadowReadable {
-		r.inconclusive(finding.ResultError,
-			"/etc/shadow is not readable without elevated privileges", credentialRules...)
+	if host.credentialsUnread != "" {
+		r.inconclusive(finding.ResultError, host.credentialsUnread, credentialRules...)
 	}
-	if u.adminLookupErr != nil {
-		r.inconclusive(finding.ResultError,
-			fmt.Sprintf("privileged group membership could not be determined: %v", u.adminLookupErr),
-			"users.regular_user_admin_privileges")
+	for _, seen := range host.hostwide {
+		r.observed(seen.rule, seen.evidence)
 	}
 	r.pass(accountRules...)
+	concludePrivilege(host.unjudged, r)
 
-	for _, warning := range u.readWarnings {
+	for _, warning := range host.warnings {
 		r.note(finding.SymbolWarning, "%s", warning)
 	}
 
-	appendAccountSection(r, "Administrative Users:", finding.SymbolWarning, adminUsers)
+	appendAccountSection(r, cmp.Or(host.adminHeading, defaultAdminHeading), finding.SymbolWarning, adminUsers)
 	appendAccountSection(r, "Regular Users:", finding.SymbolOK, regularUsers)
 	appendAccountSection(r, "Suspicious Users:", finding.SymbolWarning, suspiciousUsers)
+}
+
+// concludePrivilege concludes the rules on administrative access no account
+// tripped. A rule the reader could not judge takes the reader's result, which
+// pass must not follow: pass outranks a rule that does not apply.
+func concludePrivilege(gaps []unjudged, r *report) {
+	var undecided []registry.FindingKey
+	for _, gap := range gaps {
+		for _, key := range gap.rules {
+			r.record(key, finding.Condition{Key: string(key), Result: gap.result, Reason: gap.reason, Evidence: gap.evidence})
+		}
+		undecided = append(undecided, gap.rules...)
+	}
+
+	for _, key := range privilegeRules {
+		if !slices.Contains(undecided, key) {
+			r.pass(key)
+		}
+	}
 }
 
 // judgeAccount records the rules a single account trips. UID 0 is judged
@@ -186,11 +278,10 @@ func (u *UnixUserChecker) analyzeUsers(users []userAccount, r *report) {
 // other account, which is what passwd -S reports without the subprocess or
 // the privilege it demands.
 func judgeAccount(user userAccount, r *report) {
-	account := evidence(kindAccount, user.username,
-		"uid", strconv.FormatUint(uint64(user.uid), decimalBase), "shell", user.shell)
+	account := accountEvidence(user)
 
 	if user.uid == rootUID && user.username != "root" {
-		r.observed("users.uid_zero_non_root", account)
+		r.observed(ruleUIDZero, account)
 	}
 
 	if user.state == accountDisabled {
@@ -198,31 +289,57 @@ func judgeAccount(user userAccount, r *report) {
 	}
 
 	if user.username == "root" && user.password == passwordSet {
-		r.observed("users.root_account_unlocked", account)
+		r.observed(platformRules.rootUnlocked, account)
 	}
 
 	// An empty credential field admits anyone who reaches a login prompt
 	// or su for the account. An interactive shell turns that into a
 	// session and is reported on top.
 	if user.password == passwordEmpty {
-		r.observed("users.empty_password_hash", account)
+		r.observed(ruleEmptyPassword, account)
 		if isInteractiveShell(user.shell) {
-			r.observed("users.no_password_login_shell", account)
+			r.observed(ruleNoPasswordShell, account)
 		}
 	}
 
 	if user.isAdmin && !user.isSystem {
-		r.observed("users.regular_user_admin_privileges", account)
+		r.observed(ruleAdminAccount, accountEvidence(user, fact(finding.FactGrant, strings.Join(user.grants, grantDivider))))
+	}
+	if len(user.unprompted) > 0 {
+		r.observed(ruleSudoUnprompted, accountEvidence(user, fact(finding.FactGrant, strings.Join(user.unprompted, grantDivider))))
 	}
 
-	if isInteractiveShell(user.shell) && !user.isSystem {
-		r.observed("users.login_shell_present", account)
+	if user.suGroup != "" && !user.isSystem {
+		r.observed(platformRules.suMember, accountEvidence(user, fact(finding.FactGroup, user.suGroup)))
 	}
+
+	switch interactive := isInteractiveShell(user.shell); {
+	case interactive && !user.isSystem:
+		r.observed(ruleLoginShell, account)
+	case interactive && !slices.Contains(platformRules.shellExempt, user.username):
+		r.observed(platformRules.systemShell, account)
+	}
+
+	// A shell that refuses a login does not stop a service that asks only
+	// for the password, so a usable one is reported beside it.
+	usable := user.password == passwordSet || user.password == passwordEmpty
+	if usable && strings.HasSuffix(user.shell, nologinShell) {
+		r.observed(platformRules.nologinPassword, account)
+	}
+}
+
+// accountEvidence is the evidence of one account: its identifier and shell,
+// then what else was observed of it.
+func accountEvidence(user userAccount, facts ...finding.Fact) finding.Evidence {
+	return evidence(finding.KindAccount, user.username, append([]finding.Fact{
+		fact(finding.FactUID, formatUnixID(user.uid)),
+		fact(finding.FactShell, user.shell),
+	}, facts...)...)
 }
 
 // appendAccountSection narrates a titled list of accounts, each carrying
 // symbol, and nothing at all when entries is empty.
-func appendAccountSection(r *report, title string, symbol string, entries []string) {
+func appendAccountSection(r *report, title, symbol string, entries []string) {
 	if len(entries) == 0 {
 		return
 	}
@@ -230,111 +347,6 @@ func appendAccountSection(r *report, title string, symbol string, entries []stri
 	r.section(title)
 	for _, entry := range entries {
 		r.note(symbol, "%s", entry)
-	}
-}
-
-// checkAuthConfig reports the authentication sources configured on the host:
-// the PAM modules referenced under /etc/pam.d and the network directories
-// whose configuration files are present. A file whose presence cannot be
-// determined is concluded as an error, because the directory holding
-// sssd.conf is unreadable to an unprivileged caller and a stat failure there
-// is not evidence of absence.
-func (u *UnixUserChecker) checkAuthConfig(r *report) {
-	u.reportPAMModules(r)
-
-	sources := []struct {
-		path  string
-		label string
-		key   registry.FindingKey
-	}{
-		{"/etc/ldap.conf", "LDAP", "users.ldap_configured"},
-		{"/etc/krb5.conf", "Kerberos", "users.kerberos_configured"},
-		{"/etc/sssd/sssd.conf", "SSSD", "users.sssd_configured"},
-	}
-
-	for _, source := range sources {
-		_, err := os.Stat(source.path)
-		switch {
-		case err == nil:
-			r.observed(source.key, evidence(kindFile, source.path, "source", source.label))
-		case errors.Is(err, fs.ErrNotExist):
-			r.pass(source.key)
-		default:
-			r.inconclusive(finding.ResultError,
-				fmt.Sprintf("%s configuration could not be checked: %v", source.label, err), source.key)
-		}
-	}
-}
-
-// reportPAMModules narrates which of the well-known authentication modules
-// /etc/pam.d references. The tree is read once and every file is inspected,
-// with unreadable files counted and reported so that reduced coverage is
-// visible rather than read as absence. The walk is scoped through os.DirFS
-// so a symlink under /etc/pam.d cannot lead it elsewhere (CWE-367).
-func (u *UnixUserChecker) reportPAMModules(r *report) {
-	modules := []string{"pam_unix.so", "pam_ldap.so", "pam_sss.so"}
-	found := make(map[string]bool, len(modules))
-	for _, module := range modules {
-		found[module] = false
-	}
-
-	pamFS := os.DirFS("/etc/pam.d")
-	var unreadable int
-	err := fs.WalkDir(pamFS, ".", func(name string, d fs.DirEntry, err error) error {
-		if err != nil {
-			if name == "." {
-				return err
-			}
-			unreadable++
-			return nil
-		}
-		if d.IsDir() {
-			return nil
-		}
-
-		data, err := fs.ReadFile(pamFS, name)
-		if err != nil {
-			unreadable++
-			return nil
-		}
-		markPAMModules(data, found)
-		return nil
-	})
-
-	switch {
-	case errors.Is(err, fs.ErrNotExist):
-		return
-	case err != nil:
-		r.note(finding.SymbolWarning, "PAM configuration could not be checked: %v", err)
-		return
-	}
-
-	r.note(finding.SymbolInfo, "PAM authentication is configured")
-	for _, module := range modules {
-		if found[module] {
-			r.note(finding.SymbolInfo, "Found authentication module: %s", module)
-		}
-	}
-	if unreadable > 0 {
-		r.note(finding.SymbolWarning, "%d PAM configuration files could not be read; module detection is incomplete", unreadable)
-	}
-}
-
-// markPAMModules sets found[module] for every module a PAM configuration
-// file references. Only active directives count: a commented-out line is
-// not a reference, and a module may be named by bare file name or by path.
-func markPAMModules(data []byte, found map[string]bool) {
-	for _, line := range strings.Split(string(data), "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" || line[0] == '#' {
-			continue
-		}
-		for _, field := range strings.Fields(line) {
-			module := path.Base(field)
-			if _, tracked := found[module]; tracked {
-				found[module] = true
-			}
-		}
 	}
 }
 
@@ -352,7 +364,7 @@ func isSuspiciousUser(user userAccount) bool {
 // analyst decides whether the assignment is intentional.
 func isInteractiveShell(shell string) bool {
 	nonInteractive := []string{
-		"nologin",
+		nologinShell,
 		"/bin/false",
 		"/usr/bin/false",
 		"/bin/sync",

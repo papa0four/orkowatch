@@ -11,7 +11,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -89,6 +88,12 @@ type (
 		denied  *deniedJudge
 	}
 
+	// pathLocation names the kind of place everything beneath prefix is.
+	pathLocation struct {
+		prefix   string
+		location string
+	}
+
 	// reachability is whether a principal other than root can traverse to an
 	// entry. The zero value is reachNonRoot so an entry the walk failed to
 	// judge is over-reported rather than quietly excused. Values are ordered
@@ -120,11 +125,9 @@ const (
 	bitGroupExecute  os.FileMode = 0010
 	bitOtherExecute  os.FileMode = 0001
 
-	// Account databases consulted before the name service, and the
-	// colon-delimited field holding each numeric identifier.
+	// Account databases consulted before the name service.
 	unixPasswdFile = "/etc/passwd"
 	unixGroupFile  = "/etc/group"
-	unixIDField    = 2
 
 	identityKindUser  identityKind = "user"
 	identityKindGroup identityKind = "group"
@@ -153,6 +156,31 @@ const (
 	// group has no other member.
 	reachRootOnly
 )
+
+// pathLocations are the places a scanned entry is recorded as lying in. A
+// writable file means something different in a temporary directory every user
+// writes to than in a directory that belongs to the system. The common
+// entries are the locations the Filesystem Hierarchy Standard gives to
+// temporary files and to user home directories; a platform adds its own in
+// platformLocations, and where a platform's own have not been verified it
+// adds none, so an entry there is left unclassified rather than misclassified.
+var pathLocations = append([]pathLocation{
+	{"/tmp", finding.LocationTemporary},
+	{"/var/tmp", finding.LocationTemporary},
+	{"/home", finding.LocationHome},
+	{"/root", finding.LocationHome},
+}, platformLocations()...)
+
+// locationOf returns the kind of place path lies in, or empty when it lies in
+// none of pathLocations.
+func locationOf(path string) string {
+	for _, place := range pathLocations {
+		if pathWithin(path, place.prefix) {
+			return place.location
+		}
+	}
+	return ""
+}
 
 // The rules this check concludes: two judged on the critical paths, three on
 // every entry the traversal visits.
@@ -364,10 +392,10 @@ func checkCriticalPath(cp criticalPath, r *report) {
 	mode := info.Mode()
 	modeOK := mode.Perm()&^cp.expected == 0
 	if !modeOK {
-		r.observed(ruleExcessMode, evidence(kindFile, cp.path,
-			"description", cp.description,
-			"mode", formatMode(mode),
-			"expected", formatMode(cp.expected)))
+		r.observed(ruleExcessMode, evidence(finding.KindFile, cp.path,
+			fact(finding.FactDescription, cp.description),
+			fact(finding.FactMode, formatMode(mode)),
+			fact(finding.FactExpected, formatMode(cp.expected))))
 	}
 
 	uid, _, _, ok := fileIdentity(info)
@@ -375,10 +403,10 @@ func checkCriticalPath(cp criticalPath, r *report) {
 	case !ok:
 		r.inconclusive(finding.ResultError, cp.path+" ownership could not be determined", ruleNotRootOwned)
 	case uid != rootUID:
-		r.observed(ruleNotRootOwned, evidence(kindFile, cp.path,
-			"description", cp.description,
-			"uid", strconv.FormatUint(uint64(uid), decimalBase),
-			"expected", "root"))
+		r.observed(ruleNotRootOwned, evidence(finding.KindFile, cp.path,
+			fact(finding.FactDescription, cp.description),
+			fact(finding.FactUID, formatUnixID(uid)),
+			fact(finding.FactExpected, "root")))
 	case modeOK:
 		r.note(finding.SymbolOK, "%s has correct permissions and ownership: %s root", cp.path, formatMode(mode))
 	}
@@ -568,11 +596,11 @@ func traversableByNonRoot(mode fs.FileMode, uid, gid uint32) bool {
 func (r reachability) label() string {
 	switch r {
 	case reachRootOnly:
-		return "root-only"
+		return finding.ReachRootOnly
 	case reachUndetermined:
-		return "undetermined"
+		return finding.ReachUndetermined
 	case reachUnsupported:
-		return "not evaluated on this platform"
+		return finding.ReachUnsupported
 	default:
 		return ""
 	}
@@ -592,12 +620,13 @@ func fileIdentity(info fs.FileInfo) (uid, gid uint32, dev uint64, ok bool) {
 // stay numeric deliberately: when one of them failed to resolve it is the
 // value that failed, and a name would be misleading.
 func (e scanEntry) evidence() finding.Evidence {
-	return evidence(kindFile, e.path,
-		"mode", formatMode(e.mode),
-		"uid", strconv.FormatUint(uint64(e.uid), decimalBase),
-		"gid", strconv.FormatUint(uint64(e.gid), decimalBase),
-		"unresolved", e.unresolved(),
-		"reach", e.reach.label())
+	return evidence(finding.KindFile, e.path,
+		fact(finding.FactMode, formatMode(e.mode)),
+		fact(finding.FactUID, formatUnixID(e.uid)),
+		fact(finding.FactGID, formatUnixID(e.gid)),
+		fact(finding.FactUnresolved, e.unresolved()),
+		fact(finding.FactReach, e.reach.label()),
+		fact(finding.FactLocation, locationOf(e.path)))
 }
 
 // unresolved names which identifiers the name service could not account for,
@@ -617,54 +646,6 @@ func (e scanEntry) unresolved() string {
 	default:
 		return ""
 	}
-}
-
-// formatMode renders mode the way ls does: a type character followed by nine
-// permission characters, with the setuid, setgid and sticky bits shown in the
-// execute position of their triad and capitalized when execute is not set.
-// Go's own FileMode.String prefixes those bits instead, rendering a setuid
-// binary as "urwxr-xr-x" where an operator reading a security report expects
-// "-rwsr-xr-x".
-func formatMode(mode fs.FileMode) string {
-	out := []byte("----------")
-
-	switch {
-	case mode&fs.ModeDir != 0:
-		out[0] = 'd'
-	case mode&fs.ModeSymlink != 0:
-		out[0] = 'l'
-	}
-
-	const permChars = "rwxrwxrwx"
-	perm := mode.Perm()
-	for i := range permChars {
-		if perm&(1<<(len(permChars)-1-i)) != 0 {
-			out[i+1] = permChars[i]
-		}
-	}
-
-	special := []struct {
-		pos   int
-		bit   fs.FileMode
-		withX byte
-		noX   byte
-	}{
-		{3, fs.ModeSetuid, 's', 'S'},
-		{6, fs.ModeSetgid, 's', 'S'},
-		{9, fs.ModeSticky, 't', 'T'},
-	}
-	for _, sp := range special {
-		if mode&sp.bit == 0 {
-			continue
-		}
-		if out[sp.pos] == 'x' {
-			out[sp.pos] = sp.withX
-			continue
-		}
-		out[sp.pos] = sp.noX
-	}
-
-	return string(out)
 }
 
 // reportScan concludes the three traversal rules. A category with entries

@@ -117,6 +117,7 @@ type (
 		Weakness    *Weakness
 		NoWeakness  string
 		CVSS        *CVSSScore
+		Host        *HostScore
 		Categories  []string
 		Impact      string
 		Resolution  string
@@ -136,14 +137,14 @@ type (
 
 	// CVSSScore is one CVSS score with what it states about itself: the
 	// version, the vector it came from, whose it is, and which FIRST
-	// nomenclature label applies to it (CVSS-B for a base score). Basis says what
-	// the score is a statement about, so a baseline for a condition is not
-	// mistaken for a measurement of one host. The registry's score is one;
-	// the per-CVE scores the enrichment sources supply are others.
+	// nomenclature label applies to it (CVSS-B for a base score, CVSS-BE for
+	// one modified by the host's evidence). Basis says what the score is a
+	// statement about, so a baseline for a condition is not mistaken for a
+	// measurement of one host.
 	CVSSScore struct {
 		Version      string  `json:"version" yaml:"version"`
 		Vector       string  `json:"vector" yaml:"vector"`
-		BaseScore    float64 `json:"base_score" yaml:"base_score"`
+		Score        float64 `json:"score" yaml:"score"`
 		Severity     string  `json:"severity" yaml:"severity"`
 		Source       string  `json:"source" yaml:"source"`
 		Nomenclature string  `json:"nomenclature" yaml:"nomenclature"`
@@ -152,6 +153,41 @@ type (
 		// CalculatorURL opens FIRST's calculator on the vector, so a reader can
 		// reproduce the score there. It is a link and owatch does not follow it.
 		CalculatorURL string `json:"calculator_url,omitempty" yaml:"calculator_url,omitempty"`
+	}
+
+	// HostScore is how a finding scores on the host it was raised on. Every
+	// rule of its definition is accounted for: Modified holds the metrics the
+	// evidence set, and Unmodified each metric it left at the baseline's
+	// value, with why. CVSS is the CVSS-BE score, nil when no rule set a
+	// metric, because a score is labelled with E only when an Environmental
+	// metric was used to compute it; the baseline then stands.
+	HostScore struct {
+		CVSS       *CVSSScore         `json:"cvss,omitempty" yaml:"cvss,omitempty"`
+		Modified   []ModifiedMetric   `json:"modified,omitempty" yaml:"modified,omitempty"`
+		Unmodified []UnmodifiedMetric `json:"unmodified,omitempty" yaml:"unmodified,omitempty"`
+	}
+
+	// ModifiedMetric is a Modified Base metric a registry rule derived from a
+	// fact a checker recorded on the host, with the passage of FIRST's
+	// Implementation Guide the rule rests on. Carried is how many of the
+	// rule's Subjects recorded the fact with this value.
+	ModifiedMetric struct {
+		Metric   string `json:"metric" yaml:"metric"`
+		Value    string `json:"value" yaml:"value"`
+		Fact     Fact   `json:"fact" yaml:"fact"`
+		Because  string `json:"because" yaml:"because"`
+		Section  string `json:"guide_section" yaml:"guide_section"`
+		Quote    string `json:"guide_quote" yaml:"guide_quote"`
+		Carried  int    `json:"subjects_carrying" yaml:"subjects_carrying"`
+		Subjects int    `json:"subjects" yaml:"subjects"`
+	}
+
+	// UnmodifiedMetric is a Modified Base metric a rule could have set and
+	// did not on this host, with the reason, so the baseline's value is traced
+	// to what was observed.
+	UnmodifiedMetric struct {
+		Metric string `json:"metric" yaml:"metric"`
+		Reason string `json:"reason" yaml:"reason"`
 	}
 
 	// Technique is a MITRE ATT&CK technique an adversary can use because of
@@ -180,15 +216,15 @@ type (
 	// Facts are the observations in the order the checker recorded them.
 	// One shape serves every checker.
 	Evidence struct {
-		Kind    string `json:"kind" yaml:"kind"`
-		Subject string `json:"subject" yaml:"subject"`
-		Facts   []Fact `json:"facts,omitempty" yaml:"facts,omitempty"`
+		Kind    EvidenceKind `json:"kind" yaml:"kind"`
+		Subject string       `json:"subject" yaml:"subject"`
+		Facts   []Fact       `json:"facts,omitempty" yaml:"facts,omitempty"`
 	}
 
 	// Fact is one named observation about an evidence subject.
 	Fact struct {
-		Name  string `json:"name" yaml:"name"`
-		Value string `json:"value" yaml:"value"`
+		Name  FactName `json:"name" yaml:"name"`
+		Value string   `json:"value" yaml:"value"`
 	}
 
 	// Reference provides additional information about a finding
@@ -310,13 +346,15 @@ func MeetsMinSeverity(findingSeverity, min string) bool {
 	return fl >= ml
 }
 
-// EffectiveSeverity returns the severity value used for filtering and
-// display. It currently always returns the finding's static registry-
-// assigned severity. Once per-finding CVE/CVSS enrichment lands, this is
-// the single point where a live CVSS-derived severity would override the
-// static value. Callers should go through this rather than reading
-// finding.Severity directly, so severity sourcing only has to change here.
+// EffectiveSeverity returns the severity used for filtering, counting and
+// display: the host score's when the host's evidence modified the finding's
+// score, and the registry's baseline otherwise. Callers go through it rather
+// than reading Severity, so a finding is never filtered by one severity and
+// shown with another.
 func EffectiveSeverity(f Finding) string {
+	if f.Host != nil && f.Host.CVSS != nil {
+		return f.Host.CVSS.Severity
+	}
 	return f.Severity
 }
 

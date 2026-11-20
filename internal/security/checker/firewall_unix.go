@@ -15,9 +15,12 @@ import (
 )
 
 type (
-	// UnixFirewallChecker implements FirewallChecker for Unix-like systems
+	// UnixFirewallChecker implements FirewallChecker for Unix-like systems.
+	// listeners returns the host's sockets, from which where the host
+	// listens is recorded.
 	UnixFirewallChecker struct {
 		checkIdentity
+		listeners ListenersFunc
 	}
 
 	// firewallState is what a manager reported about its own enforcement.
@@ -75,12 +78,15 @@ const (
 )
 
 // NewFirewallChecker returns the firewall checker for Unix-like hosts.
-func NewFirewallChecker(osCtx registry.OSContext) *UnixFirewallChecker {
-	return &UnixFirewallChecker{checkIdentity: checkIdentity{
-		domain:   "Firewall Configuration",
-		analyzes: "firewall configuration and rules",
-		osCtx:    osCtx,
-	}}
+func NewFirewallChecker(osCtx registry.OSContext, listeners ListenersFunc) *UnixFirewallChecker {
+	return &UnixFirewallChecker{
+		checkIdentity: checkIdentity{
+			domain:   "Firewall Configuration",
+			analyzes: "firewall configuration and rules",
+			osCtx:    osCtx,
+		},
+		listeners: listeners,
+	}
 }
 
 // unixFirewallTools lists the managers the check recognizes. nftables is not
@@ -138,13 +144,14 @@ func (f *UnixFirewallChecker) Check(ctx context.Context) finding.AuditResult {
 	r := newReport(f.checkIdentity)
 	enforcing := make(map[firewallBackend]struct{})
 	var undetermined toolOutcome
+	reach := hostListening(r, f.listeners(ctx))
 
 	for _, tool := range unixFirewallTools() {
 		if _, err := exec.LookPath(tool.stateArgs[0]); err != nil {
 			r.inconclusive(finding.ResultNotApplicable, tool.name+" is not installed", tool.disabledKey)
 			continue
 		}
-		outcome := f.reportTool(ctx, tool, r)
+		outcome := f.reportTool(ctx, tool, reach, r)
 		switch {
 		case outcome.state == firewallEnforcing:
 			enforcing[tool.backend] = struct{}{}
@@ -164,7 +171,7 @@ func (f *UnixFirewallChecker) Check(ctx context.Context) finding.AuditResult {
 		r.inconclusive(undetermined.result,
 			undetermined.reason+"; rerun with elevated privileges for a definitive result", hostRule)
 	default:
-		r.observed(hostRule)
+		r.observed(hostRule, reach)
 	}
 
 	return r.finish()
@@ -173,8 +180,9 @@ func (f *UnixFirewallChecker) Check(ctx context.Context) finding.AuditResult {
 // reportTool queries one manager and concludes its rule, returning what it
 // learned so the caller can judge the host as a whole. A failed query is an
 // error and unrecognized output is unknown: the first could not look, the
-// second looked and could not tell.
-func (f *UnixFirewallChecker) reportTool(ctx context.Context, tool firewallTool, r *report) toolOutcome {
+// second looked and could not tell. A manager not enforcing is recorded with
+// reach, where the host listens.
+func (f *UnixFirewallChecker) reportTool(ctx context.Context, tool firewallTool, reach finding.Evidence, r *report) toolOutcome {
 	output, err := exec.CommandContext(ctx, tool.stateArgs[0], tool.stateArgs[1:]...).Output() // #nosec G204 -- command and arguments are hardcoded literals in unixFirewallTools
 	if err != nil {
 		outcome := toolOutcome{
@@ -196,7 +204,7 @@ func (f *UnixFirewallChecker) reportTool(ctx context.Context, tool firewallTool,
 			r.note(finding.SymbolWarning, "%s is installed but not enforcing", tool.name)
 			return toolOutcome{state: state}
 		}
-		r.observed(tool.disabledKey, evidence(kindManager, tool.name, "state", "installed, not enforcing"))
+		r.observed(tool.disabledKey, evidence(finding.KindManager, tool.name, fact(finding.FactState, "installed, not enforcing")), reach)
 		return toolOutcome{state: state}
 	default:
 		outcome := toolOutcome{

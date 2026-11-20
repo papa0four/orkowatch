@@ -6,7 +6,8 @@
 # internal/notices/THIRD_PARTY_NOTICES.md, is embedded in the binary, and is
 # printed by owatch notices.
 #
-# Each entry was read from its page on attack.mitre.org on 2026-11-15, where
+# Each entry was read from its page on attack.mitre.org on 2026-11-15, and
+# T1040, T1552.001 and T1557 with M1030 and M1031 on 2026-11-19, where
 # the site's current release is ATT&CK v20.1 (13 October 2026). The id, name
 # and tactics of a technique, and the mitigations its page lists, are as the
 # page gives them; the name of each mitigation was cross-checked against the
@@ -34,6 +35,8 @@ mitigations:
   M1026: "Privileged Account Management"
   M1027: "Password Policies"
   M1028: "Operating System Configuration"
+  M1030: "Network Segmentation"
+  M1031: "Network Intrusion Prevention"
   M1032: "Multi-factor Authentication"
   M1035: "Limit Access to Resource Over Network"
   M1036: "Account Use Policies"
@@ -41,7 +44,6 @@ mitigations:
   M1038: "Execution Prevention"
   M1041: "Encrypt Sensitive Information"
   M1042: "Disable or Remove Feature or Program"
-  M1043: "Credential Access Protection"
   M1047: "Audit"
   M1051: "Update Software"
   M1052: "User Account Control"
@@ -64,6 +66,10 @@ techniques:
     name: "SSH"
     tactics: ["Lateral Movement"]
     mitigations: ["M1042", "M1032", "M1018"]
+  T1040:
+    name: "Network Sniffing"
+    tactics: ["Credential Access", "Discovery"]
+    mitigations: ["M1041", "M1032", "M1030", "M1018"]
   T1078.003:
     name: "Local Accounts"
     tactics: ["Stealth", "Persistence", "Privilege Escalation", "Initial Access"]
@@ -88,14 +94,18 @@ techniques:
     name: "Sudo and Sudo Caching"
     tactics: ["Privilege Escalation"]
     mitigations: ["M1028", "M1026", "M1022"]
+  T1552.001:
+    name: "Credentials In Files"
+    tactics: ["Credential Access"]
+    mitigations: ["M1047", "M1027", "M1022", "M1017"]
   T1552.004:
     name: "Private Keys"
     tactics: ["Credential Access"]
     mitigations: ["M1047", "M1041", "M1027", "M1022"]
-  T1558.005:
-    name: "Ccache Files"
-    tactics: ["Credential Access"]
-    mitigations: ["M1043", "M1047"]
+  T1557:
+    name: "Adversary-in-the-Middle"
+    tactics: ["Credential Access", "Collection"]
+    mitigations: ["M1042", "M1041", "M1037", "M1035", "M1031", "M1030", "M1017"]
   T1574.005:
     name: "Executable Installer File Permissions Weakness"
     tactics: ["Stealth", "Execution"]

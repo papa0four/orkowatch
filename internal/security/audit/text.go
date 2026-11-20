@@ -58,9 +58,10 @@ func WriteViewText(w io.Writer, v View) error {
 
 // writeCheck renders one check: its header, then for a check that ran, its
 // duration, findings, the remaining conditions and its narration. A check
-// that was not selected ends after the header because it produced nothing
-// else. Result values are shown in upper case here; the canonical lowercase
-// spelling belongs to the structured encodings.
+// that did not run, not selected or with no definitions on the platform, ends
+// after the header because it produced nothing else. Result values are shown
+// in upper case here; the canonical lowercase spelling belongs to the
+// structured encodings.
 func writeCheck(ew *render.ErrWriter, check CheckView, minSeverity string) error {
 	ew.Printf("Check: %s\n", check.Name)
 	ew.Printf("Result: %s\n", strings.ToUpper(string(check.Result)))
@@ -70,7 +71,7 @@ func writeCheck(ew *render.ErrWriter, check CheckView, minSeverity string) error
 	if check.Description != "" {
 		ew.Printf("Description: %s\n", check.Description)
 	}
-	if check.Result == finding.ResultNotSelected {
+	if check.Duration == "" {
 		ew.Printf("\n")
 		return ew.Err()
 	}
@@ -158,8 +159,8 @@ func writeFinding(ew *render.ErrWriter, condition ConditionView) error {
 }
 
 // writeWeaknessAndCVSS writes the lines that say what kind of weakness a
-// finding is and how its condition is scored: the weakness, or why none fits,
-// the score with its label, and the link that opens FIRST's calculator on it.
+// finding is and how it is scored: the weakness, or why none fits, the
+// registry's baseline, and the score on this host with what it rests on.
 func writeWeaknessAndCVSS(ew *render.ErrWriter, def *FindingView) {
 	if def.Weakness != nil {
 		ew.Printf("  Weakness: %s\n", WeaknessText(*def.Weakness))
@@ -169,9 +170,16 @@ func writeWeaknessAndCVSS(ew *render.ErrWriter, def *FindingView) {
 	if def.CVSS == nil {
 		return
 	}
-	ew.Printf("  CVSS: %s\n", CVSSText(*def.CVSS))
-	if def.CVSS.CalculatorURL != "" {
-		ew.Printf("  CVSS calculator: %s\n", def.CVSS.CalculatorURL)
+	writeScore(ew, "CVSS baseline", ScoreLines(*def.CVSS))
+	writeScore(ew, "CVSS on this host", HostScoreLines(def.Host))
+}
+
+// writeScore writes a score's first line after its label and the lines that
+// trace it indented beneath.
+func writeScore(ew *render.ErrWriter, label string, lines []string) {
+	ew.Printf("  %s: %s\n", label, lines[0])
+	for _, line := range lines[1:] {
+		ew.Printf("    %s\n", line)
 	}
 }
 
@@ -231,7 +239,58 @@ func WeaknessText(w finding.Weakness) string {
 // CVSSText renders a CVSS score with the label FIRST requires on a displayed
 // score, the version, the vector and what the score is a statement about.
 func CVSSText(s finding.CVSSScore) string {
-	return fmt.Sprintf("%.1f %s  %s v%s, %s  %s", s.BaseScore, s.Severity, s.Nomenclature, s.Version, s.Basis, s.Vector)
+	return fmt.Sprintf("%.1f %s  %s v%s, %s  %s", s.Score, s.Severity, s.Nomenclature, s.Version, s.Basis, s.Vector)
+}
+
+// ScoreLines renders a CVSS score as every view shows it: the labelled score,
+// then the link that opens FIRST's calculator on its vector.
+func ScoreLines(s finding.CVSSScore) []string {
+	lines := []string{CVSSText(s)}
+	if s.CalculatorURL != "" {
+		lines = append(lines, "calculator: "+s.CalculatorURL)
+	}
+	return lines
+}
+
+// HostScoreLines renders how a finding scores on the host it was raised on, so
+// every view states whether its score is the baseline or was modified by the
+// host's evidence. The first line is the CVSS-BE score, or why there is none;
+// the lines after it trace each Modified Base metric to the fact, the share of
+// subjects and the Implementation Guide passage behind it, and give each metric
+// left at the baseline with its reason. A nil h is a definition with no rule.
+func HostScoreLines(h *finding.HostScore) []string {
+	if h == nil {
+		return []string{"none; no rule of this finding reads the host, so the CVSS-B baseline is its only score"}
+	}
+	lines := []string{"none; the evidence recorded on this host modified no metric, so the CVSS-B baseline stands"}
+	if h.CVSS != nil {
+		lines = ScoreLines(*h.CVSS)
+	}
+	for _, m := range h.Modified {
+		lines = append(lines,
+			fmt.Sprintf("%s:%s from %s %s on %d of %d subjects: %s",
+				m.Metric, m.Value, m.Fact.Name, render.HostText(m.Fact.Value), m.Carried, m.Subjects, m.Because),
+			fmt.Sprintf("  Implementation Guide, %s: \"%s\"", m.Section, m.Quote))
+	}
+	for _, u := range h.Unmodified {
+		lines = append(lines, fmt.Sprintf("%s not modified: %s", u.Metric, render.HostText(u.Reason)))
+	}
+	return lines
+}
+
+// SeverityBasis says what a finding's severity rests on: the CVSS-BE score
+// when the host's evidence modified it, with the registry's rating beside it,
+// or else the registry's rating, which load holds to the band of the CVSS-B
+// baseline.
+func SeverityBasis(def *FindingView) string {
+	if def.Host == nil || def.Host.CVSS == nil {
+		return "the registry's rating for this rule"
+	}
+	basis := "the CVSS-BE severity on this host"
+	if def.CVSS != nil {
+		basis += "; the registry rates the rule " + strings.ToUpper(def.CVSS.Severity)
+	}
+	return basis
 }
 
 // TechniqueText renders an ATT&CK technique as its identifier, name and

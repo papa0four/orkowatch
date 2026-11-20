@@ -4,8 +4,8 @@
 // reference calculator implements it (https://github.com/FIRSTdotorg/cvss-v4-calculator,
 // Copyright (c) 2023 FIRST.ORG, Inc., Red Hat, and contributors, BSD 2-Clause;
 // the licence text is in internal/notices/THIRD_PARTY_NOTICES.md). Its consumers
-// are the registry's baselines and the per-host environmental score (#165), and
-// the v4.0 scores NVD publishes for a CVE (#90). A v4.0 score
+// are the registry's baselines, the environmental score computed for each host,
+// and the v4.0 scores NVD publishes for a CVE. A v4.0 score
 // is not the value of an equation: it is the score of the MacroVector a vector
 // belongs to, in FIRST's lookup table, less a distance the vector sits below
 // the highest severity vector in that MacroVector. The port keeps the
@@ -16,6 +16,7 @@ package v4
 
 import (
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 )
@@ -138,6 +139,52 @@ func CalculatorURL(vector string) string {
 
 // String returns the vector as it was given.
 func (v Vector) String() string { return v.text }
+
+// ModifiedBase returns, for a Modified Base metric, the Base metric it replaces
+// and the values the specification gives it, Not Defined first. ok is false for
+// any other name. The registry checks its environmental rules against this, so
+// the specification's values stay declared once, in metrics.
+func ModifiedBase(name string) (base string, values []string, ok bool) {
+	base, modified := strings.CutPrefix(name, "M")
+	if !modified {
+		return "", nil, false
+	}
+	for _, spec := range metrics[threatCount:environmentalCount] {
+		if spec.name == name {
+			return base, slices.Clone(spec.values), true
+		}
+	}
+	return "", nil, false
+}
+
+// Value returns the value v gives a metric, Not Defined for an optional metric
+// the vector omitted, and empty for a name the specification does not define.
+func (v Vector) Value(name string) string { return v.values[name] }
+
+// With returns v with one metric set to value, its string rebuilt in the order
+// the specification requires, so a caller deriving a vector never has to know
+// that order. The rebuilt string states every Base metric and each other metric
+// that is not Not Defined. A metric or value the specification does not give is
+// refused.
+func (v Vector) With(name, value string) (Vector, error) {
+	at := slices.IndexFunc(metrics, func(m metricSpec) bool { return m.name == name })
+	if at < 0 {
+		return Vector{}, fmt.Errorf("%q is not a CVSS v4.0 metric", name)
+	}
+	if !slices.Contains(metrics[at].values, value) {
+		return Vector{}, fmt.Errorf("metric %s does not take the value %q, which is not one of %s", name, value, strings.Join(metrics[at].values, ", "))
+	}
+	values := maps.Clone(v.values)
+	values[name] = value
+
+	parts := []string{prefix}
+	for i, spec := range metrics {
+		if i < baseCount || values[spec.name] != "X" {
+			parts = append(parts, spec.name+":"+values[spec.name])
+		}
+	}
+	return Vector{text: strings.Join(parts, "/"), values: values}, nil
+}
 
 // Nomenclature is the label FIRST requires on a displayed score so that it says
 // which metrics it was made from: CVSS-B for Base metrics, CVSS-BT with a Threat

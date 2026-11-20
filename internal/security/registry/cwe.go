@@ -5,6 +5,7 @@ package registry
 import (
 	"bytes"
 	_ "embed"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -36,10 +37,10 @@ type (
 		Description string   `yaml:"description"`
 	}
 
-	// weaknessRecord is a loaded entry. The parents are consumed by the
-	// enrichment adapters (#90), which reach the CVEs NVD files under a child of
-	// a finding's weakness through them; until then the registry checks that they
-	// form a hierarchy.
+	// weaknessRecord is a loaded entry. The parents are consumed by the NVD
+	// enrichment adapter, which reaches the CVEs NVD files under a child of a
+	// finding's weakness through them; until it exists the registry checks that
+	// they form a hierarchy.
 	weaknessRecord struct {
 		name        string
 		abstraction string
@@ -157,7 +158,7 @@ func (d FindingDefinition) validateWeakness() (FindingDefinition, error) {
 		return d, fmt.Errorf("names %s and also says no weakness applies", d.CWE)
 	case d.CWE == "" && reason == "":
 		if d.Result == finding.ResultFail {
-			return d, fmt.Errorf("names no weakness and does not say why none applies (cwe or no_weakness)")
+			return d, errors.New("names no weakness and does not say why none applies (cwe or no_weakness)")
 		}
 		return d, nil
 	case reason != "":
@@ -192,20 +193,35 @@ func (d FindingDefinition) weakness() *finding.Weakness {
 // cvssScore is the registry's CVSS value for d, labelled for what it is: a
 // base score for the condition in general, written by review and checked by
 // the registry against its vector, and not a measurement of the host the
-// finding was raised on. It is nil for a definition with no vector.
+// finding was raised on. Load has refused a definition whose vector does not
+// parse or whose score and severity disagree with it, so the score computed
+// here is the one the definition states. It is nil for a definition with no
+// usable vector.
 func (d FindingDefinition) cvssScore() *finding.CVSSScore {
-	if d.CVSSVector == "" {
+	vector, err := v4.Parse(d.CVSSVector)
+	if err != nil {
 		return nil
 	}
-	version, _, _ := strings.Cut(strings.TrimPrefix(d.CVSSVector, "CVSS:"), "/")
+	return labelledScore(vector, "registry", "baseline for the condition, not measured on this host")
+}
+
+// labelledScore is the score of vector with everything a displayed CVSS score
+// states about itself: the version, the FIRST nomenclature label, the severity
+// band, whose score it is, what it is a statement about, and the link that
+// opens FIRST's calculator on it. The baseline and the host score are both
+// built here, so the two cannot be labelled differently.
+func labelledScore(vector v4.Vector, source, basis string) *finding.CVSSScore {
+	text := vector.String()
+	version, _, _ := strings.Cut(strings.TrimPrefix(text, "CVSS:"), "/")
+	score := vector.Score()
 	return &finding.CVSSScore{
 		Version:       version,
-		Vector:        d.CVSSVector,
-		BaseScore:     d.CVSSScore,
-		Severity:      d.Severity,
-		Source:        "registry",
-		Nomenclature:  "CVSS-B",
-		Basis:         "baseline for the condition, not measured on this host",
-		CalculatorURL: v4.CalculatorURL(d.CVSSVector),
+		Vector:        text,
+		Score:         score,
+		Severity:      v4.Severity(score),
+		Source:        source,
+		Nomenclature:  vector.Nomenclature(),
+		Basis:         basis,
+		CalculatorURL: v4.CalculatorURL(text),
 	}
 }

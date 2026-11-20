@@ -375,10 +375,10 @@ func fraction(part, whole int) float64 {
 	return float64(part) / float64(whole)
 }
 
-// clock renders a duration as minutes and seconds.
+// clock renders a duration as minutes, seconds and milliseconds: most checks
+// finish within a second, which whole seconds show as no time at all.
 func clock(d time.Duration) string {
-	seconds := int(d.Seconds())
-	return fmt.Sprintf("%02d:%02d", seconds/60, seconds%60)
+	return fmt.Sprintf("%02d:%02d.%03d", d/time.Minute, d%time.Minute/time.Second, d%time.Second/time.Millisecond)
 }
 
 // truncate shortens text to width display cells so a long title cannot wrap

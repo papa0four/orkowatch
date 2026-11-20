@@ -8,6 +8,7 @@ package audit
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"runtime"
 	"strings"
@@ -19,6 +20,7 @@ import (
 	"github.com/papa0four/orkowatch/internal/security/enrichment"
 	"github.com/papa0four/orkowatch/internal/security/finding"
 	"github.com/papa0four/orkowatch/internal/security/registry"
+	"github.com/papa0four/orkowatch/internal/sockets"
 )
 
 type (
@@ -45,6 +47,19 @@ type (
 		MinSeverity   string
 		Enrich        bool
 		HostInfo      *osfingerprint.OSInfo
+
+		// Sockets are the host's sockets, from which the SSH and firewall
+		// checks record how far a service can be reached. Nil means the
+		// audit reads them itself, once, when a check first needs them.
+		Sockets *sockets.View
+	}
+
+	// listenerSource reads the host's sockets for the checks once, unless the
+	// caller supplied them.
+	listenerSource struct {
+		once     sync.Once
+		supplied *sockets.View
+		read     checker.Listeners
 	}
 
 	// Result represents the complete audit results. IncompleteChecks names,
@@ -133,14 +148,34 @@ func NewSecurityAuditor(opts Options) *SecurityAuditor {
 		auditor.observer = noObserver{}
 	}
 
-	auditor.sshChecker = checker.NewSSHChecker(osCtx)
-	auditor.firewallChecker = checker.NewFirewallChecker(osCtx)
+	listeners := &listenerSource{supplied: opts.Sockets}
+	auditor.sshChecker = checker.NewSSHChecker(osCtx, listeners.get)
+	auditor.firewallChecker = checker.NewFirewallChecker(osCtx, listeners.get)
 	auditor.userChecker = checker.NewUserChecker(osCtx)
 	auditor.permissionChecker = checker.NewPermissionChecker(osCtx, opts.FilePermsPath, func(scanned int) {
 		auditor.observer.CheckProgress(permissionsCheck, scanned)
 	})
 
 	return auditor
+}
+
+// get returns the sockets the caller supplied, or reads them on the first call
+// and returns what that read on every later one. A read that fails, including
+// on a platform whose sockets are not read, is returned as the reason.
+func (l *listenerSource) get(ctx context.Context) checker.Listeners {
+	l.once.Do(func() {
+		if l.supplied != nil {
+			l.read = checker.Listeners{View: l.supplied}
+			return
+		}
+		view, err := sockets.Read(ctx)
+		if err != nil {
+			l.read = checker.Listeners{Unread: err.Error()}
+			return
+		}
+		l.read = checker.Listeners{View: &view}
+	})
+	return l.read
 }
 
 func (noObserver) CheckStarted(string) {}
@@ -163,7 +198,8 @@ func maxConcurrentChecks() int {
 
 // RunAudit executes the enabled checks concurrently, writing each result to
 // its check's canonical index so output order is independent of completion
-// order. A skipped check occupies its index with a notselected result.
+// order. A skipped check occupies its index with a notselected result, and
+// one the platform defines no finding for with notchecked.
 // ctx bounds the entire run -- checks and enrichment share its deadline --
 // and cancellation propagates into checker exec and filesystem work.
 func (sa *SecurityAuditor) RunAudit(ctx context.Context) (*Result, error) {
@@ -198,7 +234,12 @@ func (sa *SecurityAuditor) RunAudit(ctx context.Context) (*Result, error) {
 
 	for i, r := range runners {
 		if !enabled[r.name] {
-			result.Results[i] = skippedResult(r)
+			result.Results[i] = unrunResult(r, finding.ResultNotSelected, "excluded by --skip-checks")
+			continue
+		}
+		if !registry.Defines(sa.osContext, r.name) {
+			result.Results[i] = unrunResult(r, finding.ResultNotChecked,
+				fmt.Sprintf("no finding definitions for the %s check on %s", r.name, sa.osContext.DisplayLabel()))
 			continue
 		}
 		sa.observer.CheckStarted(r.name)
@@ -280,20 +321,23 @@ func enabledSet(runners []checkRunner, checks []string) (map[string]bool, error)
 		enabled[name] = true
 	}
 	if len(enabled) == 0 {
-		return nil, fmt.Errorf("all available checks were skipped; at least one must run")
+		return nil, errors.New("all available checks were skipped; at least one must run")
 	}
 	return enabled, nil
 }
 
-// skippedResult returns the result row for a check excluded by flag, so a
-// skip occupies its canonical index rather than vanishing from the set
-func skippedResult(r checkRunner) finding.AuditResult {
+// unrunResult returns the result row for a check that is not run, so it
+// occupies its canonical index rather than vanishing from the set: one the
+// operator excluded, and one the platform has no finding definitions for,
+// which could report nothing it observed and whose row must not read as a
+// clean one.
+func unrunResult(r checkRunner, result finding.Result, reason string) finding.AuditResult {
 	return finding.AuditResult{
 		Key:         r.name,
 		Name:        r.display,
 		Description: r.description,
-		Result:      finding.ResultNotSelected,
-		Reason:      "excluded by --skip-checks",
+		Result:      result,
+		Reason:      reason,
 	}
 }
 

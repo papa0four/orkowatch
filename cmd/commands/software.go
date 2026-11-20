@@ -11,7 +11,7 @@ import (
 // newSoftwareCmd returns the command that lists installed software.
 func newSoftwareCmd() *cobra.Command {
 	return newInventoryCmd(standaloneModule{
-		use:   "software",
+		use:   selection.NameSoftware,
 		short: "List installed software on the host",
 		long: `The software command gathers and lists the installed software packages from the host operating system, including version details where available.
 
@@ -24,7 +24,5 @@ The report opens in the results browser on a terminal, with the same layout as a
 
   # Save it to a directory in YAML format
   owatch software -o yaml --report-file /path/to/reports`,
-		mask:    selection.ModuleSoftware,
-		collect: collectSoftware,
 	})
 }

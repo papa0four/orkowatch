@@ -152,10 +152,18 @@ func checkTechniques(links []AttackLink) error {
 	return nil
 }
 
-// checkTechniqueUse panics when a bundled technique is referenced by no
-// definition, since an entry nothing cites is data with no reader.
+// checkTechniqueUse panics when the bundled dataset and the definitions
+// disagree about which techniques are cited, as techniqueUse reports.
 func checkTechniqueUse(sets ...map[FindingKey]FindingDefinition) {
-	used := make(map[string]bool, len(techniques))
+	if err := techniqueUse(techniques, sets...); err != nil {
+		panic("registry: attack.yaml " + err.Error())
+	}
+}
+
+// techniqueUse reports a technique no definition cites, since an entry
+// nothing reads is data with no reader.
+func techniqueUse(known map[string]finding.Technique, sets ...map[FindingKey]FindingDefinition) error {
+	used := make(map[string]bool, len(known))
 	for _, defs := range sets {
 		for _, def := range defs {
 			for _, link := range def.AttackTechniques {
@@ -164,13 +172,14 @@ func checkTechniqueUse(sets ...map[FindingKey]FindingDefinition) {
 		}
 	}
 	var unused []string
-	for id := range techniques {
+	for id := range known {
 		if !used[id] {
 			unused = append(unused, id)
 		}
 	}
+	sort.Strings(unused)
 	if len(unused) > 0 {
-		sort.Strings(unused)
-		panic("registry: attack.yaml holds techniques no definition references: " + strings.Join(unused, ", "))
+		return fmt.Errorf("holds techniques no definition references: %s", strings.Join(unused, ", "))
 	}
+	return nil
 }

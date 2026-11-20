@@ -5,10 +5,12 @@ package tui
 import (
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 var escapes = regexp.MustCompile(`\x1b\[[0-9;]*m`)
@@ -143,5 +145,84 @@ func TestFindingDetailSaysWhatTriggeredIt(t *testing.T) {
 		if !strings.Contains(detail, want) {
 			t.Errorf("detail is missing %q:\n%s", want, detail)
 		}
+	}
+}
+
+// A search finds a finding by its scores: the CVSS-BE label and a modified
+// metric find only the finding the host's evidence modified, and the baseline's
+// label finds both.
+func TestSearchFindsScores(t *testing.T) {
+	r := sidebarReport(0)
+	r.Items = []Item{
+		{Check: "ssh", Key: "ssh.moved", Result: "fail", Severity: "HIGH", Title: "moved",
+			CVSS:          "9.3 CRITICAL  CVSS-B v4.0, baseline for the condition",
+			HostCVSS:      "8.6 HIGH  CVSS-BE v4.0\nMAV:L from listening loopback-only on 1 of 1 subjects",
+			SeverityBasis: "the CVSS-BE severity on this host; the registry rates the rule CRITICAL"},
+		{Check: "ssh", Key: "ssh.kept", Result: "fail", Severity: "CRITICAL", Title: "kept",
+			CVSS:          "9.3 CRITICAL  CVSS-B v4.0, baseline for the condition",
+			HostCVSS:      "none; the evidence recorded on this host modified no metric, so the CVSS-B baseline stands",
+			SeverityBasis: "the registry's rating for this rule"},
+	}
+	b := sized(newBrowser(r), 120, 40)
+	for query, want := range map[string][]int{"CVSS-BE": {0}, "mav:l": {0}, "cvss-b v4.0": {0, 1}, "registry's rating": {1}} {
+		b.query = query
+		b.refilterFindings()
+		if !slices.Equal(b.visible, want) {
+			t.Errorf("searching %q leaves %v, want %v", query, b.visible, want)
+		}
+	}
+}
+
+// The detail pane shows the baseline and the score on this host under their
+// own headings and says what the severity rests on, and at a narrow and a wide
+// window no line runs past the pane.
+func TestFindingDetailShowsBothScores(t *testing.T) {
+	r := sidebarReport(0)
+	r.Items = []Item{{Check: "ssh", Key: "ssh.root_login_permitted", Result: "fail", Severity: "HIGH",
+		Title: "Root login over SSH is permitted", Evidence: []string{"- listening=loopback-only"},
+		SeverityBasis: "the CVSS-BE severity on this host; the registry rates the rule CRITICAL",
+		CVSS:          "9.3 CRITICAL  CVSS-B v4.0, baseline for the condition, not measured on this host  CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N\ncalculator: https://www.first.org/cvss/calculator/4.0#CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N",
+		HostCVSS: "8.6 HIGH  CVSS-BE v4.0, Modified Base metrics derived from evidence recorded on this host  CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N/MAV:L\n" +
+			"MAV:L from listening loopback-only on 1 of 1 subjects: sshd listens only on loopback addresses\n" +
+			"  Implementation Guide, Modified Attack Vector (MAV): \"the service is exposed locally\""}}
+	for _, width := range []int{50, 160} {
+		b := sized(newBrowser(r), width, 60)
+		detail := plain(b.detailText(r.Items[0]))
+		for _, want := range []string{"CVSS baseline", "9.3 CRITICAL", "CVSS on this host", "8.6 HIGH", "CVSS-BE", "MAV:L from listening",
+			"severity  HIGH, the CVSS-BE severity on this host; the registry rates the rule CRITICAL"} {
+			if !strings.Contains(strings.Join(strings.Fields(detail), " "), strings.Join(strings.Fields(want), " ")) {
+				t.Errorf("at width %d the detail lacks %q:\n%s", width, want, detail)
+			}
+		}
+		for _, line := range strings.Split(detail, "\n") {
+			if w := lipgloss.Width(line); w > b.mainWidth() {
+				t.Errorf("at width %d a line is %d wide, past the pane's %d: %q", width, w, b.mainWidth(), line)
+			}
+		}
+	}
+}
+
+// A finding with more evidence than the detail pane loads says how many
+// lines it left out and names the key that loads them, which is the key that
+// does: pressing it shows every line and the notice is gone.
+func TestEvidenceNoticeNamesTheKeyThatLoadsTheRest(t *testing.T) {
+	const extra = 3
+	r := sidebarReport(0)
+	item := Item{Check: "permissions", Key: "permissions.world_writable_file", Result: "fail", Severity: "HIGH", Title: "a finding"}
+	for i := 0; i < evidencePreview+extra; i++ {
+		item.Evidence = append(item.Evidence, fmt.Sprintf("- /tmp/file%d", i))
+	}
+	r.Items = []Item{item}
+
+	b := sized(newBrowser(r), 120, 40)
+	notice := fmt.Sprintf("%d more; press x to load all", extra)
+	if detail := plain(b.detailText(item)); !strings.Contains(detail, notice) {
+		t.Errorf("the detail does not say %q", notice)
+	}
+
+	b = press(b, "x")
+	detail := plain(b.detailText(item))
+	if strings.Contains(detail, "more; press") || !strings.Contains(detail, fmt.Sprintf("- /tmp/file%d", evidencePreview+extra-1)) {
+		t.Error("pressing the key the notice names did not load the rest of the evidence")
 	}
 }

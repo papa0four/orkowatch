@@ -105,7 +105,7 @@ func TestBrowserItemCarriesWeaknessAndCVSS(t *testing.T) {
 			Weakness: &finding.Weakness{ID: "CWE-732", Name: "Incorrect Permission Assignment for Critical Resource",
 				Description: "The product specifies permissions for a security-critical resource in a way that allows it to be read or modified by unintended actors.",
 				Usage:       "Allowed-with-Review", URL: "https://cwe.mitre.org/data/definitions/732.html"},
-			CVSS: &finding.CVSSScore{Version: "4.0", Vector: "CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:H/VI:H/VA:N/SC:N/SI:N/SA:N", BaseScore: 8.4, Severity: "HIGH",
+			CVSS: &finding.CVSSScore{Version: "4.0", Vector: "CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:H/VI:H/VA:N/SC:N/SI:N/SA:N", Score: 8.4, Severity: "HIGH",
 				Source: "registry", Nomenclature: "CVSS-B", Basis: "baseline for the condition, not measured on this host"}}}
 	item := browserItem(cond)
 	for _, want := range []string{"CWE-732 Incorrect Permission Assignment", "Allowed-with-Review"} {
@@ -119,6 +119,28 @@ func TestBrowserItemCarriesWeaknessAndCVSS(t *testing.T) {
 	if !strings.Contains(item.CVSS, "8.4 HIGH") || !strings.Contains(item.CVSS, "CVSS-B v4.0") || !strings.Contains(item.CVSS, "not measured on this host") {
 		t.Errorf("CVSS %q is not shown with its label", item.CVSS)
 	}
+	if !strings.Contains(item.HostCVSS, "no rule of this finding reads the host") || item.SeverityBasis != "the registry's rating for this rule" {
+		t.Errorf("a finding with no rule shows host score %q and severity basis %q", item.HostCVSS, item.SeverityBasis)
+	}
+
+	cond.Finding.Host = &finding.HostScore{
+		CVSS: &finding.CVSSScore{Version: "4.0", Vector: "CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:H/VI:H/VA:N/SC:N/SI:N/SA:N/MPR:H", Score: 6.9,
+			Severity: "MEDIUM", Source: "host evidence", Nomenclature: "CVSS-BE", Basis: "Modified Base metrics derived from evidence recorded on this host"},
+		Modified: []finding.ModifiedMetric{{Metric: "MPR", Value: "H", Fact: finding.Fact{Name: "reach", Value: "root-only"},
+			Because: "only root can reach the file", Carried: 2, Subjects: 2}},
+	}
+	cond.Finding.Severity = "MEDIUM"
+	item = browserItem(cond)
+	for _, want := range []string{"6.9 MEDIUM  CVSS-BE v4.0", "MPR:H from reach root-only on 2 of 2 subjects: only root can reach the file"} {
+		if !strings.Contains(item.HostCVSS, want) {
+			t.Errorf("host score %q lacks %q", item.HostCVSS, want)
+		}
+	}
+	if item.SeverityBasis != "the CVSS-BE severity on this host; the registry rates the rule HIGH" {
+		t.Errorf("a modified finding's severity basis: %q", item.SeverityBasis)
+	}
+	cond.Finding.Host = nil
+	cond.Finding.Severity = "HIGH"
 
 	cond.Finding.Weakness = nil
 	cond.Finding.NoWeakness = "No entry describes this."

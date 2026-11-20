@@ -34,8 +34,8 @@ type (
 	// CheckView is the serializable projection of a single check's result.
 	// Key is the check's short name, as --skip-checks and the rule keys spell
 	// it; Name is its long display name. Reason is present whenever Result is
-	// neither pass nor fail. Duration is empty for a check that was not
-	// selected.
+	// neither pass nor fail. Duration is empty for a check that did not
+	// run.
 	CheckView struct {
 		Key         string          `json:"key" yaml:"key"`
 		Name        string          `json:"name" yaml:"name"`
@@ -72,10 +72,13 @@ type (
 
 		// Weakness is the CWE entry the finding maps to. NoWeakness says why
 		// none does, when the registry records that none fits. CVSS is the
-		// registry's baseline for the condition, labelled as such.
+		// registry's baseline for the condition, labelled as such, and Host
+		// how the condition scores on this host and why, which Severity
+		// follows when the host's evidence modified the score.
 		Weakness   *finding.Weakness  `json:"weakness,omitempty" yaml:"weakness,omitempty"`
 		NoWeakness string             `json:"no_weakness,omitempty" yaml:"no_weakness,omitempty"`
 		CVSS       *finding.CVSSScore `json:"cvss,omitempty" yaml:"cvss,omitempty"`
+		Host       *finding.HostScore `json:"host_score,omitempty" yaml:"host_score,omitempty"`
 	}
 )
 
@@ -114,7 +117,7 @@ func (r *Result) View(minSeverity string) View {
 			Description: check.Description,
 			Details:     check.Details,
 		}
-		if check.Result != finding.ResultNotSelected {
+		if !check.StartTime.IsZero() {
 			cv.Duration = check.Duration.String()
 		}
 
@@ -167,6 +170,7 @@ func conditionView(condition finding.Condition, minSeverity string) (ConditionVi
 		Weakness:    condition.Finding.Weakness,
 		NoWeakness:  condition.Finding.NoWeakness,
 		CVSS:        condition.Finding.CVSS,
+		Host:        condition.Finding.Host,
 	}
 	return view, true
 }
