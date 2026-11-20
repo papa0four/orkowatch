@@ -6,9 +6,6 @@ package checker
 
 import (
 	"context"
-	"errors"
-	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -21,9 +18,8 @@ const (
 	// password field replaced by a ‘*’ character."
 	credentialStore = "/etc/master.passwd"
 
-	// credentialsUnread is why the credential rules have no judgment when
-	// the store could not be opened.
-	credentialsUnread = credentialStore + " is not readable without elevated privileges"
+	// uidRangeFile configures the range pw(8) assigns to regular accounts.
+	uidRangeFile = pwConfFile
 
 	// pamPolicyDir holds the policy of each service, and suPolicyFile is that
 	// of su. su(1): "This group requirement may be changed by modifying the
@@ -52,48 +48,27 @@ var platformRules = platformRuleSet{ // #nosec G101 -- rule keys and account nam
 // account is temporarily locked out".
 var unusablePrefixes = []string{"*"}
 
-// getUsers reads /etc/passwd and, when readable, /etc/master.passwd, and
-// resolves who may become root from what sudo answers and what su requires.
-func (u *UnixUserChecker) getUsers(ctx context.Context) ([]userAccount, error) {
-	users, err := localAccounts()
-	if err != nil {
-		return nil, err
-	}
-
-	credentials, read, err := readCredentials(credentialStore)
-	if err != nil {
-		return nil, err
-	}
-	u.credentialsRead = read
-
-	// A missing pw.conf is the shipped state and leaves the defaults.
-	conf, err := os.ReadFile(pwConfFile)
-	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		u.readWarnings = append(u.readWarnings,
-			fmt.Sprintf("%s could not be read, so regular accounts are taken to be those pw assigns by default: %v", pwConfFile, err))
-	}
-	regular := pwUIDRange(conf)
-	for i := range users {
-		account := &users[i]
-		account.isSystem = !regular.contains(account.uid)
-
-		if field, ok := credentials[account.username]; ok {
-			account.password = credentialState(field)
-		}
-	}
-
-	u.readPrivilege(ctx, hostPrivilegeSources(), users)
-	u.readSU(ctx, users)
-	return users, nil
+// regularUIDRange returns the range pw assigns to regular accounts, from the
+// content of pw.conf.
+func regularUIDRange(conf []byte) uidRange {
+	return pwUIDRange(conf)
 }
 
-// readSU reads the su service's policy and sets who it admits to root.
-func (u *UnixUserChecker) readSU(ctx context.Context, users []userAccount) {
+// readHostAccounts reads /etc/passwd and, when readable, /etc/master.passwd,
+// and resolves who may become root from what sudo answers and what su
+// requires.
+func readHostAccounts(ctx context.Context) (hostAccounts, error) {
+	host, err := readStoredAccounts(ctx)
+	if err != nil {
+		return host, err
+	}
+
 	policy := func(service string) ([]byte, error) {
 		return os.ReadFile(filepath.Join(pamPolicyDir, service)) // #nosec G304 -- service is a name readSUGate has refused path separators in
 	}
 	lookup := func(ctx context.Context, group string) ([]byte, error) {
 		return lookupGroup(ctx, getentProgram, group)
 	}
-	u.applySUGate(ctx, suPolicyFile, readSUGate(policy), lookup, users)
+	host.applySUGate(ctx, suPolicyFile, readSUGate(policy), lookup)
+	return host, nil
 }

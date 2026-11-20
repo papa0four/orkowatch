@@ -7,17 +7,38 @@ package checker
 import (
 	"context"
 	"errors"
+	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/papa0four/orkowatch/internal/security/finding"
-	"github.com/papa0four/orkowatch/internal/security/registry"
 )
 
+// Only a store this run lacks the privilege to open is reported as one a run
+// with more privilege would read. Any other failure is reported as what it
+// is, and a store that was read leaves nothing to report.
+func TestUnreadReason(t *testing.T) {
+	const store = "/etc/shadow"
+	if got := unreadReason(store, nil); got != "" {
+		t.Errorf("a store that was read: %q", got)
+	}
+	refused := fmt.Errorf("open %s: %w", store, fs.ErrPermission)
+	if got := unreadReason(store, refused); got != store+" is not readable without elevated privileges" {
+		t.Errorf("a store this run may not open: %q", got)
+	}
+	absent := fmt.Errorf("open %s: %w", store, fs.ErrNotExist)
+	if got := unreadReason(store, absent); strings.Contains(got, "privileges") || !strings.Contains(got, absent.Error()) {
+		t.Errorf("a store that is absent: %q", got)
+	}
+}
+
 // The account name and password field lead a line of shadow and of
-// master.passwd alike, and a store that cannot be opened is reported as not
-// read, with no error.
+// master.passwd alike, and a store that cannot be opened is an error that
+// says why.
 func TestReadCredentials(t *testing.T) {
 	store := filepath.Join(t.TempDir(), "store")
 	lines := "root::0:0::0:0:Charlie &:/root:/bin/sh\n" +
@@ -29,9 +50,9 @@ func TestReadCredentials(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	fields, read, err := readCredentials(store)
-	if err != nil || !read {
-		t.Fatalf("read %v, err %v", read, err)
+	fields, err := readCredentials(store)
+	if err != nil {
+		t.Fatal(err)
 	}
 	want := map[string]string{"root": "", "toor": "*", "alice": "$6$salt$hash"}
 	if len(fields) != len(want) {
@@ -43,8 +64,11 @@ func TestReadCredentials(t *testing.T) {
 		}
 	}
 
-	if fields, read, err := readCredentials(filepath.Join(t.TempDir(), "absent")); fields != nil || read || err != nil {
-		t.Errorf("a store that cannot be opened: %q, %v, %v", fields, read, err)
+	// A store that is not there is not one this run lacks the privilege to
+	// open, and must not be reported as that.
+	fields, err = readCredentials(filepath.Join(t.TempDir(), "absent"))
+	if fields != nil || !errors.Is(err, fs.ErrNotExist) || errors.Is(err, fs.ErrPermission) {
+		t.Errorf("a store that is absent: %q, %v", fields, err)
 	}
 }
 
@@ -115,18 +139,17 @@ var errFailedLookup = errors.New("getent group wheel: exit status 1")
 
 // suHost applies a su policy to accounts and returns them with what the
 // reader left without a judgment and what it observed of the host.
-func suHost(t *testing.T, gate suGate, entry string, lookupErr error, accounts []userAccount) (*UnixUserChecker, []userAccount) {
+func suHost(t *testing.T, gate suGate, entry string, lookupErr error, accounts []userAccount) hostAccounts {
 	t.Helper()
-	u := NewUserChecker(registry.OSContext{Platform: registry.PlatformUnix, Families: []registry.Distro{registry.DistroFreeBSD}})
 	lookup := func(context.Context, string) ([]byte, error) {
 		if entry == "" {
 			return nil, lookupErr
 		}
 		return []byte(entry), lookupErr
 	}
-	users := append([]userAccount(nil), accounts...)
-	u.applySUGate(context.Background(), "/etc/pam.d/su", gate, lookup, users)
-	return u, users
+	host := hostAccounts{accounts: slices.Clone(accounts)}
+	host.applySUGate(context.Background(), "/etc/pam.d/su", gate, lookup)
+	return host
 }
 
 // An account is admitted by su where the group the policy names lists it or
@@ -139,9 +162,9 @@ func TestApplySUGate(t *testing.T) {
 		{username: "a_g", uid: 1003, gid: 0},
 	}
 
-	u, users := suHost(t, suGate{group: "wheel"}, "wheel:*:0:root,a_w\n", nil, accounts)
+	u := suHost(t, suGate{group: "wheel"}, "wheel:*:0:root,a_w\n", nil, accounts)
 	want := map[string]string{"root": "wheel", "a_w": "wheel", "a_p": "", "a_g": "wheel"}
-	for _, account := range users {
+	for _, account := range u.accounts {
 		if account.suGroup != want[account.username] {
 			t.Errorf("%s: group %q, want %q", account.username, account.suGroup, want[account.username])
 		}
@@ -150,11 +173,11 @@ func TestApplySUGate(t *testing.T) {
 		t.Errorf("a decided policy left %+v and observed %+v", u.unjudged, u.hostwide)
 	}
 
-	u, users = suHost(t, suGate{open: true}, "", nil, accounts)
+	u = suHost(t, suGate{open: true}, "", nil, accounts)
 	if len(u.hostwide) != 1 || u.hostwide[0].rule != ruleSUOpen || u.hostwide[0].evidence.Subject != "/etc/pam.d/su" {
 		t.Errorf("a policy with no group rule observed %+v", u.hostwide)
 	}
-	for _, account := range users {
+	for _, account := range u.accounts {
 		if account.suGroup != "" {
 			t.Errorf("%s is given the group %q by a policy that names none", account.username, account.suGroup)
 		}
@@ -176,7 +199,7 @@ func TestApplySUGate(t *testing.T) {
 		if tc.result == finding.ResultError {
 			lookupErr = errFailedLookup
 		}
-		u, _ := suHost(t, tc.gate, tc.entry, lookupErr, accounts)
+		u := suHost(t, tc.gate, tc.entry, lookupErr, accounts)
 		if len(u.unjudged) != 1 || u.unjudged[0].result != tc.result || u.unjudged[0].reason != tc.reason {
 			t.Errorf("%s: %+v, want %s %q", name, u.unjudged, tc.result, tc.reason)
 		}

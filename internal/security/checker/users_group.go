@@ -17,6 +17,10 @@ import (
 // privilegeRules are the rules on administrative access these readers judge.
 var privilegeRules = []registry.FindingKey{ruleAdminAccount}
 
+// platformRules names no rule: these platforms define none yet, and a rule
+// is named here when a platform's definitions gain it.
+var platformRules platformRuleSet
+
 // groupLookupFailed is the gap left when the membership could not be read.
 func groupLookupFailed(err error) unjudged {
 	return unjudged{

@@ -32,21 +32,21 @@ var freebsdAccounts = []userAccount{
 // users check does on a host without sudo.
 func judgeFreeBSD(gate suGate, credentialsRead bool) map[registry.FindingKey]finding.Condition {
 	u := NewUserChecker(registry.OSContext{Platform: registry.PlatformUnix, Families: []registry.Distro{registry.DistroFreeBSD}})
-	u.credentialsRead = credentialsRead
 
-	users := slices.Clone(freebsdAccounts)
+	host := hostAccounts{accounts: slices.Clone(freebsdAccounts)}
 	if !credentialsRead {
-		for i := range users {
-			users[i].password = passwordUnknown
+		host.credentialsUnread = credentialStore + " is not readable without elevated privileges"
+		for i := range host.accounts {
+			host.accounts[i].password = passwordUnknown
 		}
 	}
 	src := privilegeSources{euid: rootUID, installed: func(string) bool { return false }}
-	u.readPrivilege(context.Background(), src, users)
+	host.readPrivilege(context.Background(), src)
 	lookup := func(context.Context, string) ([]byte, error) { return []byte("wheel:*:0:root,a_w\n"), nil }
-	u.applySUGate(context.Background(), suPolicyFile, gate, lookup, users)
+	host.applySUGate(context.Background(), suPolicyFile, gate, lookup)
 
 	r := newReport(u.checkIdentity)
-	u.analyzeUsers(users, r)
+	analyzeUsers(host, r)
 	return conditions(r)
 }
 

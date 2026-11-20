@@ -18,28 +18,27 @@ const (
 
 	// dsclFields is the attribute name and value a dscl read line consists of.
 	dsclFields = 2
-
-	// credentialsUnread is why the credential rules have no judgment: this
-	// reader takes no password state from Directory Services.
-	credentialsUnread = "password state is not read from Directory Services"
 )
 
-// platformRules are the rules of platformRuleSet macOS defines.
-var platformRules = platformRuleSet{rootUnlocked: "users.root_account_unlocked"}
-
-// getUsers enumerates accounts through Directory Services, resolving
+// readHostAccounts enumerates accounts through Directory Services, resolving
 // administrative membership from the admin group and account state from
-// each record's AuthenticationAuthority. An account whose record or state
-// cannot be read is counted and reported rather than dropped in silence.
-func (u *UnixUserChecker) getUsers(ctx context.Context) ([]userAccount, error) {
+// each record's AuthenticationAuthority. It takes no password state. An
+// account whose record or state cannot be read is counted and reported
+// rather than dropped in silence, and a failed lookup of the admin group
+// leaves the rule on administrative access without a judgment rather than
+// presenting every account as unprivileged.
+func readHostAccounts(ctx context.Context) (hostAccounts, error) {
 	output, err := exec.CommandContext(ctx, "dscl", ".", "list", "/Users").Output()
 	if err != nil {
-		return nil, fmt.Errorf("failed to get macOS users: %w", execError(err))
+		return hostAccounts{}, fmt.Errorf("failed to get macOS users: %w", execError(err))
 	}
 
-	admins := u.adminMembers(ctx)
+	host := hostAccounts{credentialsUnread: "password state is not read from Directory Services"}
+	admins, err := adminMembers(ctx)
+	if err != nil {
+		host.unjudged = append(host.unjudged, groupLookupFailed(err))
+	}
 
-	var users []userAccount
 	var unread, stateUnread int
 	for _, username := range strings.Split(string(output), "\n") {
 		username = strings.TrimSpace(username)
@@ -61,31 +60,28 @@ func (u *UnixUserChecker) getUsers(ctx context.Context) ([]userAccount, error) {
 			account.state = state
 		}
 
-		users = append(users, account)
+		host.accounts = append(host.accounts, account)
 	}
 
 	if unread > 0 {
-		u.readWarnings = append(u.readWarnings,
+		host.warnings = append(host.warnings,
 			fmt.Sprintf("%d account records could not be read and are missing from this report", unread))
 	}
 	if stateUnread > 0 {
-		u.readWarnings = append(u.readWarnings,
+		host.warnings = append(host.warnings,
 			fmt.Sprintf("%d accounts have an unreadable authentication state; a disabled account among them is not marked", stateUnread))
 	}
 
-	return users, nil
+	return host, nil
 }
 
-// adminMembers returns the members of the admin group. A failed lookup is
-// recorded on the checker so the report says membership is unknown rather
-// than presenting every account as unprivileged.
-func (u *UnixUserChecker) adminMembers(ctx context.Context) map[string]bool {
+// adminMembers returns the members of the admin group.
+func adminMembers(ctx context.Context) (map[string]bool, error) {
 	members := make(map[string]bool)
 
 	output, err := exec.CommandContext(ctx, "dscacheutil", "-q", "group", "-a", "name", "admin").Output()
 	if err != nil {
-		u.unjudged = []unjudged{groupLookupFailed(execError(err))}
-		return members
+		return members, execError(err)
 	}
 
 	for _, line := range strings.Split(string(output), "\n") {
@@ -95,7 +91,7 @@ func (u *UnixUserChecker) adminMembers(ctx context.Context) map[string]bool {
 			}
 		}
 	}
-	return members
+	return members, nil
 }
 
 // readAccount reads one account's identity from its directory record.

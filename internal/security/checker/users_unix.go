@@ -18,24 +18,29 @@ import (
 
 type (
 	// UnixUserChecker implements UserChecker for Unix-like systems. The
-	// platform reader supplies getUsers under its own build constraint.
-	// credentialsRead is set when the reader read the credential store; it
-	// gates the no-password findings and surfaces a diagnostic when the
-	// check runs without sufficient privileges. unjudged holds the rules on
-	// administrative access the reader could not decide; analyzeUsers reports
-	// them rather than presenting every account as unprivileged. hostwide
-	// holds what the reader observed of the host and of no one account.
-	// adminHeading titles the list of administrative accounts by how the
-	// reader decided them. readWarnings holds what else the reader could not
-	// see, so reduced coverage is stated in the report rather than read as a
-	// complete account list.
+	// platform reader supplies readHostAccounts under its own build
+	// constraint.
 	UnixUserChecker struct {
 		checkIdentity
-		credentialsRead bool
-		unjudged        []unjudged
-		hostwide        []observation
-		adminHeading    string
-		readWarnings    []string
+	}
+
+	// hostAccounts is what a platform's reader found: the accounts and what
+	// bears on judging them. credentialsUnread says why the credential rules
+	// have no judgment and is empty when the reader saw each account's
+	// password state. unjudged holds the rules on administrative access the
+	// reader could not decide, which are reported as such rather than every
+	// account being presented as unprivileged. hostwide holds what the reader
+	// observed of the host and of no one account. adminHeading titles the
+	// list of administrative accounts by how the reader decided them.
+	// warnings holds what else the reader could not see, so reduced coverage
+	// is stated in the report rather than read as a complete account list.
+	hostAccounts struct {
+		accounts          []userAccount
+		credentialsUnread string
+		unjudged          []unjudged
+		hostwide          []observation
+		adminHeading      string
+		warnings          []string
 	}
 
 	// observation is a condition the reader saw, with its evidence.
@@ -124,9 +129,15 @@ const (
 	rootGID = 0
 )
 
-// The rules on administrative access. Each platform's reader names the ones
-// it judges in privilegeRules.
+// The rules judged on each account, and those on administrative access, of
+// which each platform's reader names the ones it judges in privilegeRules.
 const (
+	ruleUIDZero         registry.FindingKey = "users.uid_zero_non_root"
+	ruleRootUnlocked    registry.FindingKey = "users.root_account_unlocked"
+	ruleEmptyPassword   registry.FindingKey = "users.empty_password_hash"
+	ruleNoPasswordShell registry.FindingKey = "users.no_password_login_shell"
+	ruleLoginShell      registry.FindingKey = "users.login_shell_present"
+
 	ruleAdminAccount   registry.FindingKey = "users.regular_user_admin_privileges"
 	ruleSudoUnprompted registry.FindingKey = "users.sudo_nopasswd"
 )
@@ -143,19 +154,19 @@ const grantDivider = "; "
 // the credential store to be readable.
 var (
 	accountRules = []registry.FindingKey{
-		"users.uid_zero_non_root",
+		ruleUIDZero,
 		platformRules.rootUnlocked,
-		"users.empty_password_hash",
-		"users.no_password_login_shell",
-		"users.login_shell_present",
+		ruleEmptyPassword,
+		ruleNoPasswordShell,
+		ruleLoginShell,
 		platformRules.systemShell,
 		platformRules.nologinPassword,
 	}
 
 	credentialRules = []registry.FindingKey{
 		platformRules.rootUnlocked,
-		"users.empty_password_hash",
-		"users.no_password_login_shell",
+		ruleEmptyPassword,
+		ruleNoPasswordShell,
 		platformRules.nologinPassword,
 	}
 )
@@ -179,7 +190,7 @@ func (u *UnixUserChecker) Check(ctx context.Context) finding.AuditResult {
 
 	u.checkDirectoryClients(ctx, r)
 
-	users, err := u.getUsers(ctx)
+	host, err := readHostAccounts(ctx)
 	if err != nil {
 		reason := fmt.Sprintf("user accounts could not be read: %v", err)
 		r.inconclusive(finding.ResultError, reason, accountRules...)
@@ -187,7 +198,7 @@ func (u *UnixUserChecker) Check(ctx context.Context) finding.AuditResult {
 		return r.finish()
 	}
 
-	u.analyzeUsers(users, r)
+	analyzeUsers(host, r)
 	return r.finish()
 }
 
@@ -195,14 +206,14 @@ func (u *UnixUserChecker) Check(ctx context.Context) finding.AuditResult {
 // tripped. A rule the reader could not see enough to judge is an error
 // rather than a pass: an unreadable credential store proves nothing about
 // the credentials in it.
-func (u *UnixUserChecker) analyzeUsers(users []userAccount, r *report) {
+func analyzeUsers(host hostAccounts, r *report) {
 	var (
 		regularUsers    []string
 		adminUsers      []string
 		suspiciousUsers []string
 	)
 
-	for _, user := range users {
+	for _, user := range host.accounts {
 		details := fmt.Sprintf("%s (UID: %d, Shell: %s)", user.username, user.uid, user.shell)
 		if user.state == accountDisabled {
 			details += " (disabled)"
@@ -223,20 +234,20 @@ func (u *UnixUserChecker) analyzeUsers(users []userAccount, r *report) {
 		judgeAccount(user, r)
 	}
 
-	if !u.credentialsRead {
-		r.inconclusive(finding.ResultError, credentialsUnread, credentialRules...)
+	if host.credentialsUnread != "" {
+		r.inconclusive(finding.ResultError, host.credentialsUnread, credentialRules...)
 	}
-	for _, seen := range u.hostwide {
+	for _, seen := range host.hostwide {
 		r.observed(seen.rule, seen.evidence)
 	}
 	r.pass(accountRules...)
-	u.concludePrivilege(r)
+	concludePrivilege(host.unjudged, r)
 
-	for _, warning := range u.readWarnings {
+	for _, warning := range host.warnings {
 		r.note(finding.SymbolWarning, "%s", warning)
 	}
 
-	appendAccountSection(r, cmp.Or(u.adminHeading, defaultAdminHeading), finding.SymbolWarning, adminUsers)
+	appendAccountSection(r, cmp.Or(host.adminHeading, defaultAdminHeading), finding.SymbolWarning, adminUsers)
 	appendAccountSection(r, "Regular Users:", finding.SymbolOK, regularUsers)
 	appendAccountSection(r, "Suspicious Users:", finding.SymbolWarning, suspiciousUsers)
 }
@@ -244,9 +255,9 @@ func (u *UnixUserChecker) analyzeUsers(users []userAccount, r *report) {
 // concludePrivilege concludes the rules on administrative access no account
 // tripped. A rule the reader could not judge takes the reader's result, which
 // pass must not follow: pass outranks a rule that does not apply.
-func (u *UnixUserChecker) concludePrivilege(r *report) {
+func concludePrivilege(gaps []unjudged, r *report) {
 	var undecided []registry.FindingKey
-	for _, gap := range u.unjudged {
+	for _, gap := range gaps {
 		for _, key := range gap.rules {
 			r.record(key, finding.Condition{Key: string(key), Result: gap.result, Reason: gap.reason, Evidence: gap.evidence})
 		}
@@ -271,7 +282,7 @@ func judgeAccount(user userAccount, r *report) {
 	account := accountEvidence(user)
 
 	if user.uid == rootUID && user.username != "root" {
-		r.observed("users.uid_zero_non_root", account)
+		r.observed(ruleUIDZero, account)
 	}
 
 	if user.state == accountDisabled {
@@ -286,9 +297,9 @@ func judgeAccount(user userAccount, r *report) {
 	// or su for the account. An interactive shell turns that into a
 	// session and is reported on top.
 	if user.password == passwordEmpty {
-		r.observed("users.empty_password_hash", account)
+		r.observed(ruleEmptyPassword, account)
 		if isInteractiveShell(user.shell) {
-			r.observed("users.no_password_login_shell", account)
+			r.observed(ruleNoPasswordShell, account)
 		}
 	}
 
@@ -305,7 +316,7 @@ func judgeAccount(user userAccount, r *report) {
 
 	switch interactive := isInteractiveShell(user.shell); {
 	case interactive && !user.isSystem:
-		r.observed("users.login_shell_present", account)
+		r.observed(ruleLoginShell, account)
 	case interactive && !slices.Contains(platformRules.shellExempt, user.username):
 		r.observed(platformRules.systemShell, account)
 	}
@@ -329,7 +340,7 @@ func accountEvidence(user userAccount, facts ...finding.Fact) finding.Evidence {
 
 // appendAccountSection narrates a titled list of accounts, each carrying
 // symbol, and nothing at all when entries is empty.
-func appendAccountSection(r *report, title string, symbol string, entries []string) {
+func appendAccountSection(r *report, title, symbol string, entries []string) {
 	if len(entries) == 0 {
 		return
 	}
@@ -354,7 +365,7 @@ func isSuspiciousUser(user userAccount) bool {
 // analyst decides whether the assignment is intentional.
 func isInteractiveShell(shell string) bool {
 	nonInteractive := []string{
-		"nologin",
+		nologinShell,
 		"/bin/false",
 		"/usr/bin/false",
 		"/bin/sync",

@@ -72,7 +72,6 @@ type privilegeHost struct {
 func (h privilegeHost) judge(accounts []userAccount) (map[registry.FindingKey]finding.Condition, []string, []string) {
 	linux := registry.OSContext{Platform: registry.PlatformLinux, Families: []registry.Distro{registry.DistroDebian, registry.DistroGeneric}}
 	u := NewUserChecker(linux)
-	u.credentialsRead = true
 
 	var asked []string
 	src := privilegeSources{
@@ -80,16 +79,16 @@ func (h privilegeHost) judge(accounts []userAccount) (map[registry.FindingKey]fi
 		installed: func(program string) bool { return slices.Contains(h.programs, program) },
 		sudo:      scriptedSudo(h.sudo, &asked),
 		groups: func(context.Context) (privilegedGroups, error) {
-			groups := privilegedGroups{members: map[string]string{}, gids: map[uint32]string{}}
+			groups := newPrivilegedGroups()
 			groups.add([]byte(h.groups))
 			return groups, h.groupErr
 		},
 	}
 
-	users := slices.Clone(accounts)
-	u.readPrivilege(context.Background(), src, users)
+	host := hostAccounts{accounts: slices.Clone(accounts)}
+	host.readPrivilege(context.Background(), src)
 	r := newReport(u.checkIdentity)
-	u.analyzeUsers(users, r)
+	analyzeUsers(host, r)
 	return conditions(r), r.result.Details, asked
 }
 

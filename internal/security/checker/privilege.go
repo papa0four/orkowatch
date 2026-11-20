@@ -100,22 +100,19 @@ func (g privilegedGroups) groupOf(account userAccount) string {
 	return g.gids[account.gid]
 }
 
-// readPrivilegedGroups returns the administrative groups the host has.
-func readPrivilegedGroups(ctx context.Context) (privilegedGroups, error) {
-	return readGroups(ctx, adminGroups...)
+// newPrivilegedGroups returns a set holding no group.
+func newPrivilegedGroups() privilegedGroups {
+	return privilegedGroups{members: make(map[string]string), gids: make(map[uint32]string)}
 }
 
-// readGroups returns who the named groups hold. A group that does not exist
-// has no members, and getent says so by its exit status; any other failure is
-// a lookup that could not be made, which a caller must not mistake for a host
-// with no such group.
-func readGroups(ctx context.Context, names ...string) (privilegedGroups, error) {
-	groups := privilegedGroups{
-		members: make(map[string]string),
-		gids:    make(map[uint32]string),
-	}
+// readAdminGroups returns who the administrative groups hold. A group that
+// does not exist has no members, and getent says so by its exit status; any
+// other failure is a lookup that could not be made, which a caller must not
+// mistake for a host with no such group.
+func readAdminGroups(ctx context.Context) (privilegedGroups, error) {
+	groups := newPrivilegedGroups()
 
-	for _, group := range names {
+	for _, group := range adminGroups {
 		entry, err := lookupGroup(ctx, getentProgram, group)
 		if err != nil {
 			return groups, err
@@ -146,7 +143,7 @@ func hostPrivilegeSources() privilegeSources {
 		euid:      os.Geteuid(),
 		installed: onPath,
 		sudo:      runSudo,
-		groups:    readPrivilegedGroups,
+		groups:    readAdminGroups,
 	}
 }
 
@@ -177,22 +174,22 @@ func runSudo(ctx context.Context, args ...string) (stdout, stderr []byte, status
 // As root with sudo installed, sudo is asked of every account. Otherwise the
 // rules have no judgment and say why: a caller other than root is not
 // answered, and the group names alone do not show what sudo grants.
-func (u *UnixUserChecker) readPrivilege(ctx context.Context, src privilegeSources, users []userAccount) {
+func (h *hostAccounts) readPrivilege(ctx context.Context, src privilegeSources) {
 	const absent = "sudo is not installed"
 
+	sudo := src.installed("sudo")
 	switch {
-	case src.installed("sudo") && src.euid == rootUID:
-		u.askSudo(ctx, src.sudo, users)
-	case src.installed("sudo"):
-		u.unjudged = unaskedSudo(ctx, src.groups, users)
+	case sudo && src.euid == rootUID:
+		h.askSudo(ctx, src.sudo)
+	case sudo:
+		h.unjudged = append(h.unjudged, unaskedSudo(ctx, src.groups, h.accounts)...)
 	case src.installed("doas"):
-		u.unjudged = []unjudged{
-			{rules: []registry.FindingKey{ruleAdminAccount}, result: finding.ResultUnknown,
+		h.unjudged = append(h.unjudged,
+			unjudged{rules: []registry.FindingKey{ruleAdminAccount}, result: finding.ResultUnknown,
 				reason: absent + " and doas is, and the rules of doas are not read"},
-			{rules: []registry.FindingKey{ruleSudoUnprompted}, result: finding.ResultNotApplicable, reason: absent},
-		}
+			unjudged{rules: []registry.FindingKey{ruleSudoUnprompted}, result: finding.ResultNotApplicable, reason: absent})
 	default:
-		u.unjudged = []unjudged{{rules: sudoRules, result: finding.ResultNotApplicable, reason: absent}}
+		h.unjudged = append(h.unjudged, unjudged{rules: sudoRules, result: finding.ResultNotApplicable, reason: absent})
 	}
 }
 
@@ -200,33 +197,33 @@ func (u *UnixUserChecker) readPrivilege(ctx context.Context, src privilegeSource
 // only on another account's password is not administrative by that: sudo
 // then asks what su asks. What sudo could not read of its own rules leaves
 // the rules unknown beside whatever the readable ones admitted.
-func (u *UnixUserChecker) askSudo(ctx context.Context, run sudoRun, users []userAccount) {
+func (h *hostAccounts) askSudo(ctx context.Context, run sudoRun) {
 	var names []string
-	for _, account := range users {
+	for _, account := range h.accounts {
 		if isSafeUsername(account.username) {
 			names = append(names, account.username)
 			continue
 		}
-		u.readWarnings = append(u.readWarnings,
+		h.warnings = append(h.warnings,
 			fmt.Sprintf("account %q has a name that is not passed to sudo; what sudo grants it is not known", account.username))
 	}
 
 	view, err := askSudo(ctx, run, names)
 	if err != nil {
-		u.unjudged = []unjudged{{rules: sudoRules, result: finding.ResultError, reason: err.Error()}}
+		h.unjudged = append(h.unjudged, unjudged{rules: sudoRules, result: finding.ResultError, reason: err.Error()})
 		return
 	}
 	if len(view.complaints) > 0 {
 		// A rule an account fails outranks one that is unknown, so the
 		// complaint is narrated as well: the report says it either way.
 		partial := "sudo answered from part of its rules: " + strings.Join(view.complaints, grantDivider)
-		u.unjudged = []unjudged{{rules: sudoRules, result: finding.ResultUnknown, reason: partial}}
-		u.readWarnings = append(u.readWarnings, partial)
+		h.unjudged = append(h.unjudged, unjudged{rules: sudoRules, result: finding.ResultUnknown, reason: partial})
+		h.warnings = append(h.warnings, partial)
 	}
 
-	u.adminHeading = sudoAdminHeading
-	for i := range users {
-		account := &users[i]
+	h.adminHeading = sudoAdminHeading
+	for i := range h.accounts {
+		account := &h.accounts[i]
 		answer := view.answers[account.username]
 
 		account.unprompted = answer.unprompted
