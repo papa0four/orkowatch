@@ -1145,7 +1145,7 @@ func (b browser) detailText(item Item) string {
 		}
 		out.WriteString(strings.Join(lines, "\n") + "\n")
 		if cut := len(b.evidence) - len(lines); cut > 0 {
-			out.WriteString(styleNotice.Render(fmt.Sprintf("%d more; press e to load all", cut)) + "\n")
+			out.WriteString(styleNotice.Render(fmt.Sprintf("%d more; press x to load all", cut)) + "\n")
 		}
 	}
 	return out.String()
