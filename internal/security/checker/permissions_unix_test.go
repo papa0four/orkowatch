@@ -6,10 +6,52 @@ package checker
 
 import (
 	"io/fs"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/papa0four/orkowatch/internal/security/finding"
+	"github.com/papa0four/orkowatch/internal/security/registry"
 )
+
+// A critical path more permissive than expected records the expected mode
+// with the path's own type, so a directory's expectation reads as a directory
+// beside its observed mode.
+func TestCriticalPathExpectedModeHasPathType(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "file")
+	if err := os.WriteFile(file, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for path, mode := range map[string]os.FileMode{dir: 0o755, file: 0o644} {
+		if err := os.Chmod(path, mode); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	linux := registry.OSContext{Platform: registry.PlatformLinux, Families: []registry.Distro{registry.DistroGeneric}}
+	for _, tc := range []struct {
+		cp   criticalPath
+		want string
+	}{
+		{criticalPath{path: dir, description: "directory", expected: 0o750}, "drwxr-x---"},
+		{criticalPath{path: file, description: "file", expected: 0o600}, "-rw-------"},
+	} {
+		r := newReport(checkIdentity{osCtx: linux})
+		checkCriticalPath(tc.cp, r)
+		var expected string
+		for _, e := range conditions(r)[ruleExcessMode].Evidence {
+			for _, f := range e.Facts {
+				if f.Name == finding.FactExpected {
+					expected = f.Value
+				}
+			}
+		}
+		if expected != tc.want {
+			t.Errorf("%s: expected=%q, want %q", tc.cp.description, expected, tc.want)
+		}
+	}
+}
 
 // A path is recorded as lying in a temporary or home location only when it is
 // at or beneath one, on path boundaries, so a sibling that shares a prefix is
