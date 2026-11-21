@@ -13,7 +13,6 @@ import (
 	"os"
 	"os/exec"
 	"strings"
-	"sync"
 
 	"golang.org/x/sys/unix"
 )
@@ -31,18 +30,9 @@ const (
 
 	aclEntryPermOffset = 2
 	aclEntryIDOffset   = 4
-
-	aclTagUser     = 0x02
-	aclTagGroupObj = 0x04
-	aclTagGroup    = 0x08
-	aclTagMask     = 0x10
-
-	aclPermExecute = 0x01
 )
 
 const (
-	nsswitchFile = "/etc/nsswitch.conf"
-
 	// sssNSSPipe is the socket libnss_sss queries. Without it the sss source
 	// answers nothing, whatever nsswitch.conf lists.
 	sssNSSPipe = "/var/lib/sss/pipes/nss"
@@ -52,87 +42,17 @@ const (
 	initgroupsBatch = 256
 )
 
-type (
-	// deniedJudge decides what a directory confers when its mode bits deny
-	// traversal. Whether root's group has another member is the same answer
-	// for every directory, so it is asked once and kept; once makes that
-	// true when several workers reach the question together.
-	deniedJudge struct {
-		once      sync.Once
-		rootGroup reachability
-	}
-
-	// aclEntry is one entry of a POSIX access ACL.
-	aclEntry struct {
-		tag  uint16
-		perm uint16
-		id   uint32
-	}
-)
-
-// reach judges a directory traversableByNonRoot rejected. Without
-// group-execute nothing can grant traversal, because the group bits of a
-// directory carrying an ACL are the ACL mask and the mask caps every entry
-// but the owner's and other's. With it, the owning group is root's, and the
-// answer rests on the ACL entries and on who belongs to that group.
-func (j *deniedJudge) reach(ctx context.Context, dir string, mode fs.FileMode) reachability {
-	if mode.Perm()&bitGroupExecute == 0 {
-		return reachRootOnly
-	}
-
-	entries, err := readPOSIXACL(dir)
-	switch {
-	case errors.Is(err, unix.ENODATA), errors.Is(err, unix.ENOTSUP):
-		// No ACL: the group bits belong to the owning group alone.
-		return j.rootGroupReach(ctx)
-	case err != nil:
-		return reachUndetermined
-	}
-
-	return j.aclReach(ctx, entries)
-}
-
-// aclReach judges the entries of an ACL whose mask grants execute. A named
-// user or group other than root's is reachable outright, over-approximating
-// for groups the way traversableByNonRoot does; root's group, whether owning
-// or named, defers to its membership.
-func (j *deniedJudge) aclReach(ctx context.Context, entries []aclEntry) reachability {
-	mask := uint16(aclPermExecute)
-	for _, entry := range entries {
-		if entry.tag == aclTagMask {
-			mask = entry.perm
+// reach judges a directory traversableByNonRoot rejected, by its mode bits
+// and the POSIX ACL its extended attribute holds. The owner and group are
+// not asked: with group-execute denied to others, the owning group is root's.
+func (j *deniedJudge) reach(ctx context.Context, dir string, mode fs.FileMode, _, _ uint32) reachability {
+	return j.posixReach(ctx, mode, func() ([]aclEntry, error) {
+		entries, err := readPOSIXACL(dir)
+		if errors.Is(err, unix.ENODATA) || errors.Is(err, unix.ENOTSUP) {
+			return nil, errNoACL
 		}
-	}
-
-	var rootGroupGranted bool
-	for _, entry := range entries {
-		if entry.perm&mask&aclPermExecute == 0 {
-			continue
-		}
-		switch entry.tag {
-		case aclTagUser:
-			if entry.id != rootUID {
-				return reachNonRoot
-			}
-		case aclTagGroup:
-			if entry.id != rootGID {
-				return reachNonRoot
-			}
-			rootGroupGranted = true
-		case aclTagGroupObj:
-			rootGroupGranted = true
-		}
-	}
-
-	if rootGroupGranted {
-		return j.rootGroupReach(ctx)
-	}
-	return reachRootOnly
-}
-
-func (j *deniedJudge) rootGroupReach(ctx context.Context) reachability {
-	j.once.Do(func() { j.rootGroup = rootGroupReach(ctx) })
-	return j.rootGroup
+		return entries, err
+	})
 }
 
 // readPOSIXACL returns the access ACL of dir. A directory with no ACL fails
@@ -164,48 +84,12 @@ func parsePOSIXACL(data []byte) ([]aclEntry, error) {
 	entries := make([]aclEntry, 0, len(body)/aclEntrySize)
 	for ; len(body) > 0; body = body[aclEntrySize:] {
 		entries = append(entries, aclEntry{
-			tag:  binary.LittleEndian.Uint16(body),
-			perm: binary.LittleEndian.Uint16(body[aclEntryPermOffset:]),
+			tag:  uint32(binary.LittleEndian.Uint16(body)),
+			perm: uint32(binary.LittleEndian.Uint16(body[aclEntryPermOffset:])),
 			id:   binary.LittleEndian.Uint32(body[aclEntryIDOffset:]),
 		})
 	}
 	return entries, nil
-}
-
-// rootGroupReach reports what group-execute held by root's group confers.
-// Any account other than root holding gid 0, as its primary group or among
-// its supplementary groups, makes the directory reachable. Finding none
-// proves root-only just when every configured account source can be
-// enumerated; otherwise an account this host cannot list might hold the
-// group, and the answer is undetermined.
-func rootGroupReach(ctx context.Context) reachability {
-	output, err := exec.CommandContext(ctx, "getent", "passwd").Output()
-	if err != nil {
-		return reachUndetermined
-	}
-
-	var names []string
-	for _, account := range parseAccounts(output) {
-		switch {
-		case account.uid == rootUID:
-		case account.gid == rootGID:
-			return reachNonRoot
-		default:
-			names = append(names, account.username)
-		}
-	}
-
-	member, err := anyInRootGroup(ctx, names)
-	switch {
-	case err != nil:
-		return reachUndetermined
-	case member:
-		return reachNonRoot
-	case !accountSourcesEnumerable():
-		return reachUndetermined
-	default:
-		return reachRootOnly
-	}
 }
 
 // anyInRootGroup reports whether any named account holds gid 0 as a
@@ -218,7 +102,7 @@ func anyInRootGroup(ctx context.Context, names []string) (bool, error) {
 		names = names[len(batch):]
 
 		args := append([]string{"initgroups", "--"}, batch...)
-		output, err := exec.CommandContext(ctx, "getent", args...).Output() // #nosec G204 -- fixed command; account names follow "--" and reach no shell
+		output, err := exec.CommandContext(ctx, getentProgram, args...).Output() // #nosec G204 -- fixed command; account names follow "--" and reach no shell
 		if err != nil {
 			return false, execError(err)
 		}
@@ -260,16 +144,11 @@ func accountSourcesEnumerable() bool {
 	}
 
 	var configured bool
-	for _, line := range strings.Split(string(data), "\n") {
-		line, _, _ = strings.Cut(line, "#")
-		fields := strings.Fields(line)
-		if len(fields) == 0 {
-			continue
-		}
-		switch fields[0] {
-		case "passwd:", "group:", "initgroups:":
+	for _, line := range parseNsswitch(data) {
+		switch line.database {
+		case "passwd", "group", "initgroups":
 			configured = true
-			if !sourcesEnumerable(fields[1:]) {
+			if !sourcesEnumerable(line.sources) {
 				return false
 			}
 		}
@@ -278,18 +157,8 @@ func accountSourcesEnumerable() bool {
 }
 
 // sourcesEnumerable judges the sources of one nsswitch.conf database line.
-// Bracketed action items such as [NOTFOUND=return] are not sources.
 func sourcesEnumerable(sources []string) bool {
-	var inAction bool
 	for _, source := range sources {
-		if strings.HasPrefix(source, "[") {
-			inAction = true
-		}
-		if inAction {
-			inAction = !strings.HasSuffix(source, "]")
-			continue
-		}
-
 		switch source {
 		case "files", "systemd":
 		case "sss":
