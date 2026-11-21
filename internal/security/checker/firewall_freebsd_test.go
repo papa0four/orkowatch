@@ -9,6 +9,16 @@ import (
 	"testing"
 )
 
+// Each FreeBSD filter is a kernel module, so each says how to tell it is
+// loaded, and none names a rule of its own: FreeBSD defines none.
+func TestFreeBSDFirewallToolsSayHowTheyLoad(t *testing.T) {
+	for _, tool := range firewallTools() {
+		if tool.loaded == nil || tool.disabledKey != "" {
+			t.Errorf("%s: loaded set %v, rule key %q", tool.name, tool.loaded != nil, tool.disabledKey)
+		}
+	}
+}
+
 // Each FreeBSD filter's state is read from what its query printed on
 // FreeBSD 15.1, and an enabled pf or a running ipfilter is enabled, not
 // enforcing, since with no rules each passed every packet.
@@ -46,12 +56,11 @@ func TestFreeBSDFirewallRules(t *testing.T) {
 		output string
 		want   []string
 	}{
-		{"pf none", parsePfRules, "", []string{}},
-		{"pf rules", parsePfRules, "block drop in all\npass out all flags S/SA keep state\n", []string{"block drop in all", "pass out all flags S/SA keep state"}},
+		{"none listed", parseListedRules, "", []string{}},
+		{"pf rules", parseListedRules, "block drop in all\npass out all flags S/SA keep state\n", []string{"block drop in all", "pass out all flags S/SA keep state"}},
 		{"ipfw default only", parseIpfwRules, "65535 count ip from any to any not // orphaned dynamic states counter\n65535 deny ip from any to any\n", []string{}},
 		{"ipfw a rule ahead", parseIpfwRules, "00100 allow ip from any to any\n65535 count ip from any to any not // orphaned dynamic states counter\n65535 deny ip from any to any\n", []string{"00100 allow ip from any to any"}},
-		{"ipf none", parseIpfRules, "", []string{}},
-		{"ipf rules", parseIpfRules, "pass out all\nblock in quick proto tcp from any to any port = ssh\npass in all\n", []string{"pass out all", "block in quick proto tcp from any to any port = ssh", "pass in all"}},
+		{"ipf rules", parseListedRules, "pass out all\nblock in quick proto tcp from any to any port = ssh\npass in all\n", []string{"pass out all", "block in quick proto tcp from any to any port = ssh", "pass in all"}},
 	} {
 		if got := tc.parse([]byte(tc.output)); !slices.Equal(got, tc.want) {
 			t.Errorf("%s: rules %q, want %q", tc.name, got, tc.want)

@@ -13,6 +13,21 @@ import (
 	"github.com/papa0four/orkowatch/internal/security/finding"
 )
 
+// Every manager a platform lists has what reportTool uses without asking: a
+// name, a backend, a state command and both parsers. No two share a name.
+func TestFirewallToolsAreComplete(t *testing.T) {
+	seen := make(map[string]bool)
+	for _, tool := range firewallTools() {
+		if tool.name == "" || tool.backend == "" || len(tool.stateArgs) == 0 || tool.parseState == nil || tool.parseRules == nil {
+			t.Errorf("%q: backend %q, state command %q, or a parser is missing", tool.name, tool.backend, tool.stateArgs)
+		}
+		if seen[tool.name] {
+			t.Errorf("%q is listed twice", tool.name)
+		}
+		seen[tool.name] = true
+	}
+}
+
 // A filter not loaded is absent, and an enabled filter is enforcing only when
 // it holds rules: with none it is not enforcing, and with rules that cannot be
 // listed it is undetermined. A tool with no rule of its own narrates each.

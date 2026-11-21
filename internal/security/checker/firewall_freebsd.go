@@ -41,7 +41,7 @@ func firewallTools() []firewallTool {
 			stateArgs:  []string{"pfctl", "-si"},
 			parseState: parsePfState,
 			rulesArgs:  []string{"pfctl", "-sr"},
-			parseRules: parsePfRules,
+			parseRules: parseListedRules,
 		},
 		{
 			name:       "ipfw",
@@ -59,7 +59,7 @@ func firewallTools() []firewallTool {
 			stateArgs:  []string{"ipf", "-V"},
 			parseState: parseIpfState,
 			rulesArgs:  []string{"ipfstat", "-io"},
-			parseRules: parseIpfRules,
+			parseRules: parseListedRules,
 		},
 	}
 }
@@ -100,8 +100,10 @@ func parsePfState(output []byte) firewallState {
 	return firewallUnknown
 }
 
-// parsePfRules keeps the rules pfctl -sr lists, one per line.
-func parsePfRules(output []byte) []string {
+// parseListedRules keeps the rules of a listing that prints nothing else, one
+// per line. pfctl -sr and ipfstat -io both do: ipfstat prints an empty list's
+// notice on stderr, which is not read.
+func parseListedRules(output []byte) []string {
 	return filterLines(output, func(line string) bool { return line != "" })
 }
 
@@ -153,10 +155,4 @@ func parseIpfState(output []byte) firewallState {
 		}
 	}
 	return firewallUnknown
-}
-
-// parseIpfRules keeps the rules ipfstat -io lists. It prints them on stdout,
-// and an empty list's notice on stderr, which is not read.
-func parseIpfRules(output []byte) []string {
-	return filterLines(output, func(line string) bool { return line != "" })
 }
