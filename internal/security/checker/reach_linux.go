@@ -43,8 +43,9 @@ const (
 )
 
 // reach judges a directory traversableByNonRoot rejected, by its mode bits
-// and the POSIX ACL its extended attribute holds.
-func (j *deniedJudge) reach(ctx context.Context, dir string, mode fs.FileMode) reachability {
+// and the POSIX ACL its extended attribute holds. The owner and group are
+// not asked: with group-execute denied to others, the owning group is root's.
+func (j *deniedJudge) reach(ctx context.Context, dir string, mode fs.FileMode, _, _ uint32) reachability {
 	return j.posixReach(ctx, mode, func() ([]aclEntry, error) {
 		entries, err := readPOSIXACL(dir)
 		if errors.Is(err, unix.ENODATA) || errors.Is(err, unix.ENOTSUP) {

@@ -143,9 +143,9 @@ const (
 	// only adds noise.
 	reachNonRoot reachability = iota
 
-	// reachUnsupported means mode bits deny traversal on a platform whose
-	// access control lists this checker does not read yet, so nothing
-	// narrower than reachable is asserted there.
+	// reachUnsupported means mode bits deny traversal on a platform where
+	// what else could grant it is not read yet, so nothing narrower than
+	// reachable is asserted there.
 	reachUnsupported
 
 	// reachUndetermined means mode bits deny traversal and what could grant
@@ -532,7 +532,7 @@ func (w *fsWalk) classify(ctx context.Context, found *fsScan, path string, info 
 // which keeps that cost off every other directory.
 func (w *fsWalk) conferred(ctx context.Context, dir string, parent reachability, mode fs.FileMode, uid, gid uint32) reachability {
 	if parent != reachRootOnly && !traversableByNonRoot(mode, uid, gid) {
-		return max(parent, w.denied.reach(ctx, dir, mode))
+		return max(parent, w.denied.reach(ctx, dir, mode, uid, gid))
 	}
 	return parent
 }

@@ -1,4 +1,4 @@
-//go:build linux
+//go:build linux || freebsd
 
 // internal/security/checker/reach_judge.go
 
