@@ -15,13 +15,13 @@ import (
 // host here.
 func platformLocations() []pathLocation { return nil }
 
-// platformCriticalPaths lists the paths macOS adds to the common set.
-func platformCriticalPaths() []criticalPath {
-	return []criticalPath{
-		{"/private/etc", "System configuration directory", permStandardDir},
-		{"/System", "System directory", permStandardDir},
-		{"/usr/local/bin", "User-installed binaries", permStandardDir},
-	}
+// criticalPaths lists the common paths and the ones macOS adds.
+func criticalPaths() []criticalPath {
+	return append(commonCriticalPaths(),
+		criticalPath{"/private/etc", "System configuration directory", permStandardDir},
+		criticalPath{"/System", "System directory", permStandardDir},
+		criticalPath{"/usr/local/bin", "User-installed binaries", permStandardDir},
+	)
 }
 
 // nameServiceKnows asks Directory Services about a single identifier.

@@ -52,7 +52,7 @@ ssh.root_login_permitted:
   cvss_score: 9.3
   cvss_vector: "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N"
   records:
-    sshd-directive: [value, match]
+    sshd-directive: [value, state, match]
     listening: [listening, addresses]
   environment:
     - metric: MAV
@@ -101,7 +101,7 @@ ssh.password_auth_enabled:
   cvss_score: 8.7
   cvss_vector: "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:N/VA:N/SC:N/SI:N/SA:N"
   records:
-    sshd-directive: [value, match]
+    sshd-directive: [value, state, match]
     listening: [listening, addresses]
   environment:
     - metric: MAV
@@ -255,8 +255,8 @@ firewall.no_active_manager:
       basis:
         - "NIST CM-6 maps to this technique, listed there as T1562.004 (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
   description: >
-    None of the recognized firewall managers (iptables, ufw, firewalld,
-    pfctl) are active on this system. The host has no detected host-based
+    None of the recognized firewall managers (iptables, ufw or firewalld)
+    is active on this system. The host has no detected host-based
     packet filtering in place. All listening services are reachable on
     all interfaces without network-level access control.
   impact: >

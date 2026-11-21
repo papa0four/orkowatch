@@ -8,10 +8,12 @@
 # bundled catalog (nist.yaml), which load checks it against. The weakness a
 # definition maps to is its cwe field, and its reference is built from that.
 # The manual pages quoted are those of FreeBSD 15.1-RELEASE, read on that release
-# on 2026-11-19, and each condition was produced there and seen to behave as its
-# definition says. A definition for a condition the Linux file also defines carries
-# the same baseline. Only the users check has definitions here: a check with none
-# for the platform is reported as not checked.
+# on 2026-11-19 for the users check and on 2026-11-20 for the SSH, permissions and
+# firewall checks, and each condition was produced there and seen to behave as its
+# definition says. A definition for a condition the Linux file also defines
+# carries the same baseline.
+# The users, SSH, permissions and firewall checks have definitions here: a check
+# with none for the platform is reported as not checked.
 
 # -------------------------
 # User checker findings
@@ -320,3 +322,417 @@ users.nologin_account_password_set:
       id: "AC-2"
     - source: NIST
       id: "IA-5"
+
+# -------------------------
+# SSH checker findings
+# -------------------------
+# sshd_config(5) on FreeBSD states the default of every directive judged here,
+# so a directive the configuration leaves unset is judged by that default and
+# no rule reports it as unset. sshd -T reported the same defaults for the file
+# as shipped, which sets none of them.
+
+ssh.config_not_found:
+  title: "SSH daemon configuration file not found"
+  severity: "MEDIUM"
+  cvss_score: 4.8
+  cvss_vector: "CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:L/VI:L/VA:L/SC:N/SI:N/SA:N"
+  records:
+    file: []
+  no_weakness: "CWE-16 is an obsolete grouping that MITRE prohibits for mapping, and no entry describes a missing configuration file."
+  description: >
+    /etc/ssh/sshd_config is not present. sshd_config(5): "sshd(8) reads
+    configuration data from /etc/ssh/sshd_config (or the file specified with
+    -f on the command line)." With the file removed, sshd on FreeBSD 15.1
+    answered "/etc/ssh/sshd_config: No such file or directory", so a server
+    that is running was started with another file or before this one was
+    removed, and what it enforces cannot be read here.
+  impact: >
+    The settings the SSH server runs with cannot be verified from the file
+    the audit reads, so whether it permits root login or accepts passwords
+    is not established.
+  resolution: >
+    Restore /etc/ssh/sshd_config, or find the file the server was started
+    with (sshd -f) and audit that. Restart the server after a change:
+    service sshd restart.
+  references:
+    - source: NIST
+      id: "CM-6"
+
+ssh.root_login_permitted:
+  title: "SSH PermitRootLogin is not disabled"
+  severity: "CRITICAL"
+  cvss_score: 9.3
+  cvss_vector: "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N"
+  records:
+    sshd-directive: [value, state, match]
+    listening: [listening, addresses]
+  environment:
+    - metric: MAV
+      kind: listening
+      fact: listening
+      cases:
+        - value: loopback-only
+          set: L
+          guide: mav-exposed-on-localhost-only
+          because: "sshd listens only on loopback addresses, so the server is reached only from the host itself"
+  cwe: "CWE-250"
+  attack_techniques:
+    - id: "T1021.004"
+      basis:
+        - "NIST AC-6 maps to this technique (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
+        - "NIST IA-2 maps to this technique (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
+  description: >
+    PermitRootLogin is in force with a value other than no. sshd_config(5):
+    "Specifies whether root can log in using ssh(1). The argument must be
+    yes, prohibit-password, forced-commands-only, or no. The default is
+    no." With PermitRootLogin yes, sshd on FreeBSD 15.1 admitted root by its
+    password; with the default it refused root.
+  impact: >
+    Whoever holds root's credential, or a key root's account accepts, logs
+    in over the network as root and holds the host with no further step.
+  resolution: >
+    Remove the PermitRootLogin line from /etc/ssh/sshd_config, or set it to
+    no, and restart the server: service sshd restart. Log in as a regular
+    account and become root with su or sudo.
+  references:
+    - source: NIST
+      id: "AC-6"
+    - source: NIST
+      id: "IA-2"
+
+ssh.password_auth_enabled:
+  title: "SSH accepts a password"
+  severity: "HIGH"
+  cvss_score: 8.7
+  cvss_vector: "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:N/VA:N/SC:N/SI:N/SA:N"
+  records:
+    sshd-directive: [value, state, match]
+    listening: [listening, addresses]
+  environment:
+    - metric: MAV
+      kind: listening
+      fact: listening
+      cases:
+        - value: loopback-only
+          set: L
+          guide: mav-exposed-on-localhost-only
+          because: "sshd listens only on loopback addresses, so the server is reached only from the host itself"
+  cwe: "CWE-521"
+  attack_techniques:
+    - id: "T1021.004"
+      basis:
+        - "NIST IA-5(1) maps to this technique (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
+        - "CWE-521 relates to CAPEC-555, which CAPEC 3.9 maps to its parent technique T1021"
+    - id: "T1110.001"
+      basis:
+        - "NIST IA-5(1) maps to this technique (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
+        - "CWE-521 relates to CAPEC-49, which CAPEC 3.9 maps to this technique"
+  description: >
+    The SSH server accepts a password, by one of two ways. PasswordAuthentication
+    is yes; or KbdInteractiveAuthentication and UsePAM are both yes, which is
+    the state FreeBSD ships: sshd_config(5) gives "The default is no" for
+    PasswordAuthentication and "The default is yes" for
+    KbdInteractiveAuthentication, and says under PasswordAuthentication
+    "Note that passwords may also be accepted via
+    KbdInteractiveAuthentication" and under UsePAM "Because PAM
+    keyboard-interactive authentication usually serves an equivalent role to
+    password authentication, you should disable either PasswordAuthentication
+    or KbdInteractiveAuthentication." With the file as shipped, sshd on
+    FreeBSD 15.1 admitted an account by its password through
+    keyboard-interactive authentication and refused it once
+    KbdInteractiveAuthentication was no.
+  impact: >
+    Any account the server admits can be tried by guessing its password
+    from the network, and a password exposed elsewhere opens the account
+    here.
+  resolution: >
+    Distribute keys to the accounts that log in, then set both
+    PasswordAuthentication no and KbdInteractiveAuthentication no in
+    /etc/ssh/sshd_config and restart the server: service sshd restart.
+  references:
+    - source: NIST
+      id: "IA-5(1)"
+
+ssh.empty_passwords_permitted:
+  title: "SSH PermitEmptyPasswords is enabled"
+  severity: "CRITICAL"
+  cvss_score: 9.2
+  cvss_vector: "CVSS:4.0/AV:N/AC:L/AT:P/PR:N/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N"
+  records:
+    sshd-directive: [value, state, match]
+    listening: [listening, addresses]
+  environment:
+    - metric: MAV
+      kind: listening
+      fact: listening
+      cases:
+        - value: loopback-only
+          set: L
+          guide: mav-exposed-on-localhost-only
+          because: "sshd listens only on loopback addresses, so the server is reached only from the host itself"
+  cwe: "CWE-521"
+  attack_techniques:
+    - id: "T1021.004"
+      basis:
+        - "NIST IA-5(1) maps to this technique (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
+        - "CWE-521 relates to CAPEC-555, which CAPEC 3.9 maps to its parent technique T1021"
+  description: >
+    PermitEmptyPasswords is yes. sshd_config(5): "When password
+    authentication is allowed, it specifies whether the server allows login
+    to accounts with empty password strings. The default is no." On FreeBSD
+    15.1 an account with an empty password field was admitted over SSH with
+    this set, PasswordAuthentication yes and UsePAM no. With PAM in use it
+    was refused, because the sshd service's policy as shipped does not pass
+    nullok to pam_unix; a policy that does would admit it.
+  impact: >
+    Where the login path admits it, an account with no password is entered
+    from the network by anyone who names it, with that account's access.
+    The attack needs such an account to exist.
+  resolution: >
+    Remove the PermitEmptyPasswords line from /etc/ssh/sshd_config, or set
+    it to no, and restart the server: service sshd restart. Give every
+    account a password or lock it: pw lock <username>.
+  references:
+    - source: NIST
+      id: "IA-5(1)"
+
+# -------------------------
+# Permissions checker findings
+# -------------------------
+# The critical paths are FreeBSD's own, each expected at the mode FreeBSD
+# 15.1 installs it with and owned by root: master.passwd and spwd.db 0600,
+# passwd, pwd.db, group and sshd_config 0644, the sudoers file of the sudo
+# package 0440, /root 0750, and /var/log, /home, /boot and /usr/local/etc 0755.
+# Each condition was produced on that release and seen to be reported.
+
+permissions.critical_path_not_root_owned:
+  title: "Critical system path is not owned by root"
+  severity: "HIGH"
+  cvss_score: 8.5
+  cvss_vector: "CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N"
+  records:
+    file: [description, uid, expected]
+  cwe: "CWE-282"
+  description: >
+    A path the system relies on for accounts, privilege or service
+    configuration is owned by an account other than root. FreeBSD installs
+    each of these paths owned by root, and passwd(5) states of the file
+    holding the password hashes: "The master.passwd file is readable only by
+    root". The owner of a file can change its mode whatever the mode is, so
+    a path owned by another account is as open as that account makes it.
+  impact: >
+    The owning account can rewrite the path and relax its mode without
+    escalating. For the password files or the sudo configuration this is a
+    path to root; for a service configuration it lets the service be
+    redirected or disabled.
+  resolution: >
+    Restore root ownership: chown root <path>. FreeBSD installs each of these
+    paths owned by root:wheel. Find out how the ownership changed before
+    restoring it, since the change is either a mistaken administrative
+    action or a sign of unauthorized access.
+  references:
+    - source: NIST
+      id: "AC-3"
+
+permissions.path_exceeds_expected_mode:
+  title: "File or directory permissions exceed expected mode"
+  severity: "MEDIUM"
+  cvss_score: 6.8
+  cvss_vector: "CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:H/VI:N/VA:N/SC:N/SI:N/SA:N"
+  records:
+    file: [description, mode, expected]
+  cwe: "CWE-732"
+  description: >
+    A critical path sets a mode bit that the mode FreeBSD installs it with
+    does not. The password hashes are in /etc/master.passwd and
+    /etc/spwd.db. passwd(5): "Because this file contains the encrypted user
+    passwords, it should not be readable by anyone without appropriate
+    privileges." pwd_mkdb(8): "The two databases differ in that the secure
+    version contains the user's encrypted password and the insecure version
+    has an asterisk". A mode stricter than the expected one is not reported.
+  impact: >
+    A password file or database readable by other accounts gives them the
+    password hashes to crack offline. A configuration file or directory
+    writable by other accounts lets them change how accounts, sudo or the SSH
+    server behave.
+  resolution: >
+    Restore the mode FreeBSD installs: chmod 600 /etc/master.passwd
+    /etc/spwd.db, chmod 644 /etc/passwd /etc/pwd.db /etc/group
+    /etc/ssh/sshd_config, chmod 440 /usr/local/etc/sudoers, chmod 750 /root,
+    and chmod 755 for /var/log, /home, /boot and /usr/local/etc. Tightening
+    further is never reported.
+  references:
+    - source: NIST
+      id: "AC-3"
+
+permissions.world_writable_file:
+  title: "World-writable file found on the scanned filesystem"
+  severity: "HIGH"
+  cvss_score: 8.5
+  cvss_vector: "CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N"
+  records:
+    file: [mode, uid, gid, unresolved, reach, location]
+  environment:
+    - metric: MPR
+      kind: file
+      fact: reach
+      cases:
+        - value: root-only
+          set: H
+          guide: mpr-restricting-access-to-administrative-users
+          because: "no principal other than root can traverse the directories leading to the file, so only root can reach it to write it"
+  cwe: "CWE-732"
+  description: >
+    A regular file grants write to other, the bit chmod(2) defines as
+    "S_IWOTH 0000002 /* W for other */", so every local account can change
+    it whoever owns it. The sticky bit does not protect it: sticky(7) says
+    the bit "is ignored for regular files". FreeBSD 15.1 installs no
+    world-writable regular file on its root filesystem.
+  impact: >
+    Any local account or process can overwrite the file. If a privileged
+    process runs or reads it, that is a path to the privilege of that
+    process; if it is a configuration file, the service it configures can be
+    changed.
+  resolution: >
+    Remove write for other: chmod o-w <path>. Find out why it was set and
+    whether the file was changed, and check what runs or reads it.
+  references:
+    - source: NIST
+      id: "AC-3"
+
+permissions.suid_sgid_binary:
+  title: "SUID or SGID binary found"
+  severity: "HIGH"
+  cvss_score: 8.5
+  cvss_vector: "CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N"
+  records:
+    file: [mode, uid, gid, unresolved, reach, location]
+  environment:
+    - metric: MPR
+      kind: file
+      fact: reach
+      cases:
+        - value: root-only
+          set: H
+          guide: mpr-low-privileged-user-cannot-execute
+          because: "no principal other than root can traverse the directories leading to the binary, so a low-privileged user cannot reach it to execute it"
+  cwe: "CWE-267"
+  attack_techniques:
+    - id: "T1548.001"
+      basis:
+        - "NIST AC-6 maps to its parent technique T1548 (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
+        - "NIST CM-7 maps to this technique (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
+  description: >
+    A regular file has the setuid or setgid bit, so it runs with its owner's
+    or group's privilege whoever runs it. security(7): "The other big
+    potential root hole in a system are the SUID-root and SGID binaries
+    installed on the system." FreeBSD 15.1 installs 34 such files on its root
+    filesystem, among them su, passwd, login and ping, and each is reported,
+    so the list can be held against what the release installs.
+  impact: >
+    A flaw in such a file lets an account that can run it act with the
+    file's owner or group, which for most of them is root. security(7) notes
+    that an intruder who breaks an SGID-kmem binary "might be able to read
+    /dev/kmem and thus read the crypted password file".
+  resolution: >
+    Compare the list with what the release and the installed packages
+    install. security(7): "the prudent sysadmin will restrict SUID binaries
+    that only staff should run to a special group that only staff can
+    access, and get rid of ("chmod 000") any SUID binaries that nobody
+    uses." Remove the bit from a file that does not need it: chmod u-s,g-s
+    <path>.
+  references:
+    - source: NIST
+      id: "AC-6"
+    - source: NIST
+      id: "CM-7"
+
+permissions.unowned_file:
+  title: "File with no valid owner or group found"
+  severity: "MEDIUM"
+  cvss_score: 4.8
+  cvss_vector: "CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:L/VI:L/VA:N/SC:N/SI:N/SA:N"
+  records:
+    file: [mode, uid, gid, unresolved, reach, location]
+  cwe: "CWE-732"
+  description: >
+    An entry's owner or group is a number no account or group has, which
+    find(1) describes as "the file belongs to an unknown user" or "an
+    unknown group". On FreeBSD 15.1 a file an account owned outside its
+    home directory keeps the account's numbers after pw userdel, and
+    neither resolves afterwards: pw(8) removes only "the user's home
+    directory and all of its contents", and with -r alone.
+  impact: >
+    The next account or group created with the same number owns the entry.
+    In a sensitive place that hands it control of a file it was never meant
+    to have.
+  resolution: >
+    Give the entry an owner and group: chown <user>:<group> <path>, or
+    remove it if it is not needed. Check which accounts were removed to find
+    where it came from.
+  references:
+    - source: NIST
+      id: "AC-3"
+
+# -------------------------
+# Firewall checker findings
+# -------------------------
+# pf, ipfw and ipfilter are each judged by whether they filter now. No rule
+# reports one present and not filtering: all three ship with the base system.
+
+firewall.no_active_manager:
+  title: "No packet filter is filtering"
+  severity: "CRITICAL"
+  cvss_score: 9.3
+  cvss_vector: "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:N/SC:N/SI:N/SA:N"
+  records:
+    listening: [listening, addresses]
+  environment:
+    - metric: MAV
+      kind: listening
+      fact: listening
+      cases:
+        - value: loopback-only
+          set: L
+          guide: mav-exposed-on-localhost-only
+          because: "no socket on the host listens beyond loopback addresses, so without a firewall the host is still reached only from itself"
+  cwe: "CWE-923"
+  attack_techniques:
+    - id: "T1686"
+      basis:
+        - "NIST CM-6 maps to this technique, listed there as T1562.004 (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
+  description: >
+    None of pf, ipfw and ipfilter is filtering. FreeBSD ships all three,
+    loads none, and sets pf_enable, firewall_enable and ipfilter_enable to
+    NO in /etc/defaults/rc.conf. A filter not loaded or disabled does not
+    filter, and pf or ipfilter enabled with no rules passes every packet.
+    pf.conf(5): "If no rule matches the packet, the default action is to
+    pass the packet without creating a state." ipfilter reported "Default:
+    pass all". ipfw filters by its default rule alone where that rule
+    denies. ipfw(8): "A ruleset always includes a default rule (numbered
+    65535) which cannot be modified or deleted, and matches all packets. The
+    action associated with the default rule can be either deny or allow
+    depending on how the kernel is configured." and, of
+    net.inet.ip.fw.enable, "Setting this variable to 0 lets you run your
+    machine without firewall even if compiled in." On FreeBSD 15.1 each of
+    these states admitted a connection to sshd from outside the host. What
+    the rules of a filter that holds them admit is not judged; they are
+    listed in the report.
+  impact: >
+    Every service bound to a network interface is directly reachable without
+    restriction. This eliminates host-based network controls as a
+    defense-in-depth layer against exploitation, lateral movement, and
+    unauthorized access to internal services.
+  resolution: >
+    Enable one filter with a rule set that permits only required traffic and
+    blocks the rest. rc.conf(5), of pf_enable: "Setting this to “YES”
+    enables pf(4) packet filtering." For pf, write the rules to
+    /etc/pf.conf, set pf_enable="YES" in /etc/rc.conf and run service pf
+    start. For ipfw, set firewall_enable="YES" and a firewall_type and run
+    service ipfw start. For ipfilter, write /etc/ipf.rules, set
+    ipfilter_enable="YES" and run service ipfilter start.
+  references:
+    - source: NIST
+      id: "SC-7"
+    - source: NIST
+      id: "CM-6"

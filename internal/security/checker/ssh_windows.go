@@ -45,7 +45,7 @@ func NewSSHChecker(osCtx registry.OSContext, listeners ListenersFunc) *WindowsSS
 // whose server could not be looked for is not said to lack it. The server
 // reads its configuration from the ssh folder under ProgramData, wherever
 // Windows has put that folder. Windows defines no rule for an unset
-// directive, so the zero sshdAbsentKeys is passed.
+// directive and states no default, which is how sshdPlatformFor describes it.
 func (s *WindowsSSHChecker) Check(ctx context.Context) finding.AuditResult {
 	r := newReport(s.checkIdentity)
 
@@ -61,7 +61,7 @@ func (s *WindowsSSHChecker) Check(ctx context.Context) finding.AuditResult {
 			r.inconclusive(finding.ResultError, "OpenSSH configuration could not be located: "+err.Error(),
 				ruleSSHDNoConfig, ruleSSHRootLogin, ruleSSHPassword)
 		} else {
-			checkSSHDConfig(ctx, r, config, sshdAbsentKeys{}, s.listeners(ctx))
+			checkSSHDConfig(ctx, r, config, sshdPlatformFor(s.osCtx), s.listeners(ctx))
 		}
 	}
 	s.checkPuTTY(ctx, r)

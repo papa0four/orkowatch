@@ -83,33 +83,78 @@ type (
 		absentKey registry.FindingKey
 	}
 
-	// sshdAbsentKeys names the findings a platform defines for the two
-	// evaluated directives being unset. A zero value means the platform has
-	// no such definitions and an unset directive is not reported.
-	sshdAbsentKeys struct {
-		rootLogin    registry.FindingKey
-		passwordAuth registry.FindingKey
+	// sshdPlatform is what a platform's sshd brings to the check beyond the
+	// configuration read. rootLoginUnset and passwordAuthUnset are the rules
+	// it defines for a directive left unset, and emptyPasswords the one for
+	// empty passwords, each empty where it defines none. defaults holds, by
+	// keyword, the default of each directive whose default its sshd's manual
+	// states: an unset directive with one is judged by it, where one without
+	// is reported as unset. keyboardPasswords is set where its sshd was seen
+	// to accept a password through keyboard-interactive authentication that
+	// PAM answers. The zero value is a platform that defines only the rules
+	// every platform has.
+	sshdPlatform struct {
+		rootLoginUnset    registry.FindingKey
+		passwordAuthUnset registry.FindingKey
+		emptyPasswords    registry.FindingKey
+		defaults          map[string]string
+		keyboardPasswords bool
+	}
+
+	// sshJudge concludes the directive rules of one configuration. reach,
+	// where sshd listens, is recorded once on each finding raised, whichever
+	// directive raises it first.
+	sshJudge struct {
+		r        *report
+		config   sshConfig
+		readErr  error
+		platform sshdPlatform
+		reach    finding.Evidence
+		reached  map[registry.FindingKey]bool
 	}
 )
 
-// The rules the configuration decides on every platform. Each platform names
-// the two for a directive left unset, where it defines them, in the
-// sshdAbsentKeys it passes.
+// The rules the configuration decides. The first three are judged on every
+// platform; a platform names the others in the sshdPlatform it is described
+// by, where it defines them.
 const (
-	ruleSSHDNoConfig registry.FindingKey = "ssh.config_not_found"
-	ruleSSHRootLogin registry.FindingKey = "ssh.root_login_permitted"
-	ruleSSHPassword  registry.FindingKey = "ssh.password_auth_enabled"
+	ruleSSHDNoConfig      registry.FindingKey = "ssh.config_not_found"
+	ruleSSHRootLogin      registry.FindingKey = "ssh.root_login_permitted"
+	ruleSSHPassword       registry.FindingKey = "ssh.password_auth_enabled"
+	ruleSSHRootLoginUnset registry.FindingKey = "ssh.permit_root_login_not_set"
+	ruleSSHPasswordUnset  registry.FindingKey = "ssh.password_auth_not_set"
+	ruleSSHEmptyPasswords registry.FindingKey = "ssh.empty_passwords_permitted" // #nosec G101 -- a rule key, not a credential
 )
 
 // The keywords the parser acts on, in the lower case it compares them in.
+// keywordChallengeResponse is the deprecated alias of keywordKeyboard and is
+// read as it.
 const (
-	keywordInclude       = "include"
-	keywordMatch         = "match"
-	keywordRootLogin     = "permitrootlogin"
-	keywordPasswordAuth  = "passwordauthentication"
-	keywordPort          = "port"
-	keywordListenAddress = "listenaddress"
+	keywordInclude           = "include"
+	keywordMatch             = "match"
+	keywordRootLogin         = "permitrootlogin"
+	keywordPasswordAuth      = "passwordauthentication"
+	keywordKeyboard          = "kbdinteractiveauthentication"
+	keywordChallengeResponse = "challengeresponseauthentication"
+	keywordUsePAM            = "usepam"
+	keywordEmptyPasswords    = "permitemptypasswords"
+	keywordPort              = "port"
+	keywordListenAddress     = "listenaddress"
 )
+
+// The directives as sshd_config(5) writes them, for the evidence and the
+// reasons that name one.
+const (
+	directiveRootLogin      = "PermitRootLogin"
+	directivePasswordAuth   = "PasswordAuthentication"
+	directiveKeyboard       = "KbdInteractiveAuthentication"
+	directiveUsePAM         = "UsePAM"
+	directiveEmptyPasswords = "PermitEmptyPasswords"
+)
+
+// sshdDefaultState is the state recorded with a value that is the platform's
+// documented default and is set nowhere in the configuration.
+const sshdDefaultState = "not set, the default applies"
 
 // sshdDefaultPort is the port sshd listens on when the configuration names
 // none, as sshd -T reports it.
@@ -122,8 +167,42 @@ const sshdSubject = "sshd"
 // accepts for it, as sshd -T reports them accepted. sshd reads values without
 // regard to case and refuses to start on any other value.
 var sshdValues = map[string][]string{
-	keywordRootLogin:    {"yes", "prohibit-password", "without-password", "forced-commands-only", "no"},
-	keywordPasswordAuth: {"yes", "no"},
+	keywordRootLogin:      {"yes", "prohibit-password", "without-password", "forced-commands-only", "no"},
+	keywordPasswordAuth:   {"yes", "no"},
+	keywordKeyboard:       {"yes", "no"},
+	keywordUsePAM:         {"yes", "no"},
+	keywordEmptyPasswords: {"yes", "no"},
+}
+
+// sshdPlatformFor describes the sshd of the platform osCtx names. Linux
+// defines a rule for each of the two directives being unset, because what its
+// sshd then does varies by distribution and release. FreeBSD's
+// sshd_config(5) states the default of every directive judged, "The default
+// is no" for PermitRootLogin, PasswordAuthentication and
+// PermitEmptyPasswords and "The default is yes" for
+// KbdInteractiveAuthentication and UsePAM, and sshd -T on FreeBSD 15.1
+// reported those for the file as shipped, which sets none of them; with them
+// sshd there admitted an account by its password through
+// keyboard-interactive authentication.
+func sshdPlatformFor(osCtx registry.OSContext) sshdPlatform {
+	switch {
+	case osCtx.Platform == registry.PlatformLinux:
+		return sshdPlatform{rootLoginUnset: ruleSSHRootLoginUnset, passwordAuthUnset: ruleSSHPasswordUnset}
+	case osCtx.Platform == registry.PlatformUnix && slices.Contains(osCtx.Families, registry.DistroFreeBSD):
+		return sshdPlatform{
+			emptyPasswords: ruleSSHEmptyPasswords,
+			defaults: map[string]string{
+				keywordRootLogin:      "no",
+				keywordPasswordAuth:   "no",
+				keywordKeyboard:       "yes",
+				keywordUsePAM:         "yes",
+				keywordEmptyPasswords: "no",
+			},
+			keyboardPasswords: true,
+		}
+	default:
+		return sshdPlatform{}
+	}
 }
 
 // parseSSHDConfig reads the configuration in main, read from path, and every
@@ -155,7 +234,7 @@ func (p *sshdParser) read(ctx context.Context, file io.Reader, path string, bloc
 		if err != nil {
 			return fmt.Errorf("%s line %d: %w", path, line, err)
 		}
-		switch keyword {
+		switch keyword = canonicalKeyword(keyword); keyword {
 		case "":
 		case keywordMatch:
 			if len(args) == 0 {
@@ -181,6 +260,16 @@ func (p *sshdParser) read(ctx context.Context, file io.Reader, path string, bloc
 		}
 	}
 	return scanner.Err()
+}
+
+// canonicalKeyword returns the keyword a deprecated alias stands for, and
+// any other keyword as it is, so a directive is kept under one name however
+// the configuration writes it.
+func canonicalKeyword(keyword string) string {
+	if keyword == keywordChallengeResponse {
+		return keywordKeyboard
+	}
+	return keyword
 }
 
 // set records a keyword's setting unless the section already has one: sshd
@@ -370,9 +459,14 @@ func splitSSHDLine(line string) (keyword string, args []string, err error) {
 // error already distinguishes absent from unreadable. An absent file fails its
 // own rule and leaves the directive rules unchecked; an unreadable one is an
 // error on all of them. Each directive finding carries where sshd listens,
-// which decides how far it can be exploited from.
-func checkSSHDConfig(ctx context.Context, r *report, path string, absent sshdAbsentKeys, listeners Listeners) {
-	directives := []registry.FindingKey{ruleSSHRootLogin, ruleSSHPassword, absent.rootLogin, absent.passwordAuth}
+// which decides how far it can be exploited from. platform says which rules
+// the host's platform defines beyond those every platform has, and what its
+// sshd does with a directive the configuration leaves unset.
+func checkSSHDConfig(ctx context.Context, r *report, path string, platform sshdPlatform, listeners Listeners) {
+	directives := []registry.FindingKey{
+		ruleSSHRootLogin, ruleSSHPassword,
+		platform.rootLoginUnset, platform.passwordAuthUnset, platform.emptyPasswords,
+	}
 
 	file, err := os.Open(path) // #nosec G304 -- path is a platform constant naming the sshd configuration
 	switch {
@@ -391,21 +485,34 @@ func checkSSHDConfig(ctx context.Context, r *report, path string, absent sshdAbs
 	r.note(finding.SymbolInfo, "Configuration file: %s", path)
 
 	config, readErr := parseSSHDConfig(ctx, file, path, filepath.Dir(path))
-	reach := sshdListening(r, config, readErr, listeners)
+	j := &sshJudge{
+		r:        r,
+		config:   config,
+		readErr:  readErr,
+		platform: platform,
+		reach:    sshdListening(r, config, readErr, listeners),
+		reached:  map[registry.FindingKey]bool{},
+	}
+	enabled := func(value string) bool { return strings.EqualFold(value, "yes") }
 
-	reportSSHDirective(r, config, readErr, keywordRootLogin, reach, sshRule{
-		name:      "PermitRootLogin",
+	j.directive(keywordRootLogin, sshRule{
+		name:      directiveRootLogin,
 		unsafe:    func(value string) bool { return !strings.EqualFold(value, "no") },
 		unsafeKey: ruleSSHRootLogin,
-		absentKey: absent.rootLogin,
+		absentKey: platform.rootLoginUnset,
 	})
-
-	reportSSHDirective(r, config, readErr, keywordPasswordAuth, reach, sshRule{
-		name:      "PasswordAuthentication",
-		unsafe:    func(value string) bool { return strings.EqualFold(value, "yes") },
+	j.directive(keywordPasswordAuth, sshRule{
+		name:      directivePasswordAuth,
+		unsafe:    enabled,
 		unsafeKey: ruleSSHPassword,
-		absentKey: absent.passwordAuth,
+		absentKey: platform.passwordAuthUnset,
 	})
+	if platform.keyboardPasswords {
+		j.keyboardPasswords()
+	}
+	if platform.emptyPasswords != "" {
+		j.directive(keywordEmptyPasswords, sshRule{name: directiveEmptyPasswords, unsafe: enabled, unsafeKey: platform.emptyPasswords})
+	}
 }
 
 // sshdListening records where sshd listens: the TCP sockets listening on the
@@ -424,59 +531,146 @@ func sshdListening(r *report, config sshConfig, readErr error, listeners Listene
 	})
 }
 
-// reportSSHDirective concludes the rules one directive decides, from its global
-// setting and from each Match block that sets it. An absent directive is a
-// third condition rather than a variant of either value, because sshd applies
-// its own default to what the configuration does not say, and that default is
-// not visible in the configuration being audited. A directive not found in a
-// configuration that could not be read to the end is an error rather than an
-// absence: the part that was not read may have set it. A value sshd refuses
-// is not judged, because the server does not start with it. A Match block that
-// sets an unsafe value fails the rule for the connections it matches, whatever
-// the global setting, and its criteria are recorded with the value. Where sshd
-// listens, reach, is recorded once on each finding the directive raises.
-func reportSSHDirective(r *report, config sshConfig, readErr error, keyword string, reach finding.Evidence, rule sshRule) {
-	reached := map[registry.FindingKey]bool{}
-	observe := func(key registry.FindingKey, subject finding.Evidence) {
-		if reached[key] {
-			r.observed(key, subject)
-			return
-		}
-		reached[key] = true
-		r.observed(key, subject, reach)
+// observe records that key's condition was seen on subjects, with where sshd
+// listens the first time the key is raised.
+func (j *sshJudge) observe(key registry.FindingKey, subjects ...finding.Evidence) {
+	if !j.reached[key] {
+		j.reached[key] = true
+		subjects = append(subjects, j.reach)
 	}
+	j.r.observed(key, subjects...)
+}
 
-	global := config.global[keyword]
+// directive concludes the rules one directive decides, from its global
+// setting and from each Match block that sets it. An absent directive is a
+// third condition rather than a variant of either value where the platform
+// states no default for it, because sshd applies its own default to what the
+// configuration does not say, and that default is then not visible in the
+// configuration being audited. Where the platform states the default, an
+// absent directive is judged by it and the evidence says the value is the
+// default. A directive not found in a configuration that could not be read to
+// the end is an error rather than an absence: the part that was not read may
+// have set it. A value sshd refuses is not judged, because the server does
+// not start with it. A Match block that sets an unsafe value fails the rule
+// for the connections it matches, whatever the global setting, and its
+// criteria are recorded with the value.
+func (j *sshJudge) directive(keyword string, rule sshRule) {
+	global := j.config.global[keyword]
+	byDefault, stated := j.platform.defaults[keyword]
 	switch {
-	case !global.found && readErr != nil:
-		r.inconclusive(finding.ResultError,
-			fmt.Sprintf("OpenSSH configuration could not be read in full: %v", readErr),
+	case !global.found && j.readErr != nil:
+		j.r.inconclusive(finding.ResultError,
+			fmt.Sprintf("OpenSSH configuration could not be read in full: %v", j.readErr),
 			rule.unsafeKey, rule.absentKey)
+	case !global.found && stated && rule.unsafe(byDefault):
+		j.observe(rule.unsafeKey, defaultEvidence(rule.name, byDefault))
+	case !global.found && stated:
+		j.r.pass(rule.unsafeKey)
+		j.r.note(finding.SymbolInfo, "%s is not set; its default on this platform is %s", rule.name, byDefault)
 	case !global.found:
-		r.inconclusive(finding.ResultNotChecked,
+		j.r.inconclusive(finding.ResultNotChecked,
 			rule.name+" is not set; the sshd default applies and is not read", rule.unsafeKey)
 		if rule.absentKey != "" {
-			observe(rule.absentKey, evidence(finding.KindDirective, rule.name, fact(finding.FactState, "not set")))
+			j.observe(rule.absentKey, evidence(finding.KindDirective, rule.name, fact(finding.FactState, "not set")))
 		}
 	case global.rejected != "":
-		r.inconclusive(finding.ResultUnknown, rejectedReason(rule.name, global), rule.unsafeKey)
-		r.pass(rule.absentKey)
+		j.r.inconclusive(finding.ResultUnknown, rejectedReason(rule.name, global), rule.unsafeKey)
+		j.r.pass(rule.absentKey)
 	case rule.unsafe(global.value):
-		observe(rule.unsafeKey, evidence(finding.KindDirective, rule.name, fact(finding.FactValue, global.value)))
-		r.pass(rule.absentKey)
+		j.observe(rule.unsafeKey, evidence(finding.KindDirective, rule.name, fact(finding.FactValue, global.value)))
+		j.r.pass(rule.absentKey)
 	default:
-		r.pass(rule.unsafeKey, rule.absentKey)
+		j.r.pass(rule.unsafeKey, rule.absentKey)
 	}
 
-	for _, block := range config.blocks {
+	for _, block := range j.config.blocks {
 		setting, ok := block.settings[keyword]
 		switch {
 		case !ok:
 		case setting.rejected != "":
-			r.inconclusive(finding.ResultUnknown, rejectedReason(rule.name, setting)+" (Match "+block.criteria+")", rule.unsafeKey)
+			j.r.inconclusive(finding.ResultUnknown, rejectedReason(rule.name, setting)+" (Match "+block.criteria+")", rule.unsafeKey)
 		case rule.unsafe(setting.value):
-			observe(rule.unsafeKey, evidence(finding.KindDirective, rule.name,
+			j.observe(rule.unsafeKey, evidence(finding.KindDirective, rule.name,
 				fact(finding.FactValue, setting.value), fact(finding.FactMatch, block.criteria)))
+		}
+	}
+}
+
+// defaultEvidence is the evidence of a directive the configuration does not
+// set, with the default the platform states for it.
+func defaultEvidence(name, byDefault string) finding.Evidence {
+	return evidence(finding.KindDirective, name, fact(finding.FactValue, byDefault), fact(finding.FactState, sshdDefaultState))
+}
+
+// inForce returns the value of a directive outside any Match block: the one
+// the configuration sets, or the platform's stated default, with its
+// evidence. When there is none to judge, unjudged is the result that says so
+// and reason why: sshd refuses the value, the configuration was not read to
+// the end, or nothing states the default.
+func (j *sshJudge) inForce(keyword, name string) (value string, subject finding.Evidence, unjudged finding.Result, reason string) {
+	global := j.config.global[keyword]
+	byDefault, stated := j.platform.defaults[keyword]
+	switch {
+	case global.found && global.rejected != "":
+		return "", subject, finding.ResultUnknown, rejectedReason(name, global)
+	case global.found:
+		return global.value, evidence(finding.KindDirective, name, fact(finding.FactValue, global.value)), "", ""
+	case j.readErr != nil:
+		return "", subject, finding.ResultError, fmt.Sprintf("OpenSSH configuration could not be read in full: %v", j.readErr)
+	case stated:
+		return byDefault, defaultEvidence(name, byDefault), "", ""
+	default:
+		return "", subject, finding.ResultNotChecked, name + " is not set; the sshd default applies and is not read"
+	}
+}
+
+// keyboardPasswords fails the password rule where sshd accepts a password
+// through keyboard-interactive authentication: KbdInteractiveAuthentication
+// and UsePAM both in force as yes, set or by default. sshd_config(5), under
+// UsePAM: "Because PAM keyboard-interactive authentication usually serves an
+// equivalent role to password authentication, you should disable either
+// PasswordAuthentication or KbdInteractiveAuthentication." With UsePAM no,
+// sshd was seen to offer the method and refuse the password, so nothing is
+// judged then. A Match block that turns the method on for the connections it
+// matches fails the rule with its criteria; UsePAM is not set in one. The
+// rule's pass is left to the directive that judges PasswordAuthentication,
+// so this only ever adds a way in or says why it could not tell.
+func (j *sshJudge) keyboardPasswords() {
+	enabled := func(value string) bool { return strings.EqualFold(value, "yes") }
+
+	pam, pamSubject, unjudged, reason := j.inForce(keywordUsePAM, directiveUsePAM)
+	switch {
+	case unjudged != "":
+		j.r.inconclusive(unjudged, reason, ruleSSHPassword)
+		return
+	case !enabled(pam):
+		return
+	}
+
+	// UsePAM is recorded once, beside the first setting that makes it matter.
+	var pamShown bool
+	keyboard, keyboardSubject, unjudged, reason := j.inForce(keywordKeyboard, directiveKeyboard)
+	switch {
+	case unjudged != "":
+		j.r.inconclusive(unjudged, reason, ruleSSHPassword)
+	case enabled(keyboard):
+		j.observe(ruleSSHPassword, keyboardSubject, pamSubject)
+		pamShown = true
+	}
+
+	for _, block := range j.config.blocks {
+		setting, ok := block.settings[keywordKeyboard]
+		switch {
+		case !ok:
+		case setting.rejected != "":
+			j.r.inconclusive(finding.ResultUnknown, rejectedReason(directiveKeyboard, setting)+" (Match "+block.criteria+")", ruleSSHPassword)
+		case enabled(setting.value):
+			subjects := []finding.Evidence{evidence(finding.KindDirective, directiveKeyboard,
+				fact(finding.FactValue, setting.value), fact(finding.FactMatch, block.criteria))}
+			if !pamShown {
+				subjects, pamShown = append(subjects, pamSubject), true
+			}
+			j.observe(ruleSSHPassword, subjects...)
 		}
 	}
 }

@@ -107,8 +107,9 @@ type (
 // Expected file and directory permission modes: the shared vocabulary every
 // platform's critical paths draw from, declared together so a platform picks an
 // expectation rather than inventing one inline. Not every value is referenced on
-// every platform. permPrivateDir is used by Linux and the BSDs, permReadOnlyDir
-// only by Linux, and a constant no build references compiles away.
+// every platform. permPrivateDir is used by Linux, OpenBSD and NetBSD,
+// permGroupReadDir only by FreeBSD, permReadOnlyDir only by Linux, and a
+// constant no build references compiles away.
 const (
 	permStandardFile        os.FileMode = 0644
 	permOwnerWriteGroupRead os.FileMode = 0640
@@ -117,6 +118,7 @@ const (
 	permStandardDir         os.FileMode = 0755
 	permGroupWritableDir    os.FileMode = 0775
 	permPrivateDir          os.FileMode = 0700
+	permGroupReadDir        os.FileMode = 0750
 	permReadOnlyDir         os.FileMode = 0555
 
 	// Permission bit masks
@@ -141,9 +143,9 @@ const (
 	// only adds noise.
 	reachNonRoot reachability = iota
 
-	// reachUnsupported means mode bits deny traversal on a platform whose
-	// access control lists this checker does not read yet, so nothing
-	// narrower than reachable is asserted there.
+	// reachUnsupported means mode bits deny traversal on a platform where
+	// what else could grant it is not read yet, so nothing narrower than
+	// reachable is asserted there.
 	reachUnsupported
 
 	// reachUndetermined means mode bits deny traversal and what could grant
@@ -271,7 +273,7 @@ func NewPermissionChecker(osCtx registry.OSContext, scanRoot string, progress Sc
 			analyzes: "file and directory permissions",
 			osCtx:    osCtx,
 		},
-		paths:    append(commonCriticalPaths(), platformCriticalPaths()...),
+		paths:    criticalPaths(),
 		scanRoot: scanRoot,
 		progress: progress,
 	}
@@ -351,20 +353,6 @@ func pathWithin(target, base string) bool {
 	return rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
-// commonCriticalPaths lists the paths every Unix-like platform is expected
-// to protect; platformCriticalPaths adds the platform's own.
-func commonCriticalPaths() []criticalPath {
-	return []criticalPath{
-		{"/etc/passwd", "Password file", permStandardFile},
-		{"/etc/shadow", "Shadow password file", permOwnerWriteGroupRead},
-		{"/etc/group", "Group file", permStandardFile},
-		{"/etc/sudoers", "Sudo configuration", permSudoers},
-		{"/etc/ssh/sshd_config", "SSH daemon configuration", permOwnerReadWrite},
-		{"/var/log", "Log directory", permGroupWritableDir},
-		{"/home", "User home directories", permStandardDir},
-	}
-}
-
 // checkCriticalPath records every way cp departs from what a critical system
 // path must be. Both conditions are evaluated: a path can be both too
 // permissive and wrongly owned, and recording only the first would hide the
@@ -376,7 +364,9 @@ func commonCriticalPaths() []criticalPath {
 // as 0044 is against an expected 0600. A stricter mode is never a finding.
 // Ownership is what makes a permissive-looking mode safe or unsafe:
 // /etc/shadow at 0640 is the Debian design when root owns it and an exposure
-// when an unprivileged account does.
+// when an unprivileged account does. The expected mode is rendered with the
+// path's own type so it reads against the observed mode: a directory expected
+// at 0750 is drwxr-x---, not the regular file -rwxr-x---.
 func checkCriticalPath(cp criticalPath, r *report) {
 	info, err := os.Stat(cp.path)
 	switch {
@@ -395,7 +385,7 @@ func checkCriticalPath(cp criticalPath, r *report) {
 		r.observed(ruleExcessMode, evidence(finding.KindFile, cp.path,
 			fact(finding.FactDescription, cp.description),
 			fact(finding.FactMode, formatMode(mode)),
-			fact(finding.FactExpected, formatMode(cp.expected))))
+			fact(finding.FactExpected, formatMode(mode.Type()|cp.expected))))
 	}
 
 	uid, _, _, ok := fileIdentity(info)
@@ -542,7 +532,7 @@ func (w *fsWalk) classify(ctx context.Context, found *fsScan, path string, info 
 // which keeps that cost off every other directory.
 func (w *fsWalk) conferred(ctx context.Context, dir string, parent reachability, mode fs.FileMode, uid, gid uint32) reachability {
 	if parent != reachRootOnly && !traversableByNonRoot(mode, uid, gid) {
-		return max(parent, w.denied.reach(ctx, dir, mode))
+		return max(parent, w.denied.reach(ctx, dir, mode, uid, gid))
 	}
 	return parent
 }
