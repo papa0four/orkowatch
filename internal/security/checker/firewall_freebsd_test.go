@@ -9,6 +9,16 @@ import (
 	"testing"
 )
 
+// Each FreeBSD filter is a kernel module, so each says how to tell it is
+// loaded, and none names a rule of its own: FreeBSD defines none.
+func TestFreeBSDFirewallToolsSayHowTheyLoad(t *testing.T) {
+	for _, tool := range firewallTools() {
+		if tool.loaded == nil || tool.disabledKey != "" {
+			t.Errorf("%s: loaded set %v, rule key %q", tool.name, tool.loaded != nil, tool.disabledKey)
+		}
+	}
+}
+
 // Each FreeBSD filter's state is read from what its query printed on
 // FreeBSD 15.1, and an enabled pf or a running ipfilter is enabled, not
 // enforcing, since with no rules each passed every packet.
