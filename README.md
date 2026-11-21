@@ -97,7 +97,12 @@ owatch audit -v
 owatch audit --ssh
 owatch audit --fwall
 owatch audit --users
-owatch audit --fperms /path/to/check
+
+# Run the permissions check alone: over the whole system, over a directory
+# and everything beneath it, or on one file
+owatch audit --fperms
+owatch audit --fperms /path/to/directory
+owatch audit --fperms /path/to/file
 
 # Run all scans and save report as JSON to a directory (filename is generated automatically)
 owatch all -o json --report-file /path/to/reports
@@ -122,7 +127,7 @@ With no check flags given, all checks run by default.
 | `--ssh` | Run SSH configuration check | false |
 | `--fwall` | Run firewall configuration check | false |
 | `--users` | Run user accounts check | false |
-| `--fperms` | Check permissions of specified path | — |
+| `--fperms [path]` | Run file permissions check: over the whole system with no path, over a directory and everything beneath it, or on one file. `--fperms=path` is the same | false |
 | `--skip-checks` | Comma-separated checks to skip (ssh, firewall, users, permissions) | — |
 | `-o, --output` | Format of the full report, wherever it goes (`--plain`, `--report-file`, or `t` in the browser): text, json, yaml. Unspecified, a report file is JSON and anything else is text | text |
 | `--report-file` | Save report to directory; filename is generated automatically | — |
@@ -202,7 +207,8 @@ Press ctrl+c to stop a run. Checks still running are asked to stop, whatever
 finished is reported, and the command exits with an error naming what did not
 complete.
 
-A permissions check with no `--fperms` path reads the entire filesystem, so on a
+A permissions check with no `--fperms` path reads the entire filesystem, whether
+it runs with the other checks or alone through a bare `--fperms`, so on a
 terminal `owatch` asks before starting one. Answer `y` to proceed, pass `--yes`
 to skip the question, or narrow the scan with `--fperms <path>`.
 
