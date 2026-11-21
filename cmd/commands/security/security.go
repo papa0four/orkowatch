@@ -131,6 +131,19 @@ func (a *AuditFlags) SkipMask() selection.CheckMask {
 	return a.skipMask
 }
 
+// Unselected returns why each check outside mask is not run: named in
+// --skip-checks, or left out by the flags that selected the others.
+func (a *AuditFlags) Unselected(mask selection.CheckMask) map[string]string {
+	reasons := make(map[string]string)
+	for _, name := range selection.EnabledChecks(EveryCheck &^ mask) {
+		reasons[name] = reasonNotSelected
+	}
+	for _, name := range selection.EnabledChecks(a.skipMask &^ mask) {
+		reasons[name] = reasonSkipped
+	}
+	return reasons
+}
+
 // SkipChecks returns the raw --skip-checks values, for operator-facing output
 // that echoes what was passed rather than what it resolved to.
 func (a *AuditFlags) SkipChecks() []string {
@@ -139,6 +152,15 @@ func (a *AuditFlags) SkipChecks() []string {
 
 // bareFlag is the value pflag passes a flag that was given none.
 const bareFlag = "true"
+
+// EveryCheck is the set of audit checks, which a run that selects none runs.
+const EveryCheck = selection.CheckSSH | selection.CheckFirewall | selection.CheckUsers | selection.CheckPerms
+
+// Why a check is not run, as the report gives it.
+const (
+	reasonSkipped     = "excluded by --skip-checks"
+	reasonNotSelected = "not among the checks this run selected"
+)
 
 // NewCmd returns the security audit command.
 func NewCmd() *cobra.Command {
@@ -253,7 +275,7 @@ func (c *auditCmd) validateArgs(cmd *cobra.Command, args []string) error {
 
 // buildMask composes a CheckMask from the active flag values
 func (c *auditCmd) buildMask() (selection.CheckMask, error) {
-	mask := selection.CheckSSH | selection.CheckFirewall | selection.CheckUsers | selection.CheckPerms
+	mask := EveryCheck
 
 	if c.checkSSH || c.checkFirewall || c.checkUsers || c.checkFilePerms {
 		mask = 0
@@ -370,6 +392,7 @@ func (c *auditCmd) runAuditWithTimeout(cmd *cobra.Command, mask selection.CheckM
 			FilePermsPath: c.scanRoot,
 			MinSeverity:   c.audit.MinSeverity(),
 			Checks:        selection.EnabledChecks(mask),
+			Unselected:    c.audit.Unselected(mask),
 			Enrich:        c.audit.Enrich(),
 		})
 		var err error

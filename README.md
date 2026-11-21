@@ -372,9 +372,11 @@ of The MITRE Corporation.
 
 ## Skips and Partial Runs
 
-Skipping is recorded, not hidden. A check excluded with `--skip-checks` appears in
-the report with result `notselected` and is counted under that result in the
-summary, so a report always accounts for every check in the canonical set. Under
+Skipping is recorded, not hidden. A check excluded with `--skip-checks`, or left
+out because the run selected others with `--ssh`, `--fwall`, `--users` or
+`--fperms`, appears in the report with result `notselected` and the reason, and
+is counted under that result in the summary, so a report always accounts for
+every check in the canonical set. Under
 `owatch all`, a module excluded with `--skip-modules` is likewise reported in the
 `Modules` block as `notselected` rather than being silently absent.
 

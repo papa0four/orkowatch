@@ -19,7 +19,11 @@ import (
 // define.
 func TestCheckWithoutDefinitionsIsNotRun(t *testing.T) {
 	undefined := []string{"firewall"}
-	sa := NewSecurityAuditor(Options{Checks: undefined, HostInfo: &osfingerprint.OSInfo{}})
+	sa := NewSecurityAuditor(Options{
+		Checks:     undefined,
+		Unselected: map[string]string{"users": "left out by the caller"},
+		HostInfo:   &osfingerprint.OSInfo{},
+	})
 	sa.osContext = registry.OSContext{Platform: registry.PlatformUnix, Families: []registry.Distro{registry.DistroFreeBSD}}
 	sa.defines = func(_ registry.OSContext, check string) bool { return check != "firewall" }
 
@@ -32,8 +36,14 @@ func TestCheckWithoutDefinitionsIsNotRun(t *testing.T) {
 	for _, check := range view.Results {
 		switch {
 		case check.Key == "users", check.Key == "ssh", check.Key == permissionsCheck:
-			if check.Result != finding.ResultNotSelected {
-				t.Errorf("%s: %s, want notselected", check.Key, check.Result)
+			// The caller's reason is reported as given, and a check it
+			// gave none for names no flag of the caller's.
+			reason := "not selected"
+			if check.Key == "users" {
+				reason = "left out by the caller"
+			}
+			if check.Result != finding.ResultNotSelected || check.Reason != reason {
+				t.Errorf("%s: %s %q, want notselected %q", check.Key, check.Result, check.Reason, reason)
 			}
 		case check.Result != finding.ResultNotChecked,
 			check.Reason != "no finding definitions for the "+check.Key+" check on FreeBSD",

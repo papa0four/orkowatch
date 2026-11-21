@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -15,8 +16,6 @@ import (
 
 	"github.com/papa0four/orkowatch/internal/selection"
 )
-
-const everyCheck = selection.CheckSSH | selection.CheckFirewall | selection.CheckUsers | selection.CheckPerms
 
 // selected runs the audit command's own parsing and validation on args,
 // through cobra, and returns the checks and the scan root they settle on in
@@ -58,7 +57,7 @@ func TestFilePermsSelection(t *testing.T) {
 		wantRoot string
 		wantErr  string
 	}{
-		{"no flag selects every check", nil, everyCheck, "", ""},
+		{"no flag selects every check", nil, EveryCheck, "", ""},
 		{"a bare flag selects the check over the whole system", []string{"--fperms"}, selection.CheckPerms, "", ""},
 		{"a flag after a bare flag is a flag", []string{"--fperms", "--plain"}, selection.CheckPerms, "", ""},
 		{"a bare flag beside another check", []string{"--fperms", "--ssh"}, selection.CheckPerms | selection.CheckSSH, "", ""},
@@ -129,6 +128,49 @@ func TestConfirmFullScan(t *testing.T) {
 			}
 			if asked := out.Len() > 0; asked != tt.asked {
 				t.Errorf("asked = %v, want %v", asked, tt.asked)
+			}
+		})
+	}
+}
+
+// A check left out of a run says which way it was left out: named in
+// --skip-checks, or not among the checks the selection flags named.
+func TestUnselectedSaysWhy(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		want map[string]string
+	}{
+		{"every check runs", nil, map[string]string{}},
+		{"one check selected", []string{"--fperms"},
+			map[string]string{"firewall": reasonNotSelected, "ssh": reasonNotSelected, "users": reasonNotSelected}},
+		{"two checks skipped", []string{"--skip-checks", "ssh,users"},
+			map[string]string{"ssh": reasonSkipped, "users": reasonSkipped}},
+		{"two selected and one of them skipped", []string{"--fperms", "--ssh", "--skip-checks", "ssh"},
+			map[string]string{"firewall": reasonNotSelected, "ssh": reasonSkipped, "users": reasonNotSelected}},
+		{"a check both unselected and skipped", []string{"--fperms", "--skip-checks", "users"},
+			map[string]string{"firewall": reasonNotSelected, "ssh": reasonNotSelected, "users": reasonSkipped}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c, cmd := newAuditCmd()
+			var got map[string]string
+			cmd.RunE = func(cmd *cobra.Command, _ []string) error {
+				if err := c.validateFlags(cmd); err != nil {
+					return err
+				}
+				mask, err := c.buildMask()
+				got = c.audit.Unselected(mask)
+				return err
+			}
+			cmd.SilenceUsage, cmd.SilenceErrors = true, true
+			cmd.SetArgs(tt.args)
+			if err := cmd.Execute(); err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("Unselected() = %v, want %v", got, tt.want)
 			}
 		})
 	}
