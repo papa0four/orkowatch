@@ -212,6 +212,15 @@ it runs with the other checks or alone through a bare `--fperms`, so on a
 terminal `owatch` asks before starting one. Answer `y` to proceed, pass `--yes`
 to skip the question, or narrow the scan with `--fperms <path>`.
 
+On Linux and FreeBSD the scan covers the scan root's filesystem and every local
+filesystem mounted beneath it, memory filesystems included, each walked once.
+Pseudo-filesystems, network mounts and FUSE mounts are not walked. The report
+names every mount left out, grouped under the reason it was left out. A mount
+whose filesystem type cannot be judged is named as a warning, and the scan
+rules that found nothing report `error` rather than `pass`. On macOS, OpenBSD
+and NetBSD the scan keeps to the scan root's filesystem and names each directory
+where another filesystem begins.
+
 When output is piped or redirected there is no display and no question, and the
 run proceeds as it would from a script.
 

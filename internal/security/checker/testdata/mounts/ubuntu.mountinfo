@@ -1,0 +1,43 @@
+79 85 0:31 / /usr/lib/modules/6.18.58.1-microsoft-standard-WSL2 rw,nosuid,nodev,noatime - overlay none rw,lowerdir=/modules/6.18.58.1-microsoft-standard-WSL2/modules,upperdir=/lib/modules/6.18.58.1-microsoft-standard-WSL2/rw/upper,workdir=/lib/modules/6.18.58.1-microsoft-standard-WSL2/rw/work,uuid=on
+80 85 8:16 /6.18.58.1-microsoft-standard-WSL2/linux-headers /usr/src/linux-headers-6.18.58.1-microsoft-standard-WSL2 ro,relatime - ext4 /dev/sdb ro
+81 85 0:34 / /mnt/wsl rw,relatime shared:1 - tmpfs none rw
+82 85 0:36 / /usr/lib/wsl/drivers ro,nosuid,nodev,noatime - 9p drivers ro,aname=drivers;fmask=222;dmask=222,cache=0x5,access=client,msize=65536,trans=fd,rfd=8,wfd=8
+85 69 8:48 / / rw,relatime - ext4 /dev/sdd rw,discard,errors=remount-ro,data=ordered
+86 85 0:40 / /mnt/wslg rw,relatime shared:2 - tmpfs none rw
+87 86 8:48 / /mnt/wslg/distro ro,relatime shared:3 - ext4 /dev/sdd rw,discard,errors=remount-ro,data=ordered
+113 85 0:57 / /usr/lib/wsl/lib rw,nosuid,nodev,noatime - overlay none rw,lowerdir=/gpu_lib_packaged:/gpu_lib_inbox,upperdir=/gpu_lib/rw/upper,workdir=/gpu_lib/rw/work,uuid=on
+115 85 0:2 /init /init ro - rootfs rootfs rw,size=8105904k,nr_inodes=2026476
+116 85 0:6 / /dev rw,nosuid,relatime shared:14 - devtmpfs none rw,size=8105904k,nr_inodes=2026476,mode=755
+117 85 0:24 / /sys rw,nosuid,nodev,noexec,noatime shared:15 - sysfs sysfs rw
+118 85 0:61 / /proc rw,nosuid,nodev,noexec,noatime shared:16 - proc proc rw
+119 116 0:62 / /dev/pts rw,nosuid,noexec,noatime shared:17 - devpts devpts rw,gid=5,mode=620,ptmxmode=000
+120 85 0:63 / /run rw,nosuid,nodev shared:18 - tmpfs none rw,mode=755
+121 120 0:64 / /run/lock rw,nosuid,nodev,noexec,noatime shared:19 - tmpfs none rw
+122 120 0:65 / /run/shm rw,nosuid,nodev,noatime shared:20 - tmpfs none rw
+123 116 0:65 / /dev/shm rw,nosuid,nodev,noatime shared:20 - tmpfs none rw
+124 120 0:66 / /run/user rw,nosuid,nodev,noexec,noatime shared:21 - tmpfs none rw,mode=755
+125 118 0:35 / /proc/sys/fs/binfmt_misc rw,relatime shared:22 - binfmt_misc binfmt_misc rw
+126 117 0:25 / /sys/fs/cgroup rw,nosuid,nodev,noexec,relatime shared:23 - cgroup2 cgroup2 rw,nsdelegate
+130 86 0:42 /etc/versions.txt /mnt/wslg/versions.txt rw,relatime shared:24 - overlay none rw,lowerdir=/systemvhd,upperdir=/system/rw/upper,workdir=/system/rw/work,uuid=on
+132 86 0:42 /usr/share/doc /mnt/wslg/doc rw,relatime shared:25 - overlay none rw,lowerdir=/systemvhd,upperdir=/system/rw/upper,workdir=/system/rw/work,uuid=on
+134 85 0:40 /.X11-unix /tmp/.X11-unix ro,relatime shared:2 - tmpfs none rw
+135 85 0:69 / /mnt/c rw,noatime - 9p C:\134 rw,aname=drvfs;path=C:\;uid=1000;gid=1000;symlinkroot=/mnt/,cache=0x5,access=client,msize=65536,trans=fd,rfd=6,wfd=6
+136 124 0:40 /run/user /run/user rw,relatime shared:2 - tmpfs none rw
+137 125 0:63 /wsl/binfmt-status-lock /proc/sys/fs/binfmt_misc/status rw,nosuid,nodev shared:18 - tmpfs none rw,mode=755
+138 116 0:70 / /dev/hugepages rw,relatime shared:26 - hugetlbfs hugetlbfs rw,pagesize=2M
+139 116 0:39 / /dev/mqueue rw,nosuid,nodev,noexec,relatime shared:27 - mqueue mqueue rw
+140 117 0:8 / /sys/kernel/debug rw,nosuid,nodev,noexec,relatime shared:28 - debugfs debugfs rw
+141 117 0:13 / /sys/kernel/tracing rw,nosuid,nodev,noexec,relatime shared:29 - tracefs tracefs rw
+142 117 0:71 / /sys/fs/fuse/connections rw,nosuid,nodev,noexec,relatime shared:30 - fusectl fusectl rw
+143 85 8:48 /snap /snap rw,relatime shared:31 - ext4 /dev/sdd rw,discard,errors=remount-ro,data=ordered
+227 143 0:72 / /snap/bare/5 ro,nodev,relatime shared:55 - fuse.snapfuse snapfuse ro,user_id=0,group_id=0,allow_other
+230 143 0:73 / /snap/core22/2139 ro,nodev,relatime shared:69 - fuse.snapfuse snapfuse ro,user_id=0,group_id=0,allow_other
+233 143 0:74 / /snap/core22/2163 ro,nodev,relatime shared:71 - fuse.snapfuse snapfuse ro,user_id=0,group_id=0,allow_other
+236 143 0:75 / /snap/gtk-common-themes/1535 ro,nodev,relatime shared:73 - fuse.snapfuse snapfuse ro,user_id=0,group_id=0,allow_other
+239 143 0:76 / /snap/snapd/25577 ro,nodev,relatime shared:75 - fuse.snapfuse snapfuse ro,user_id=0,group_id=0,allow_other
+242 143 0:77 / /snap/snapd/27738 ro,nodev,relatime shared:77 - fuse.snapfuse snapfuse ro,user_id=0,group_id=0,allow_other
+245 143 0:78 / /snap/ubuntu-desktop-installer/1284 ro,nodev,relatime shared:79 - fuse.snapfuse snapfuse ro,user_id=0,group_id=0,allow_other
+248 143 0:79 / /snap/ubuntu-desktop-installer/1286 ro,nodev,relatime shared:81 - fuse.snapfuse snapfuse ro,user_id=0,group_id=0,allow_other
+365 85 8:48 /var/lib/docker /var/lib/docker rw,relatime shared:100 - ext4 /dev/sdd rw,discard,errors=remount-ro,data=ordered
+587 136 0:84 / /run/user/1000 rw,nosuid,nodev,relatime shared:212 - tmpfs tmpfs rw,size=1622204k,nr_inodes=405551,mode=700,uid=1000,gid=1000
+589 86 0:84 / /mnt/wslg/run/user/1000 rw,nosuid,nodev,relatime shared:212 - tmpfs tmpfs rw,size=1622204k,nr_inodes=405551,mode=700,uid=1000,gid=1000
