@@ -45,8 +45,15 @@ type (
 	Options struct {
 		// Observer is told when each check starts and finishes. Nil means
 		// nobody is watching.
-		Observer      Observer
-		Checks        []string
+		Observer Observer
+		Checks   []string
+
+		// Unselected is why each check outside Checks is not run, in the
+		// caller's words: the caller knows which of its flags left a check
+		// out, and the audit does not. A check with no entry is reported as
+		// not selected.
+		Unselected map[string]string
+
 		FilePermsPath string
 		MinSeverity   string
 		Enrich        bool
@@ -239,7 +246,7 @@ func (sa *SecurityAuditor) RunAudit(ctx context.Context) (*Result, error) {
 
 	for i, r := range runners {
 		if !enabled[r.name] {
-			result.Results[i] = unrunResult(r, finding.ResultNotSelected, "excluded by --skip-checks")
+			result.Results[i] = unrunResult(r, finding.ResultNotSelected, sa.unselectedReason(r.name))
 			continue
 		}
 		if !sa.defines(sa.osContext, r.name) {
@@ -329,6 +336,14 @@ func enabledSet(runners []checkRunner, checks []string) (map[string]bool, error)
 		return nil, errors.New("all available checks were skipped; at least one must run")
 	}
 	return enabled, nil
+}
+
+// unselectedReason is why a check outside the run was left out of it.
+func (sa *SecurityAuditor) unselectedReason(check string) string {
+	if reason := sa.options.Unselected[check]; reason != "" {
+		return reason
+	}
+	return "not selected"
 }
 
 // unrunResult returns the result row for a check that is not run, so it

@@ -33,14 +33,13 @@ type progressObserver struct {
 // A check outside mask keeps its row, marked as skipped, so the display
 // accounts for every check the way the report does.
 func CheckTasks(mask selection.CheckMask) []tui.Task {
-	every := selection.CheckSSH | selection.CheckFirewall | selection.CheckUsers | selection.CheckPerms
 	enabled := make(map[string]bool)
 	for _, name := range selection.EnabledChecks(mask) {
 		enabled[name] = true
 	}
 
 	var tasks []tui.Task
-	for _, name := range selection.EnabledChecks(every) {
+	for _, name := range selection.EnabledChecks(EveryCheck) {
 		tasks = append(tasks, tui.Task{ID: name, Label: name + " check", Skipped: !enabled[name]})
 	}
 	return tasks

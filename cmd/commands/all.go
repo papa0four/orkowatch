@@ -154,12 +154,11 @@ func (c *allCmd) buildAllMask() (selection.CheckMask, error) {
 		}
 	}
 	if !c.isModuleSkipped(selection.NameAudit) {
-		allChecks := selection.CheckSSH | selection.CheckFirewall | selection.CheckUsers | selection.CheckPerms
-		allChecks &^= c.audit.SkipMask()
-		if allChecks == 0 {
+		checks := security.EveryCheck &^ c.audit.SkipMask()
+		if checks == 0 {
 			return 0, errors.New("all audit checks were skipped; use --skip-modules audit to skip the audit module")
 		}
-		mask |= allChecks
+		mask |= checks
 	}
 	return mask, nil
 }
@@ -473,6 +472,7 @@ func (c *allCmd) runSecurityAuditModule(ctx context.Context, mask selection.Chec
 		MinSeverity: c.audit.MinSeverity(),
 		Enrich:      c.audit.Enrich(),
 		Checks:      selection.EnabledChecks(mask),
+		Unselected:  c.audit.Unselected(mask),
 		HostInfo:    hostInfo,
 		Sockets:     hostSockets,
 	})
