@@ -14,11 +14,14 @@ import (
 
 // A check the platform has no definitions for is not run: it reports
 // notchecked with the reason, takes no time, and its text ends after the
-// header where a check that ran would say it found nothing.
+// header where a check that ran would say it found nothing. The platform's
+// definitions are stood in for, so the gate is tested whatever the data files
+// define.
 func TestCheckWithoutDefinitionsIsNotRun(t *testing.T) {
 	undefined := []string{"firewall"}
 	sa := NewSecurityAuditor(Options{Checks: undefined, HostInfo: &osfingerprint.OSInfo{}})
 	sa.osContext = registry.OSContext{Platform: registry.PlatformUnix, Families: []registry.Distro{registry.DistroFreeBSD}}
+	sa.defines = func(_ registry.OSContext, check string) bool { return check != "firewall" }
 
 	result, err := sa.RunAudit(context.Background())
 	if err != nil {

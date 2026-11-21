@@ -8,12 +8,12 @@
 # bundled catalog (nist.yaml), which load checks it against. The weakness a
 # definition maps to is its cwe field, and its reference is built from that.
 # The manual pages quoted are those of FreeBSD 15.1-RELEASE, read on that release
-# on 2026-11-19 for the users check and on 2026-11-20 for the SSH and permissions
-# checks, and each condition was produced there and seen to behave as its
+# on 2026-11-19 for the users check and on 2026-11-20 for the SSH, permissions and
+# firewall checks, and each condition was produced there and seen to behave as its
 # definition says. A definition for a condition the Linux file also defines
 # carries the same baseline.
-# The users, SSH and permissions checks have definitions here: a check with
-# none for the platform is reported as not checked.
+# The users, SSH, permissions and firewall checks have definitions here: a check
+# with none for the platform is reported as not checked.
 
 # -------------------------
 # User checker findings
@@ -673,3 +673,66 @@ permissions.unowned_file:
   references:
     - source: NIST
       id: "AC-3"
+
+# -------------------------
+# Firewall checker findings
+# -------------------------
+# pf, ipfw and ipfilter are each judged by whether they filter now. No rule
+# reports one present and not filtering: all three ship with the base system.
+
+firewall.no_active_manager:
+  title: "No packet filter is filtering"
+  severity: "CRITICAL"
+  cvss_score: 9.3
+  cvss_vector: "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:N/SC:N/SI:N/SA:N"
+  records:
+    listening: [listening, addresses]
+  environment:
+    - metric: MAV
+      kind: listening
+      fact: listening
+      cases:
+        - value: loopback-only
+          set: L
+          guide: mav-exposed-on-localhost-only
+          because: "no socket on the host listens beyond loopback addresses, so without a firewall the host is still reached only from itself"
+  cwe: "CWE-923"
+  attack_techniques:
+    - id: "T1686"
+      basis:
+        - "NIST CM-6 maps to this technique, listed there as T1562.004 (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
+  description: >
+    None of pf, ipfw and ipfilter is filtering. FreeBSD ships all three,
+    loads none, and sets pf_enable, firewall_enable and ipfilter_enable to
+    NO in /etc/defaults/rc.conf. A filter not loaded or disabled does not
+    filter, and pf or ipfilter enabled with no rules passes every packet.
+    pf.conf(5): "If no rule matches the packet, the default action is to
+    pass the packet without creating a state." ipfilter reported "Default:
+    pass all". ipfw filters by its default rule alone where that rule
+    denies. ipfw(8): "A ruleset always includes a default rule (numbered
+    65535) which cannot be modified or deleted, and matches all packets. The
+    action associated with the default rule can be either deny or allow
+    depending on how the kernel is configured." and, of
+    net.inet.ip.fw.enable, "Setting this variable to 0 lets you run your
+    machine without firewall even if compiled in." On FreeBSD 15.1 each of
+    these states admitted a connection to sshd from outside the host. What
+    the rules of a filter that holds them admit is not judged; they are
+    listed in the report.
+  impact: >
+    Every service bound to a network interface is directly reachable without
+    restriction. This eliminates host-based network controls as a
+    defense-in-depth layer against exploitation, lateral movement, and
+    unauthorized access to internal services.
+  resolution: >
+    Enable one filter with a rule set that permits only required traffic and
+    blocks the rest. rc.conf(5), of pf_enable: "Setting this to “YES”
+    enables pf(4) packet filtering." For pf, write the rules to
+    /etc/pf.conf, set pf_enable="YES" in /etc/rc.conf and run service pf
+    start. For ipfw, set firewall_enable="YES" and a firewall_type and run
+    service ipfw start. For ipfilter, write /etc/ipf.rules, set
+    ipfilter_enable="YES" and run service ipfilter start.
+  references:
+    - source: NIST
+      id: "SC-7"
+    - source: NIST
+      id: "CM-6"

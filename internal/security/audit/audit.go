@@ -24,7 +24,10 @@ import (
 )
 
 type (
-	// SecurityAuditor handles the orchestration of security checks
+	// SecurityAuditor handles the orchestration of security checks. defines
+	// reports whether the platform has definitions for a check, which decides
+	// whether it runs; it is the registry's, and a field so the gate can be
+	// tested whatever the data files define.
 	SecurityAuditor struct {
 		sshChecker        checker.SSHChecker
 		firewallChecker   checker.FirewallChecker
@@ -33,6 +36,7 @@ type (
 		observer          Observer
 		options           Options
 		osContext         registry.OSContext
+		defines           func(registry.OSContext, string) bool
 	}
 
 	// Options configures the audit process. The run's deadline is not part of
@@ -143,6 +147,7 @@ func NewSecurityAuditor(opts Options) *SecurityAuditor {
 		observer:  opts.Observer,
 		options:   opts,
 		osContext: osCtx,
+		defines:   registry.Defines,
 	}
 	if auditor.observer == nil {
 		auditor.observer = noObserver{}
@@ -237,7 +242,7 @@ func (sa *SecurityAuditor) RunAudit(ctx context.Context) (*Result, error) {
 			result.Results[i] = unrunResult(r, finding.ResultNotSelected, "excluded by --skip-checks")
 			continue
 		}
-		if !registry.Defines(sa.osContext, r.name) {
+		if !sa.defines(sa.osContext, r.name) {
 			result.Results[i] = unrunResult(r, finding.ResultNotChecked,
 				fmt.Sprintf("no finding definitions for the %s check on %s", r.name, sa.osContext.DisplayLabel()))
 			continue
