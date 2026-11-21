@@ -10,6 +10,7 @@ package treewalk
 
 import (
 	"context"
+	"slices"
 	"sync"
 )
 
@@ -41,16 +42,18 @@ type (
 	}
 )
 
-// Run walks the tree under root with the given number of workers and returns
-// when every directory has been visited or ctx is done, in which case it
-// returns ctx's error and the walk is incomplete.
+// Run walks the trees under roots with the given number of workers and
+// returns when every directory has been visited or ctx is done, in which case
+// it returns ctx's error and the walk is incomplete. Several roots share the
+// workers, so a caller whose trees are bounded apart, as filesystems are, walks
+// them as one.
 //
 // collect receives each visit's result. It is called by one goroutine at a
 // time, so it may accumulate into ordinary variables. Results arrive in no
 // particular order; a caller that needs a stable order sorts what it
 // collected.
-func Run[S, R any](ctx context.Context, workers int, root Dir[S], visit Visit[S, R], collect func(R)) error {
-	q := &queue[S]{dirs: []Dir[S]{root}}
+func Run[S, R any](ctx context.Context, workers int, roots []Dir[S], visit Visit[S, R], collect func(R)) error {
+	q := &queue[S]{dirs: slices.Clone(roots)}
 	q.ready = sync.NewCond(&q.mu)
 
 	var collecting sync.Mutex

@@ -174,7 +174,7 @@ func (p *WindowsPermissionChecker) scanACLs(ctx context.Context, root string, r 
 	// listing it as a directory would count it unreadable.
 	info, err := os.Stat(root)
 	if err == nil && info.IsDir() {
-		err = treewalk.Run(ctx, scanWorkers, treewalk.Dir[struct{}]{Path: root}, w.readDir, func(found aclFound) {
+		err = treewalk.Run(ctx, scanWorkers, []treewalk.Dir[struct{}]{{Path: root}}, w.readDir, func(found aclFound) {
 			total.merge(found)
 			counter.add(found.scanned)
 		})

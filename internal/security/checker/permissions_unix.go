@@ -439,7 +439,7 @@ func (p *UnixPermissionChecker) scanFilesystem(ctx context.Context, root string)
 
 	counter := scanCounter{report: p.progress}
 	counter.add(scan.scanned)
-	err = treewalk.Run(ctx, scanWorkers, start, w.readDir, func(found fsScan) {
+	err = treewalk.Run(ctx, scanWorkers, []treewalk.Dir[reachability]{start}, w.readDir, func(found fsScan) {
 		scan.merge(found)
 		counter.add(found.scanned)
 	})
