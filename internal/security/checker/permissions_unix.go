@@ -60,6 +60,8 @@ type (
 		suid       []scanEntry
 		worldWrite []scanEntry
 		unowned    []scanEntry
+		left       []leftMount
+		tableErr   error
 		unreadable int
 		scanned    int
 	}
@@ -78,14 +80,22 @@ type (
 	}
 
 	// fsWalk is what every worker of one filesystem traversal shares, all of
-	// it either read-only or guarding itself. rootDev bounds the walk to the
-	// filesystem the root lives on, and denied is the platform's judgment of
-	// a directory whose mode bits deny traversal. What a worker finds is
+	// it either read-only or guarding itself. plan says which mount points
+	// the descent stops at, and denied is the platform's judgment of a
+	// directory whose mode bits deny traversal. What a worker finds is
 	// returned from its visit rather than written here.
 	fsWalk struct {
-		ids     *identityCache
-		rootDev uint64
-		denied  *deniedJudge
+		ids    *identityCache
+		plan   scanPlan
+		denied *deniedJudge
+	}
+
+	// walkState is what a directory hands to its contents: how far the
+	// chain above them can be reached, and the device of the filesystem
+	// being walked, which an entry on another filesystem does not share.
+	walkState struct {
+		reach reachability
+		dev   uint64
 	}
 
 	// pathLocation names the kind of place everything beneath prefix is.
@@ -405,9 +415,11 @@ func checkCriticalPath(cp criticalPath, r *report) {
 // scanFilesystem reads the tree under the effective root once, collecting
 // setuid, group- and world-writable, and unowned entries together. Identity
 // lookups are cached per identifier rather than performed per entry, which is
-// what makes a single pass cheaper than the three it replaces. The walk stays
-// on the root's filesystem: pseudo-filesystems and network mounts are out of
-// scope and can be pathologically slow to traverse.
+// what makes a single pass cheaper than the three it replaces. The walk
+// covers the root's filesystem and every local filesystem mounted beneath
+// it, each entered once from its own mount point: pseudo-filesystems and
+// network mounts are out of scope and can be pathologically slow to
+// traverse, and what was left out is kept for the report to name.
 //
 // Directories are read by scanWorkers workers at once. Each directory carries
 // the reachability its parent conferred, each visit returns what it found,
@@ -423,7 +435,7 @@ func (p *UnixPermissionChecker) scanFilesystem(ctx context.Context, root string)
 		return fsScan{}, fmt.Errorf("stat scan root %s: no filesystem identity", root)
 	}
 
-	w := &fsWalk{ids: newIdentityCache(), rootDev: rootDev, denied: &deniedJudge{}}
+	w := &fsWalk{ids: newIdentityCache(), denied: &deniedJudge{}}
 
 	// The root is an entry too. Nothing above it is examined, so it starts
 	// reachable and confers on its contents whatever its own mode allows.
@@ -432,14 +444,22 @@ func (p *UnixPermissionChecker) scanFilesystem(ctx context.Context, root string)
 	if !rootInfo.IsDir() {
 		return scan, nil
 	}
-	start := treewalk.Dir[reachability]{
+	starts := []treewalk.Dir[walkState]{{
 		Path:  root,
-		State: w.conferred(ctx, root, reachNonRoot, rootInfo.Mode(), uid, gid),
+		State: walkState{reach: w.conferred(ctx, root, reachNonRoot, rootInfo.Mode(), uid, gid), dev: rootDev},
+	}}
+
+	w.plan, scan.tableErr = planFor(root)
+	scan.left = w.plan.left
+	for _, point := range w.plan.starts {
+		if start, ok := w.enter(ctx, &scan, root, point); ok {
+			starts = append(starts, start)
+		}
 	}
 
 	counter := scanCounter{report: p.progress}
 	counter.add(scan.scanned)
-	err = treewalk.Run(ctx, scanWorkers, start, w.readDir, func(found fsScan) {
+	err = treewalk.Run(ctx, scanWorkers, starts, w.readDir, func(found fsScan) {
 		scan.merge(found)
 		counter.add(found.scanned)
 	})
@@ -448,11 +468,85 @@ func (p *UnixPermissionChecker) scanFilesystem(ctx context.Context, root string)
 	return scan, err
 }
 
-// readDir handles one directory: an entry that cannot be read or identified
-// is counted, an entry on another filesystem is skipped along with its
-// subtree, and everything else is classified. It runs on several workers at
-// once and keeps what it finds in its own result.
-func (w *fsWalk) readDir(ctx context.Context, dir treewalk.Dir[reachability]) ([]treewalk.Dir[reachability], fsScan) {
+// planFor reads the host's mount table and plans the scan of root from it. A
+// directory on a filesystem the plan does not name is left out and reported
+// for the reason the plan could not name it: the platform is not judged, the
+// table could not be read, or the mount came after the table was read.
+func planFor(root string) (scanPlan, error) {
+	mounts, judged, err := readMounts()
+	switch {
+	case err != nil:
+		return scanPlan{stray: leftNoTable}, err
+	case !judged:
+		return scanPlan{stray: leftUnjudgedPlatform}, nil
+	}
+	plan := planScan(root, mounts)
+	plan.stray = leftUnlisted
+	return plan, nil
+}
+
+// enter classifies a mount point the plan walks from and returns it as a
+// directory to read. No visit arrives at a mount point, since the descent
+// stops at each, so what its parents confer is read from the chain between
+// the scan root and it. A mount point that cannot be read is counted, and one
+// that is a file is the whole of its mount.
+func (w *fsWalk) enter(ctx context.Context, scan *fsScan, root, point string) (treewalk.Dir[walkState], bool) {
+	info, err := os.Lstat(point)
+	if err != nil {
+		scan.unreadable++
+		return treewalk.Dir[walkState]{}, false
+	}
+	uid, gid, dev, ok := fileIdentity(info)
+	if !ok {
+		scan.unreadable++
+		return treewalk.Dir[walkState]{}, false
+	}
+
+	reach := w.reachAbove(ctx, root, point)
+	w.classify(ctx, scan, point, info, uid, gid, reach)
+	if !info.IsDir() {
+		return treewalk.Dir[walkState]{}, false
+	}
+	return treewalk.Dir[walkState]{
+		Path:  point,
+		State: walkState{reach: w.conferred(ctx, point, reach, info.Mode(), uid, gid), dev: dev},
+	}, true
+}
+
+// reachAbove returns what the directories from root down to path's parent
+// confer on path. A directory on the way that cannot be read ends the chain
+// with what was conferred so far, which errs toward reachable.
+func (w *fsWalk) reachAbove(ctx context.Context, root, path string) reachability {
+	reach := reachNonRoot
+	for dir := root; ; {
+		info, err := os.Lstat(dir)
+		if err != nil {
+			return reach
+		}
+		uid, gid, _, ok := fileIdentity(info)
+		if !ok {
+			return reach
+		}
+		reach = w.conferred(ctx, dir, reach, info.Mode(), uid, gid)
+
+		rel, err := filepath.Rel(dir, path)
+		if err != nil {
+			return reach
+		}
+		next, _, deeper := strings.Cut(rel, string(filepath.Separator))
+		if !deeper {
+			return reach
+		}
+		dir = filepath.Join(dir, next)
+	}
+}
+
+// readDir handles one directory: a mount point is passed over because the
+// plan has decided it, an entry that cannot be read or identified is counted,
+// a directory on a filesystem the plan does not name is recorded as left
+// out, and everything else is classified. It runs on several workers at once and
+// keeps what it finds in its own result.
+func (w *fsWalk) readDir(ctx context.Context, dir treewalk.Dir[walkState]) ([]treewalk.Dir[walkState], fsScan) {
 	var found fsScan
 	entries, err := os.ReadDir(dir.Path)
 	if err != nil {
@@ -460,10 +554,15 @@ func (w *fsWalk) readDir(ctx context.Context, dir treewalk.Dir[reachability]) ([
 		return nil, found
 	}
 
-	var subdirs []treewalk.Dir[reachability]
+	var subdirs []treewalk.Dir[walkState]
 	for _, entry := range entries {
 		if ctx.Err() != nil {
 			break
+		}
+
+		path := filepath.Join(dir.Path, entry.Name())
+		if _, planned := w.plan.stops[path]; planned {
+			continue
 		}
 
 		info, err := entry.Info()
@@ -476,16 +575,20 @@ func (w *fsWalk) readDir(ctx context.Context, dir treewalk.Dir[reachability]) ([
 			found.unreadable++
 			continue
 		}
-		if dev != w.rootDev {
+		// Only a directory is asked which filesystem it is on. An overlay
+		// reports its own device for a directory and the device of the
+		// layer beneath for a file, so a file's device says nothing of
+		// where a filesystem begins.
+		if entry.IsDir() && dev != dir.State.dev {
+			found.left = append(found.left, leftMount{point: path, reason: w.plan.stray})
 			continue
 		}
 
-		path := filepath.Join(dir.Path, entry.Name())
-		w.classify(ctx, &found, path, info, uid, gid, dir.State)
+		w.classify(ctx, &found, path, info, uid, gid, dir.State.reach)
 		if entry.IsDir() {
-			subdirs = append(subdirs, treewalk.Dir[reachability]{
+			subdirs = append(subdirs, treewalk.Dir[walkState]{
 				Path:  path,
-				State: w.conferred(ctx, path, dir.State, info.Mode(), uid, gid),
+				State: walkState{reach: w.conferred(ctx, path, dir.State.reach, info.Mode(), uid, gid), dev: dev},
 			})
 		}
 	}
@@ -543,6 +646,7 @@ func (s *fsScan) merge(found fsScan) {
 	s.suid = append(s.suid, found.suid...)
 	s.worldWrite = append(s.worldWrite, found.worldWrite...)
 	s.unowned = append(s.unowned, found.unowned...)
+	s.left = append(s.left, found.left...)
 	s.unreadable += found.unreadable
 	s.scanned += found.scanned
 }
@@ -638,19 +742,28 @@ func (e scanEntry) unresolved() string {
 	}
 }
 
-// reportScan concludes the three traversal rules. A category with entries
-// fails and carries them as evidence. One with none passes only when the
-// traversal saw everything: after an incomplete scan, finding nothing is not
-// the same as there being nothing to find.
+// reportScan concludes the three traversal rules and names the mounts the
+// scan left out. A category with entries fails and carries them as evidence.
+// One with none passes only when the traversal saw everything it was meant
+// to: after an incomplete scan, finding nothing is not the same as there
+// being nothing to find.
 func reportScan(r *report, scan fsScan, scanErr error) {
-	var incomplete string
+	var gaps []string
 	switch {
 	case scanErr != nil:
-		incomplete = fmt.Sprintf("filesystem scan did not complete: %v", scanErr)
+		gaps = append(gaps, fmt.Sprintf("filesystem scan did not complete: %v", scanErr))
 	case scan.unreadable > 0:
-		incomplete = fmt.Sprintf("%d paths were unreadable and went unscanned; rerun with elevated privileges for complete coverage",
-			scan.unreadable)
+		gaps = append(gaps, fmt.Sprintf("%d paths were unreadable and went unscanned; rerun with elevated privileges for complete coverage",
+			scan.unreadable))
 	}
+	if scan.tableErr != nil {
+		gaps = append(gaps, fmt.Sprintf("the mount table could not be read, so the filesystems beneath the scan root went unjudged: %v",
+			scan.tableErr))
+	}
+	if unjudged := reportLeft(r, scan.left); unjudged != "" {
+		gaps = append(gaps, unjudged)
+	}
+	incomplete := strings.Join(gaps, "; ")
 
 	categories := []struct {
 		entries []scanEntry

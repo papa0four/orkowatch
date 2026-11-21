@@ -49,10 +49,14 @@ type (
 		timeout time.Duration
 
 		// Individual check flags
-		checkSSH       bool
-		checkFirewall  bool
-		checkUsers     bool
-		checkFilePerms string
+		checkSSH      bool
+		checkFirewall bool
+		checkUsers    bool
+
+		// checkFilePerms is set by --fperms, given with a path or without.
+		// scanRoot is the path it named, and empty for the whole system.
+		checkFilePerms bool
+		scanRoot       string
 
 		// audit owns the configuration flags shared with the all command.
 		audit *AuditFlags
@@ -127,19 +131,50 @@ func (a *AuditFlags) SkipMask() selection.CheckMask {
 	return a.skipMask
 }
 
+// Unselected returns why each check outside mask is not run: named in
+// --skip-checks, or left out by the flags that selected the others.
+func (a *AuditFlags) Unselected(mask selection.CheckMask) map[string]string {
+	reasons := make(map[string]string)
+	for _, name := range selection.EnabledChecks(EveryCheck &^ mask) {
+		reasons[name] = reasonNotSelected
+	}
+	for _, name := range selection.EnabledChecks(a.skipMask &^ mask) {
+		reasons[name] = reasonSkipped
+	}
+	return reasons
+}
+
 // SkipChecks returns the raw --skip-checks values, for operator-facing output
 // that echoes what was passed rather than what it resolved to.
 func (a *AuditFlags) SkipChecks() []string {
 	return a.skipChecks
 }
 
+// bareFlag is the value pflag passes a flag that was given none.
+const bareFlag = "true"
+
+// EveryCheck is the set of audit checks, which a run that selects none runs.
+const EveryCheck = selection.CheckSSH | selection.CheckFirewall | selection.CheckUsers | selection.CheckPerms
+
+// Why a check is not run, as the report gives it.
+const (
+	reasonSkipped     = "excluded by --skip-checks"
+	reasonNotSelected = "not among the checks this run selected"
+)
+
 // NewCmd returns the security audit command.
 func NewCmd() *cobra.Command {
+	_, cmd := newAuditCmd()
+	return cmd
+}
+
+// newAuditCmd returns the audit command with the state its flags write into.
+func newAuditCmd() (*auditCmd, *cobra.Command) {
 	c := &auditCmd{}
 
 	cmd := &cobra.Command{
 		Use:     "audit",
-		Args:    cobra.NoArgs,
+		Args:    c.validateArgs,
 		Aliases: []string{"security_audit"},
 		Short:   "Perform a security audit of the system",
 		RunE:    c.runE,
@@ -161,6 +196,11 @@ You can run all checks or specify individual checks to run.`,
   owatch audit --ssh
   owatch audit --fwall
   owatch audit --users
+
+  # Run the permissions check alone: over the whole system, over a
+  # directory and everything beneath it, or on one file
+  owatch audit --fperms
+  owatch audit --fperms /path/to/directory
   owatch audit --fperms /path/to/file
 
   # Skip checks; skipped checks are still reported, as notselected
@@ -189,20 +229,55 @@ You can run all checks or specify individual checks to run.`,
 		"Run firewall configuration check")
 	cmd.Flags().BoolVar(&c.checkUsers, "users", false,
 		"Run user accounts check")
-	cmd.Flags().StringVar(&c.checkFilePerms, "fperms", "",
-		"Check permissions of specified file path")
+	cmd.Flags().BoolFunc("fperms",
+		"Run file permissions check over the whole system, or over the directory or file that follows",
+		c.selectFilePerms)
 
 	c.audit = BindAudit(cmd)
 	c.out = delivery.Bind(cmd)
 
-	return cmd
+	return c, cmd
+}
+
+// selectFilePerms receives --fperms. An optional value cannot also be taken
+// from the next argument, so a bare flag selects the check and leaves its
+// path, if one follows, to validateArgs; --fperms=path names it here.
+func (c *auditCmd) selectFilePerms(value string) error {
+	c.checkFilePerms = true
+	switch value {
+	case bareFlag:
+	case "":
+		return errors.New("requires a path after =")
+	default:
+		c.scanRoot = value
+	}
+	return nil
+}
+
+// validateArgs admits the one argument the command takes, the path that
+// follows a bare --fperms, and keeps it as the scan root.
+func (c *auditCmd) validateArgs(cmd *cobra.Command, args []string) error {
+	switch {
+	case len(args) == 0:
+		return nil
+	case !c.checkFilePerms:
+		return cobra.NoArgs(cmd, args)
+	case c.scanRoot != "":
+		return fmt.Errorf("--fperms: one path is taken, and %q follows %q", args[0], c.scanRoot)
+	case len(args) > 1:
+		return fmt.Errorf("--fperms: one path is taken, and %q follows %q", args[1], args[0])
+	case args[0] == "":
+		return errors.New("--fperms: requires a path")
+	}
+	c.scanRoot = args[0]
+	return nil
 }
 
 // buildMask composes a CheckMask from the active flag values
 func (c *auditCmd) buildMask() (selection.CheckMask, error) {
-	mask := selection.CheckSSH | selection.CheckFirewall | selection.CheckUsers | selection.CheckPerms
+	mask := EveryCheck
 
-	if c.checkSSH || c.checkFirewall || c.checkUsers || c.checkFilePerms != "" {
+	if c.checkSSH || c.checkFirewall || c.checkUsers || c.checkFilePerms {
 		mask = 0
 		if c.checkSSH {
 			mask |= selection.CheckSSH
@@ -213,7 +288,7 @@ func (c *auditCmd) buildMask() (selection.CheckMask, error) {
 		if c.checkUsers {
 			mask |= selection.CheckUsers
 		}
-		if c.checkFilePerms != "" {
+		if c.checkFilePerms {
 			mask |= selection.CheckPerms
 		}
 	}
@@ -236,7 +311,7 @@ func (c *auditCmd) validateFlags(cmd *cobra.Command) error {
 		return err
 	}
 
-	return c.validateFilePermsPath(cmd)
+	return c.validateScanRoot()
 }
 
 // runE is the audit command's entry point. Nothing in it differs by platform:
@@ -252,7 +327,7 @@ func (c *auditCmd) runE(cmd *cobra.Command, _ []string) error {
 	}
 
 	interactive := render.StdoutIsTerminal() && render.StdinIsTerminal()
-	switch err := c.audit.ConfirmFullScan(mask, c.checkFilePerms, interactive, os.Stdin, os.Stderr); {
+	switch err := c.audit.ConfirmFullScan(mask, c.scanRoot, interactive, os.Stdin, os.Stderr); {
 	case errors.Is(err, ErrScanDeclined):
 		fmt.Fprintln(os.Stderr, "Scan cancelled.")
 		return nil
@@ -268,15 +343,13 @@ func (c *auditCmd) runE(cmd *cobra.Command, _ []string) error {
 	return c.runAuditWithTimeout(cmd, mask)
 }
 
-// validateFilePermsPath enforces existing path and file rejecting explicit empty value
-func (c *auditCmd) validateFilePermsPath(cmd *cobra.Command) error {
-	if !cmd.Flags().Changed("fperms") {
+// validateScanRoot rejects a scan root that cannot be read, before any check
+// starts. No scan root is the whole system, which the checker resolves.
+func (c *auditCmd) validateScanRoot() error {
+	if c.scanRoot == "" {
 		return nil
 	}
-	if c.checkFilePerms == "" {
-		return errors.New("--fperms: requires a path")
-	}
-	if _, err := os.Stat(c.checkFilePerms); err != nil {
+	if _, err := os.Stat(c.scanRoot); err != nil {
 		return fmt.Errorf("--fperms: path is not accessible: %w", err)
 	}
 	return nil
@@ -316,9 +389,10 @@ func (c *auditCmd) runAuditWithTimeout(cmd *cobra.Command, mask selection.CheckM
 	ending, runErr := tui.Run(ctx, c.progressOptions(mask), func(ctx context.Context, reporter tui.Reporter) error {
 		auditor := audit.NewSecurityAuditor(audit.Options{
 			Observer:      Observe(reporter),
-			FilePermsPath: c.checkFilePerms,
+			FilePermsPath: c.scanRoot,
 			MinSeverity:   c.audit.MinSeverity(),
 			Checks:        selection.EnabledChecks(mask),
+			Unselected:    c.audit.Unselected(mask),
 			Enrich:        c.audit.Enrich(),
 		})
 		var err error

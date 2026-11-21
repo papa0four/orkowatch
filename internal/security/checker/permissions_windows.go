@@ -169,10 +169,16 @@ func (p *WindowsPermissionChecker) scanACLs(ctx context.Context, root string, r 
 
 	counter := scanCounter{report: p.progress}
 	counter.add(total.scanned)
-	err := treewalk.Run(ctx, scanWorkers, treewalk.Dir[struct{}]{Path: root}, w.readDir, func(found aclFound) {
-		total.merge(found)
-		counter.add(found.scanned)
-	})
+
+	// A file as the root is the whole scan: nothing lies under it, and
+	// listing it as a directory would count it unreadable.
+	info, err := os.Stat(root)
+	if err == nil && info.IsDir() {
+		err = treewalk.Run(ctx, scanWorkers, []treewalk.Dir[struct{}]{{Path: root}}, w.readDir, func(found aclFound) {
+			total.merge(found)
+			counter.add(found.scanned)
+		})
+	}
 	counter.finish()
 
 	slices.SortStableFunc(total.grants, func(a, b ruleGrant) int {
