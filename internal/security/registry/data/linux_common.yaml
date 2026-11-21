@@ -255,8 +255,8 @@ firewall.no_active_manager:
       basis:
         - "NIST CM-6 maps to this technique, listed there as T1562.004 (Center for Threat-Informed Defense, SP 800-53 Rev 5 to ATT&CK 16.1)"
   description: >
-    None of the recognized firewall managers (iptables, ufw, firewalld,
-    pfctl) are active on this system. The host has no detected host-based
+    None of the recognized firewall managers (iptables, ufw or firewalld)
+    is active on this system. The host has no detected host-based
     packet filtering in place. All listening services are reachable on
     all interfaces without network-level access control.
   impact: >

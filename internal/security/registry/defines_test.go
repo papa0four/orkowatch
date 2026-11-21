@@ -5,9 +5,9 @@ package registry
 import "testing"
 
 // A platform defines a check when a key of that check is in one of its
-// definition sets. FreeBSD has the users, SSH and permissions rules, a Linux
-// family every check through the common set, and a platform with no
-// definitions none.
+// definition sets. FreeBSD has the users, SSH, permissions and firewall
+// rules, a Linux family every check through the common set, and a platform
+// with no definitions none.
 func TestDefines(t *testing.T) {
 	freebsd := OSContext{Platform: PlatformUnix, Families: []Distro{DistroFreeBSD}}
 	linux := OSContext{Platform: PlatformLinux, Families: []Distro{DistroSUSE}}
@@ -20,7 +20,7 @@ func TestDefines(t *testing.T) {
 	}{
 		{freebsd, "users", true},
 		{freebsd, "ssh", true},
-		{freebsd, "firewall", false},
+		{freebsd, "firewall", true},
 		{freebsd, "permissions", true},
 		{linux, "users", true},
 		{linux, "ssh", true},
@@ -81,6 +81,24 @@ func TestFreeBSDPermissionsRules(t *testing.T) {
 		there, _ := Lookup(linux, key)
 		if !ok || here.CVSSVector != there.CVSSVector || here.CWE != there.CWE {
 			t.Errorf("%s: FreeBSD %v %s %s, Linux %s %s", key, ok, here.CVSSVector, here.CWE, there.CVSSVector, there.CWE)
+		}
+	}
+}
+
+// The FreeBSD file defines the firewall rule for the host, scored as Linux
+// scores it, and no rule for a filter that is present and not filtering.
+func TestFreeBSDFirewallRules(t *testing.T) {
+	freebsd := OSContext{Platform: PlatformUnix, Families: []Distro{DistroFreeBSD}}
+	linux := OSContext{Platform: PlatformLinux, Families: []Distro{DistroGeneric}}
+
+	here, ok := Lookup(freebsd, "firewall.no_active_manager")
+	there, _ := Lookup(linux, "firewall.no_active_manager")
+	if !ok || here.CVSSVector != there.CVSSVector || here.CWE != there.CWE {
+		t.Errorf("firewall.no_active_manager: FreeBSD %v %s %s, Linux %s %s", ok, here.CVSSVector, here.CWE, there.CVSSVector, there.CWE)
+	}
+	for _, key := range []FindingKey{"firewall.iptables_default_accept", "firewall.ufw_inactive", "firewall.firewalld_not_running"} {
+		if _, ok := Lookup(freebsd, key); ok {
+			t.Errorf("%s is defined for FreeBSD", key)
 		}
 	}
 }
