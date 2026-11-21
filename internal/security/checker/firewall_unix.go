@@ -40,10 +40,14 @@ type (
 	// how to list the rules it holds. rulesArgs is empty for a manager whose
 	// state query already lists them, in which case the same output is parsed
 	// twice. disabledKey is empty on platforms with no definition for the
-	// condition, in which case the state is reported and no finding fires.
+	// condition, in which case each conclusion is narrated and no finding
+	// fires. loaded is set for a filter that is a kernel module: one not
+	// loaded is not filtering, and its commands then fail as they do when
+	// they cannot read it, so it is told apart before they run.
 	firewallTool struct {
 		name        string
 		backend     firewallBackend
+		loaded      func() bool
 		stateArgs   []string
 		parseState  func([]byte) firewallState
 		rulesArgs   []string
@@ -61,10 +65,15 @@ type (
 	}
 )
 
+// firewallEnabled is a filter turned on that filters only by the rules it
+// holds: pf and ipfilter enabled with none admitted every connection.
+// firewallAbsent is a filter not in the kernel.
 const (
 	firewallUnknown firewallState = iota
 	firewallEnforcing
 	firewallDisabled
+	firewallEnabled
+	firewallAbsent
 )
 
 // NewFirewallChecker returns the firewall checker for Unix-like hosts.
@@ -95,10 +104,6 @@ func (f *UnixFirewallChecker) Check(ctx context.Context) finding.AuditResult {
 	reach := hostListening(r, f.listeners(ctx))
 
 	for _, tool := range firewallTools() {
-		if _, err := exec.LookPath(tool.stateArgs[0]); err != nil {
-			r.inconclusive(finding.ResultNotApplicable, tool.name+" is not installed", tool.disabledKey)
-			continue
-		}
 		outcome := f.reportTool(ctx, tool, reach, r)
 		switch {
 		case outcome.state == firewallEnforcing:
@@ -129,58 +134,100 @@ func (f *UnixFirewallChecker) Check(ctx context.Context) finding.AuditResult {
 // learned so the caller can judge the host as a whole. A failed query is an
 // error and unrecognized output is unknown: the first could not look, the
 // second looked and could not tell. A manager not enforcing is recorded with
-// reach, where the host listens.
+// reach, where the host listens. An enabled filter is enforcing only when it
+// holds rules, and one whose rules cannot be listed is an error.
 func (f *UnixFirewallChecker) reportTool(ctx context.Context, tool firewallTool, reach finding.Evidence, r *report) toolOutcome {
+	if _, err := exec.LookPath(tool.stateArgs[0]); err != nil {
+		concludeTool(r, tool, finding.ResultNotApplicable, tool.name+" is not installed")
+		return toolOutcome{state: firewallAbsent}
+	}
+	if tool.loaded != nil && !tool.loaded() {
+		concludeTool(r, tool, finding.ResultNotApplicable, tool.name+" is not loaded")
+		return toolOutcome{state: firewallAbsent}
+	}
+
 	output, err := exec.CommandContext(ctx, tool.stateArgs[0], tool.stateArgs[1:]...).Output() // #nosec G204 -- command and arguments are hardcoded literals in each platform's firewallTools
 	if err != nil {
-		outcome := toolOutcome{
-			result: finding.ResultError,
-			reason: fmt.Sprintf("%s is installed but its state could not be determined: %v", tool.name, execError(err)),
-		}
-		r.inconclusive(outcome.result, outcome.reason, tool.disabledKey)
-		return outcome
+		return inconclusiveTool(r, tool, finding.ResultError,
+			fmt.Sprintf("%s is installed but its state could not be determined: %v", tool.name, execError(err)))
 	}
 
 	switch state := tool.parseState(output); state {
 	case firewallEnforcing:
-		r.pass(tool.disabledKey)
-		r.note(finding.SymbolOK, "%s is enforcing", tool.name)
-		f.reportRules(ctx, tool, output, r)
+		rules, err := f.listRules(ctx, tool, output)
+		reportEnforcing(r, tool, rules, err)
 		return toolOutcome{state: state}
+	case firewallEnabled:
+		rules, err := f.listRules(ctx, tool, output)
+		switch {
+		case err != nil:
+			return inconclusiveTool(r, tool, finding.ResultError,
+				fmt.Sprintf("%s is enabled but its rules could not be listed: %v", tool.name, execError(err)))
+		case len(rules) == 0:
+			return notEnforcing(r, tool, "enabled, no rules", reach)
+		}
+		reportEnforcing(r, tool, rules, nil)
+		return toolOutcome{state: firewallEnforcing}
 	case firewallDisabled:
-		if tool.disabledKey == "" {
-			r.note(finding.SymbolWarning, "%s is installed but not enforcing", tool.name)
-			return toolOutcome{state: state}
-		}
-		r.observed(tool.disabledKey, evidence(finding.KindManager, tool.name, fact(finding.FactState, "installed, not enforcing")), reach)
-		return toolOutcome{state: state}
+		return notEnforcing(r, tool, "installed, not enforcing", reach)
 	default:
-		outcome := toolOutcome{
-			result: finding.ResultUnknown,
-			reason: tool.name + " state could not be determined from its output",
-		}
-		r.inconclusive(outcome.result, outcome.reason, tool.disabledKey)
-		return outcome
+		return inconclusiveTool(r, tool, finding.ResultUnknown, tool.name+" state could not be determined from its output")
 	}
 }
 
-// reportRules lists what an enforcing manager holds. A manager whose state
-// query already produced the listing is not queried twice.
-func (f *UnixFirewallChecker) reportRules(ctx context.Context, tool firewallTool, stateOutput []byte, r *report) {
+// listRules returns the rules a manager holds. A manager whose state query
+// already produced the listing is not queried twice.
+func (f *UnixFirewallChecker) listRules(ctx context.Context, tool firewallTool, stateOutput []byte) ([]string, error) {
 	output := stateOutput
 	if len(tool.rulesArgs) > 0 {
 		listed, err := exec.CommandContext(ctx, tool.rulesArgs[0], tool.rulesArgs[1:]...).Output() // #nosec G204 -- command and arguments are hardcoded literals in each platform's firewallTools
 		if err != nil {
-			r.note(finding.SymbolInfo, "%s rules could not be listed: %v", tool.name, execError(err))
-			return
+			return nil, err
 		}
 		output = listed
 	}
+	return tool.parseRules(output), nil
+}
 
-	rules := tool.parseRules(output)
-	if len(rules) == 0 {
+// reportEnforcing concludes a manager's rule as held and lists what it
+// enforces.
+func reportEnforcing(r *report, tool firewallTool, rules []string, err error) {
+	r.pass(tool.disabledKey)
+	r.note(finding.SymbolOK, "%s is enforcing", tool.name)
+	switch {
+	case err != nil:
+		r.note(finding.SymbolInfo, "%s rules could not be listed: %v", tool.name, execError(err))
+	case len(rules) == 0:
 		r.note(finding.SymbolInfo, "%s reported no rules", tool.name)
+	default:
+		r.lines(rules...)
+	}
+}
+
+// notEnforcing records a manager that is present and filtering nothing, in
+// the state given, with where the host listens.
+func notEnforcing(r *report, tool firewallTool, state string, reach finding.Evidence) toolOutcome {
+	if tool.disabledKey == "" {
+		r.note(finding.SymbolWarning, "%s: %s", tool.name, state)
+	} else {
+		r.observed(tool.disabledKey, evidence(finding.KindManager, tool.name, fact(finding.FactState, state)), reach)
+	}
+	return toolOutcome{state: firewallDisabled}
+}
+
+// inconclusiveTool concludes a manager whose state could not be established.
+func inconclusiveTool(r *report, tool firewallTool, result finding.Result, reason string) toolOutcome {
+	concludeTool(r, tool, result, reason)
+	return toolOutcome{result: result, reason: reason}
+}
+
+// concludeTool records an inconclusive result against the manager's rule,
+// or narrates it where the platform defines no rule, so a manager without
+// one still says what was found.
+func concludeTool(r *report, tool firewallTool, result finding.Result, reason string) {
+	if tool.disabledKey == "" {
+		r.note(finding.SymbolInfo, "%s", reason)
 		return
 	}
-	r.lines(rules...)
+	r.inconclusive(result, reason, tool.disabledKey)
 }
