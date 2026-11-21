@@ -74,34 +74,31 @@ func TestPosixReach(t *testing.T) {
 		return func() ([]aclEntry, error) { return entries, err }
 	}
 
+	failed := errors.New("input/output error")
+
 	tests := []struct {
-		name string
-		mode fs.FileMode
-		read func() ([]aclEntry, error)
-		want reachability
+		name      string
+		mode      fs.FileMode
+		read      func() ([]aclEntry, error)
+		rootGroup reachability
+		want      reachability
 	}{
 		{"no group-execute, the list not read", fs.ModeDir | 0700, func() ([]aclEntry, error) {
 			t.Error("the ACL was read for a directory with no group-execute")
 			return named, nil
-		}, reachRootOnly},
-		{"group-execute and no list", fs.ModeDir | 0750, reads(nil, errNoACL), reachUndetermined},
-		{"group-execute and a list", fs.ModeDir | 0710, reads(named, nil), reachNonRoot},
-		{"the list could not be read", fs.ModeDir | 0710, reads(nil, errors.New("input/output error")), reachUndetermined},
+		}, reachNonRoot, reachRootOnly},
+		{"group-execute and no list, root's group held by root alone", fs.ModeDir | 0750, reads(nil, errNoACL), reachRootOnly, reachRootOnly},
+		{"group-execute and no list, root's group held by another", fs.ModeDir | 0750, reads(nil, errNoACL), reachNonRoot, reachNonRoot},
+		{"group-execute and a list", fs.ModeDir | 0710, reads(named, nil), reachRootOnly, reachNonRoot},
+		{"the list could not be read", fs.ModeDir | 0710, reads(nil, failed), reachRootOnly, reachUndetermined},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Root's group answers undetermined, which no other path of
-			// "group-execute and no list" returns.
-			if got := judgeAnswering(reachUndetermined).posixReach(context.Background(), tt.mode, tt.read); got != tt.want {
+			if got := judgeAnswering(tt.rootGroup).posixReach(context.Background(), tt.mode, tt.read); got != tt.want {
 				t.Errorf("posixReach() = %d, want %d", got, tt.want)
 			}
 		})
-	}
-
-	if got := judgeAnswering(reachRootOnly).posixReach(context.Background(), fs.ModeDir|0710,
-		reads(nil, errors.New("input/output error"))); got != reachUndetermined {
-		t.Errorf("a failed read with root's group root-only = %d, want undetermined", got)
 	}
 }
 

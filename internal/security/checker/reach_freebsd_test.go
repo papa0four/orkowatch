@@ -12,9 +12,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
-
-	"golang.org/x/sys/unix"
 )
 
 // The accounts of the guest the lists below were read in: a_w is uid 1001, a
@@ -106,28 +105,26 @@ func TestNFS4Reach(t *testing.T) {
 	}
 }
 
-// encodeACL lays entries out as sys/acl.h declares struct acl.
+// encodeACL lays entries out as sys/acl.h declares struct acl, by offsets
+// written out here and not the ones decodeACL uses: acl_maxcnt and acl_cnt,
+// four spare words, then entries of ae_tag, ae_id, ae_perm, each 32 bits,
+// and ae_entry_type and ae_flags, each 16.
 func encodeACL(count uint32, entries []kernelACLEntry) []byte {
-	list := make([]byte, aclSize)
-	binary.NativeEndian.PutUint32(list, aclMaxEntries)
-	binary.NativeEndian.PutUint32(list[aclCountOffset:], count)
+	list := make([]byte, 4088)
+	binary.NativeEndian.PutUint32(list, 254)
+	binary.NativeEndian.PutUint32(list[4:], count)
 	for i, entry := range entries {
-		at := list[aclHeaderSize+i*aclEntrySize:]
+		at := list[24+i*16:]
 		binary.NativeEndian.PutUint32(at, entry.tag)
-		binary.NativeEndian.PutUint32(at[aclEntryIDAt:], entry.id)
-		binary.NativeEndian.PutUint32(at[aclEntryPermAt:], entry.perm)
-		binary.NativeEndian.PutUint16(at[aclEntryTypeAt:], entry.entryType)
-		binary.NativeEndian.PutUint16(at[aclEntryFlagsAt:], entry.flags)
+		binary.NativeEndian.PutUint32(at[4:], entry.id)
+		binary.NativeEndian.PutUint32(at[8:], entry.perm)
+		binary.NativeEndian.PutUint16(at[12:], entry.entryType)
+		binary.NativeEndian.PutUint16(at[14:], entry.flags)
 	}
 	return list
 }
 
 func TestDecodeACL(t *testing.T) {
-	const structACLSize = 4088
-	if aclSize != structACLSize {
-		t.Fatalf("struct acl is taken as %d bytes, want %d", aclSize, structACLSize)
-	}
-
 	want := closed(nfs4(aclTagUser, guestUser, aclPermExecute, nfs4EntryAllow, 0x0b))
 	got, err := decodeACL(encodeACL(uint32(len(want)), want))
 	if err != nil || !reflect.DeepEqual(got, want) {
@@ -140,7 +137,7 @@ func TestDecodeACL(t *testing.T) {
 	if _, err := decodeACL(encodeACL(aclMaxEntries+1, nil)); err == nil {
 		t.Error("a count beyond the entries the structure holds was accepted")
 	}
-	if _, err := decodeACL(make([]byte, aclSize-1)); err == nil {
+	if _, err := decodeACL(make([]byte, 4087)); err == nil {
 		t.Error("a short structure was accepted")
 	}
 }
@@ -224,30 +221,34 @@ func TestSourcesEnumerable(t *testing.T) {
 
 // TestReachOfDirectories judges directories made where TMPDIR points, with
 // whichever kind of ACL that filesystem keeps, so it is run once on each. A
-// case resting on root's group wants undetermined, which is what the judge
-// is told of that group and what no other path of those cases returns.
+// case resting on root's group wants rootGroupAsked, which the judge is told
+// of that group and which reach returns on no other path.
 func TestReachOfDirectories(t *testing.T) {
 	if os.Geteuid() != rootUID {
 		t.Skip("making a directory of root's needs root")
 	}
-	const stranger = "65534" // nobody
+	const (
+		stranger       = "65534" // nobody
+		rootGroupAsked = reachUnsupported
+	)
 
 	base := t.TempDir()
-	keepsNFS4, err := unix.Pathconf(base, pathconfACLNFS4)
-	if err != nil {
-		t.Fatal(err)
-	}
-	keepsPOSIX, err := unix.Pathconf(base, pathconfACLExtended)
-	if err != nil {
-		t.Fatal(err)
+	// getconf(1) is asked which kind the filesystem keeps, so the test does
+	// not rest on the pathconf names reach uses.
+	keeps := func(variable string) bool {
+		out, err := exec.Command("getconf", variable, base).Output()
+		if err != nil {
+			t.Fatalf("getconf %s: %v", variable, err)
+		}
+		return strings.TrimSpace(string(out)) == "1"
 	}
 
 	directories := []directory{
 		{"closed", 0700, nil, reachRootOnly},
-		{"group", 0750, nil, reachUndetermined},
+		{"group", 0750, nil, rootGroupAsked},
 	}
 	switch {
-	case keepsNFS4 > 0:
+	case keeps("ACL_NFS4"):
 		t.Log("the filesystem keeps NFSv4 ACLs")
 		directories = append(directories,
 			directory{"named", 0700, [][]string{{"-m", "u:" + stranger + ":x::allow"}}, reachNonRoot},
@@ -256,15 +257,15 @@ func TestReachOfDirectories(t *testing.T) {
 			directory{"allowed-ahead", 0700, [][]string{{"-m", "u:" + stranger + ":x::deny"}, {"-a", "0", "u:" + stranger + ":x::allow"}}, reachNonRoot},
 			directory{"everyone-denied", 0700, [][]string{{"-m", "u:" + stranger + ":x::allow"}, {"-a", "0", "everyone@:x::deny"}}, reachRootOnly},
 			directory{"inherit-only", 0700, [][]string{{"-m", "u:" + stranger + ":x:fdi:allow"}}, reachRootOnly},
-			directory{"owning-group", 0700, [][]string{{"-m", "group@:x::allow"}}, reachUndetermined},
-			directory{"wheel-named", 0700, [][]string{{"-m", "g:0:x::allow"}}, reachUndetermined})
-	case keepsPOSIX > 0:
+			directory{"owning-group", 0700, [][]string{{"-m", "group@:x::allow"}}, rootGroupAsked},
+			directory{"wheel-named", 0700, [][]string{{"-m", "g:0:x::allow"}}, rootGroupAsked})
+	case keeps("ACL_EXTENDED"):
 		t.Log("the filesystem keeps POSIX.1e ACLs")
 		directories = append(directories,
 			directory{"named", 0700, [][]string{{"-m", "u:" + stranger + ":--x"}}, reachNonRoot},
 			directory{"named-group", 0700, [][]string{{"-m", "g:" + stranger + ":--x"}}, reachNonRoot},
 			directory{"masked", 0700, [][]string{{"-m", "u:" + stranger + ":--x"}, {"-m", "m::---"}}, reachRootOnly},
-			directory{"wheel-named", 0700, [][]string{{"-m", "g:0:--x"}}, reachUndetermined})
+			directory{"wheel-named", 0700, [][]string{{"-m", "g:0:--x"}}, rootGroupAsked})
 	default:
 		t.Log("the filesystem keeps no ACL")
 	}
@@ -272,7 +273,7 @@ func TestReachOfDirectories(t *testing.T) {
 	for _, d := range directories {
 		t.Run(d.name, func(t *testing.T) {
 			dir, mode := d.make(t, base)
-			if got := judgeAnswering(reachUndetermined).reach(context.Background(), dir, mode, rootUID, rootGID); got != d.want {
+			if got := judgeAnswering(rootGroupAsked).reach(context.Background(), dir, mode, rootUID, rootGID); got != d.want {
 				t.Errorf("reach() of %s, mode %v = %d, want %d", d.name, mode, got, d.want)
 			}
 		})
