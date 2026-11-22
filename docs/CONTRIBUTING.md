@@ -31,9 +31,7 @@ a live index, not a one-time snapshot.
 
 | Guide | Covers |
 |---|---|
-| `docs/dev_guide/enrichment.md` | CVE/CWE enrichment subsystem: types, adapter interface, orchestration sequence, reference extraction |
 | `docs/dev_guide/scan_registry.md` | `CheckMask` registry, filename derivation, `all`/`audit` composition model, package boundaries |
-| `docs/dev_guide/audit_output_rendering.md` | `all`/`audit` output rendering: why they're independent, min-severity suppression pattern, enrichment six-state rendering, verifying rendering code has a live caller before extending it |
 
 ## Priorities
 
