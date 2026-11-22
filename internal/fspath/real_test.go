@@ -4,6 +4,7 @@ package fspath
 
 import (
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"testing"
@@ -29,7 +30,11 @@ func TestReal(t *testing.T) {
 		t.Errorf("Real(%q) = %q, which is another directory", dir, real)
 	}
 
-	if _, err := Real(filepath.Join(dir, "absent", "below")); !errors.Is(err, ErrMissing) {
+	_, err = Real(filepath.Join(dir, "absent", "below"))
+	if !errors.Is(err, ErrMissing) {
 		t.Errorf("a missing directory gave %v, want ErrMissing", err)
+	}
+	if !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("a missing directory gave %v, which does not carry the system's reason", err)
 	}
 }

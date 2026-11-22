@@ -320,7 +320,7 @@ func (p *UnixPermissionChecker) effectiveRoot() (string, error) {
 	if root == "" {
 		root = "/"
 	}
-	resolved, err := filepath.EvalSymlinks(root)
+	resolved, err := fspath.Real(root)
 	if err != nil {
 		return "", fmt.Errorf("resolve scan root %s: %w", root, err)
 	}
