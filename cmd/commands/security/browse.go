@@ -322,8 +322,16 @@ func softwareTab(software softwarelist.SoftwareView) tui.Tab {
 	records := make([]tui.Record, 0, len(software.Packages))
 	for _, pkg := range software.Packages {
 		fields := []tui.SummaryLine{{Label: "name", Value: safeLines(pkg.Name)}}
-		if pkg.Version != "" {
-			fields = append(fields, tui.SummaryLine{Label: "version", Value: safeLines(pkg.Version)})
+		for _, field := range []tui.SummaryLine{
+			{Label: "version", Value: pkg.Version},
+			{Label: "architecture", Value: pkg.Architecture},
+			{Label: "package manager", Value: pkg.Manager},
+			{Label: "source package", Value: pkg.Source},
+			{Label: "source version", Value: pkg.SourceVersion},
+		} {
+			if field.Value != "" {
+				fields = append(fields, tui.SummaryLine{Label: field.Label, Value: safeLines(field.Value)})
+			}
 		}
 		records = append(records, tui.Record{
 			Title:    safeLines(pkg.Name),

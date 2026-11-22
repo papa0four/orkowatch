@@ -145,6 +145,14 @@ With no check flags given, all checks run by default.
 deliver it as `all` does: the results browser on a terminal, with the System,
 Software or Sockets source filled and the others saying they were not collected.
 
+`owatch software` lists each installed package as its package manager states it: the
+name, the whole version with its epoch and release, the architecture, the package
+manager, and the source package it was built from. It reads dpkg, rpm, apk and pacman
+on Linux, every one the host has, and pkg on FreeBSD. A package dpkg has removed but
+still remembers, and the signing keys rpm keeps in its package database, are not
+software and are left out. On Windows and macOS an entry is an application's name and
+version.
+
 `owatch listeners` reads every socket the host reports, in every state, from the
 host's own tables, and connects to nothing. On Linux it lists TCP, UDP, raw,
 unix-domain and packet sockets; on Windows, TCP and UDP, and it says the others are

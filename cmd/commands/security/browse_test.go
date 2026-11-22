@@ -8,6 +8,7 @@ import (
 
 	"github.com/papa0four/orkowatch/internal/security/audit"
 	"github.com/papa0four/orkowatch/internal/security/finding"
+	"github.com/papa0four/orkowatch/internal/softwarelist"
 	"github.com/papa0four/orkowatch/internal/tui"
 )
 
@@ -147,5 +148,32 @@ func TestBrowserItemCarriesWeaknessAndCVSS(t *testing.T) {
 	item = browserItem(cond)
 	if item.Weakness != "none" || item.WeaknessAbout != "No entry describes this." {
 		t.Errorf("a finding with no weakness shows %q / %q", item.Weakness, item.WeaknessAbout)
+	}
+}
+
+// The Software tab shows what a package's manager states of it, and for an
+// entry with a name and a version alone shows only those.
+func TestSoftwareTabShowsWhatTheManagerStates(t *testing.T) {
+	tab := softwareTab(softwarelist.SoftwareView{Packages: []softwarelist.SoftwareEntry{
+		{Name: "bash", Version: "5.2.15-2+b13", Manager: softwarelist.ManagerDpkg, Architecture: "amd64", Source: "bash", SourceVersion: "5.2.15-2"},
+		{Name: "Some Application", Version: "1.2"},
+	}})
+	if len(tab.Records) != 2 {
+		t.Fatalf("%d records, want 2", len(tab.Records))
+	}
+
+	labels := func(r tui.Record) string {
+		var out []string
+		for _, f := range r.Fields {
+			out = append(out, f.Label+"="+f.Value)
+		}
+		return strings.Join(out, "; ")
+	}
+	wantPackage := "name=bash; version=5.2.15-2+b13; architecture=amd64; package manager=dpkg; source package=bash; source version=5.2.15-2"
+	if got := labels(tab.Records[0]); got != wantPackage {
+		t.Errorf("a package's fields are %q, want %q", got, wantPackage)
+	}
+	if got := labels(tab.Records[1]); got != "name=Some Application; version=1.2" {
+		t.Errorf("an application's fields are %q, want its name and version alone", got)
 	}
 }

@@ -11,13 +11,33 @@ import (
 	"io"
 )
 
-// SoftwareEntry represents a single installed software package with its
-// display name and version string as reported by the host platform.
-// Name and Version are discrete fields to support downstream CPE lookups
-// and enrichment adapter queries against vulnerability databases.
+// The package managers an entry can come from, as an entry names its own.
+// Vulnerability data is published per manager and compared by each manager's
+// own version order, so the matching of installed software to CVEs selects
+// the data and the comparison by this value.
+const (
+	ManagerDpkg   = "dpkg"
+	ManagerRPM    = "rpm"
+	ManagerAPK    = "apk"
+	ManagerPacman = "pacman"
+	ManagerPkg    = "pkg"
+)
+
+// SoftwareEntry is one installed package as its package manager states it.
+// Version is the whole version in the manager's own form, with the epoch and
+// the release where the manager has them. Source is the package the entry was
+// built from, which is what a distribution's security data names, and
+// SourceVersion is that package's version where the manager states one apart
+// from the entry's own. A field a manager does not have is empty, and an
+// entry read from no package manager, an application on Windows or macOS,
+// carries a name and a version alone.
 type SoftwareEntry struct {
-	Name    string `json:"name" yaml:"name"`
-	Version string `json:"version,omitempty" yaml:"version,omitempty"`
+	Name          string `json:"name" yaml:"name"`
+	Version       string `json:"version,omitempty" yaml:"version,omitempty"`
+	Manager       string `json:"manager,omitempty" yaml:"manager,omitempty"`
+	Architecture  string `json:"architecture,omitempty" yaml:"architecture,omitempty"`
+	Source        string `json:"source,omitempty" yaml:"source,omitempty"`
+	SourceVersion string `json:"source_version,omitempty" yaml:"source_version,omitempty"`
 }
 
 // SoftwareView is the serializable projection of a software inventory. This
@@ -37,9 +57,7 @@ func View(entries []SoftwareEntry) SoftwareView {
 }
 
 // GetInstalledSoftwareList returns the installed software packages as a
-// structured slice. Each entry carries a discrete name and version field
-// suitable for enrichment lookups and structured report output. ctx bounds
-// the platform package-manager invocations.
+// structured slice. ctx bounds the platform package-manager invocations.
 func GetInstalledSoftwareList(ctx context.Context) ([]SoftwareEntry, error) {
 	entries, err := getPlatformSoftwareList(ctx)
 	if err != nil {
