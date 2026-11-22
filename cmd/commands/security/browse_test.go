@@ -105,11 +105,16 @@ func TestBrowserItemCarriesWeaknessAndCVSS(t *testing.T) {
 		Finding: &audit.FindingView{Title: "World-writable file", Severity: "HIGH",
 			Weakness: &finding.Weakness{ID: "CWE-732", Name: "Incorrect Permission Assignment for Critical Resource",
 				Description: "The product specifies permissions for a security-critical resource in a way that allows it to be read or modified by unintended actors.",
-				Usage:       "Allowed-with-Review", URL: "https://cwe.mitre.org/data/definitions/732.html"},
+				Usage:       "Allowed-with-Review", URL: "https://cwe.mitre.org/data/definitions/732.html",
+				Lineage: []finding.WeaknessAncestor{
+					{ID: "CWE-284", Name: "Improper Access Control", Abstraction: "Pillar"},
+					{ID: "CWE-285", Name: "Improper Authorization", Abstraction: "Class"},
+				}},
 			CVSS: &finding.CVSSScore{Version: "4.0", Vector: "CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:H/VI:H/VA:N/SC:N/SI:N/SA:N", Score: 8.4, Severity: "HIGH",
 				Source: "registry", Nomenclature: "CVSS-B", Basis: "baseline for the condition, not measured on this host"}}}
 	item := browserItem(cond)
-	for _, want := range []string{"CWE-732 Incorrect Permission Assignment", "Allowed-with-Review"} {
+	for _, want := range []string{"CWE-732 Incorrect Permission Assignment", "Allowed-with-Review",
+		"\nCWE-284 Improper Access Control (Pillar)\n> CWE-285 Improper Authorization (Class)\n> CWE-732 Incorrect Permission Assignment for Critical Resource"} {
 		if !strings.Contains(item.Weakness, want) {
 			t.Errorf("weakness %q lacks %q", item.Weakness, want)
 		}

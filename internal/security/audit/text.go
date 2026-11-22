@@ -152,20 +152,20 @@ func writeFinding(ew *render.ErrWriter, condition ConditionView) error {
 // registry's baseline, and the score on this host with what it rests on.
 func writeWeaknessAndCVSS(ew *render.ErrWriter, def *FindingView) {
 	if def.Weakness != nil {
-		ew.Printf("  Weakness: %s\n", WeaknessText(*def.Weakness))
+		writeLabelled(ew, "Weakness", WeaknessLines(*def.Weakness))
 	} else if def.NoWeakness != "" {
 		ew.Printf("  Weakness: none. %s\n", def.NoWeakness)
 	}
 	if def.CVSS == nil {
 		return
 	}
-	writeScore(ew, "CVSS baseline", ScoreLines(*def.CVSS))
-	writeScore(ew, "CVSS on this host", HostScoreLines(def.Host))
+	writeLabelled(ew, "CVSS baseline", ScoreLines(*def.CVSS))
+	writeLabelled(ew, "CVSS on this host", HostScoreLines(def.Host))
 }
 
-// writeScore writes a score's first line after its label and the lines that
+// writeLabelled writes a block's first line after its label and the lines that
 // trace it indented beneath.
-func writeScore(ew *render.ErrWriter, label string, lines []string) {
+func writeLabelled(ew *render.ErrWriter, label string, lines []string) {
 	ew.Printf("  %s: %s\n", label, lines[0])
 	for _, line := range lines[1:] {
 		ew.Printf("    %s\n", line)
@@ -218,11 +218,23 @@ func writeDetails(ew *render.ErrWriter, details []string) {
 	}
 }
 
-// WeaknessText renders the CWE entry a finding maps to as its identifier and
-// name, with MITRE's guidance on mapping to it. It is shared so every view of a
-// finding names its weakness the same way.
-func WeaknessText(w finding.Weakness) string {
-	return fmt.Sprintf("%s %s (MITRE mapping usage: %s)", w.ID, w.Name, w.Usage)
+// WeaknessLines renders the CWE entry a finding maps to as its identifier and
+// name, with MITRE's guidance on mapping to it, then its lineage from the
+// broadest entry down to its own. It is shared so every view of a finding names
+// its weakness the same way.
+func WeaknessLines(w finding.Weakness) []string {
+	lines := []string{fmt.Sprintf("%s %s (MITRE mapping usage: %s)", w.ID, w.Name, w.Usage)}
+	if len(w.Lineage) == 0 {
+		return lines
+	}
+	for i, a := range w.Lineage {
+		step := fmt.Sprintf("%s %s (%s)", a.ID, a.Name, a.Abstraction)
+		if i > 0 {
+			step = "> " + step
+		}
+		lines = append(lines, step)
+	}
+	return append(lines, fmt.Sprintf("> %s %s", w.ID, w.Name))
 }
 
 // CVSSText renders a CVSS score with the label FIRST requires on a displayed

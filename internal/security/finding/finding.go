@@ -126,13 +126,25 @@ type (
 	}
 
 	// Weakness is the CWE entry a finding maps to, as MITRE's catalog states
-	// it. Usage is MITRE's own guidance on mapping to the entry.
+	// it. Usage is MITRE's own guidance on mapping to the entry. Lineage is the
+	// path down to it through the parents MITRE marks primary in the Research
+	// Concepts view, broadest first and ending at its parent, so a reader sees
+	// the class a specific weakness belongs to.
 	Weakness struct {
+		ID          CWE                `json:"id" yaml:"id"`
+		Name        string             `json:"name" yaml:"name"`
+		Description string             `json:"description" yaml:"description"`
+		Usage       string             `json:"mapping_usage" yaml:"mapping_usage"`
+		URL         string             `json:"url" yaml:"url"`
+		Lineage     []WeaknessAncestor `json:"lineage,omitempty" yaml:"lineage,omitempty"`
+	}
+
+	// WeaknessAncestor is one entry above a finding's weakness, with MITRE's
+	// abstraction for it, from Pillar to Variant.
+	WeaknessAncestor struct {
 		ID          CWE    `json:"id" yaml:"id"`
 		Name        string `json:"name" yaml:"name"`
-		Description string `json:"description" yaml:"description"`
-		Usage       string `json:"mapping_usage" yaml:"mapping_usage"`
-		URL         string `json:"url" yaml:"url"`
+		Abstraction string `json:"abstraction" yaml:"abstraction"`
 	}
 
 	// CVSSScore is one CVSS score with what it states about itself: the

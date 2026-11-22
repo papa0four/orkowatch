@@ -343,8 +343,13 @@ citations are withheld in this way until each is checked against the benchmark.
 
 A finding also states its weakness and its CVSS score. The weakness is a CWE entry
 from the bundled MITRE catalog, shown with its name, MITRE's description and MITRE's
-own guidance on mapping to it (`weakness` in JSON and YAML). The registry refuses to
-load a definition that maps to an entry MITRE marks Discouraged or Prohibited. Where
+own guidance on mapping to it (`weakness` in JSON and YAML). Beneath it is the entry's
+lineage, the path from its Pillar down to it through the parent MITRE marks primary
+in the Research Concepts view, so CWE-521 Weak Password Requirements is shown under
+CWE-284 Improper Access Control, CWE-287 Improper Authentication, CWE-1390 Weak
+Authentication and CWE-1391 Use of Weak Credentials (`weakness.lineage`, broadest
+first). The registry refuses to load a definition that maps to an entry MITRE marks
+Discouraged or Prohibited; the entries above it in its lineage may be either. Where
 no entry describes a finding, which is the case for a disabled SELinux, the finding
 says so and gives the reason (`no_weakness`) rather than naming a weakness that does
 not fit.

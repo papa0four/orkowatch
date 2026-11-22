@@ -7,6 +7,7 @@ import (
 	_ "embed"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -26,25 +27,26 @@ type (
 		Weaknesses  map[string]cweEntry `yaml:"weaknesses"`
 	}
 
-	// cweEntry is one weakness as MITRE's catalog states it. Parents are its
-	// ChildOf relations in the Research Concepts view. Description is carried
-	// only for the entries a definition maps to.
+	// cweEntry is one weakness as MITRE's catalog states it. Parent is the
+	// ChildOf relation MITRE marks primary in the Research Concepts view, so
+	// every weakness has one path to its Pillar. Description is carried only
+	// for the entries a definition maps to.
 	cweEntry struct {
-		Name        string   `yaml:"name"`
-		Abstraction string   `yaml:"abstraction"`
-		Usage       string   `yaml:"usage"`
-		Parents     []string `yaml:"parents"`
-		Description string   `yaml:"description"`
+		Name        string `yaml:"name"`
+		Abstraction string `yaml:"abstraction"`
+		Usage       string `yaml:"usage"`
+		Parent      string `yaml:"parent"`
+		Description string `yaml:"description"`
 	}
 
-	// weaknessRecord is a loaded entry. The parents have no reader but the
-	// registry's check that they form a hierarchy.
+	// weaknessRecord is a loaded entry. parent is empty for an entry with
+	// none, and the parents are what a finding's lineage is walked along.
 	weaknessRecord struct {
 		name        string
 		abstraction string
 		usage       string
 		description string
-		parents     []finding.CWE
+		parent      finding.CWE
 	}
 )
 
@@ -97,12 +99,12 @@ func mustLoadWeaknesses(data []byte) map[finding.CWE]weaknessRecord {
 			panic(fmt.Sprintf("registry: cwe.yaml: %s has abstraction %q, which is not one of MITRE's", raw, e.Abstraction))
 		}
 		rec := weaknessRecord{name: e.Name, abstraction: e.Abstraction, usage: e.Usage, description: e.Description}
-		for _, p := range e.Parents {
-			parent, err := finding.ParseCWE(p)
+		if e.Parent != "" {
+			parent, err := finding.ParseCWE(e.Parent)
 			if err != nil {
-				panic(fmt.Sprintf("registry: cwe.yaml: %s names parent %q: %v", raw, p, err))
+				panic(fmt.Sprintf("registry: cwe.yaml: %s names parent %q: %v", raw, e.Parent, err))
 			}
-			rec.parents = append(rec.parents, parent)
+			rec.parent = parent
 		}
 		out[id] = rec
 	}
@@ -120,25 +122,21 @@ func checkHierarchy(records map[finding.CWE]weaknessRecord) {
 		done
 	)
 	state := make(map[finding.CWE]int, len(records))
-	var visit func(id finding.CWE)
-	visit = func(id finding.CWE) {
-		state[id] = visiting
-		for _, p := range records[id].parents {
-			if _, ok := records[p]; !ok {
+	for start := range records {
+		var path []finding.CWE
+		for id := start; id != "" && state[id] == unvisited; id = records[id].parent {
+			state[id] = visiting
+			path = append(path, id)
+			p := records[id].parent
+			if _, ok := records[p]; p != "" && !ok {
 				panic(fmt.Sprintf("registry: cwe.yaml: %s names parent %s, which is not in the catalog", id, p))
 			}
-			switch state[p] {
-			case visiting:
+			if state[p] == visiting {
 				panic(fmt.Sprintf("registry: cwe.yaml: %s and %s are each other's ancestor", id, p))
-			case unvisited:
-				visit(p)
 			}
 		}
-		state[id] = done
-	}
-	for id := range records {
-		if state[id] == unvisited {
-			visit(id)
+		for _, id := range path {
+			state[id] = done
 		}
 	}
 }
@@ -185,7 +183,20 @@ func (d FindingDefinition) weakness() *finding.Weakness {
 		return nil
 	}
 	rec := weaknesses[d.CWE]
-	return &finding.Weakness{ID: d.CWE, Name: rec.name, Description: rec.description, Usage: rec.usage, URL: cweURL(string(d.CWE))}
+	return &finding.Weakness{ID: d.CWE, Name: rec.name, Description: rec.description, Usage: rec.usage, URL: cweURL(string(d.CWE)), Lineage: lineage(d.CWE)}
+}
+
+// lineage returns the entries above id, broadest first and ending at its
+// parent. Load has refused a catalog whose parents are missing or form a
+// cycle, so the walk ends at an entry with no parent.
+func lineage(id finding.CWE) []finding.WeaknessAncestor {
+	var out []finding.WeaknessAncestor
+	for p := weaknesses[id].parent; p != ""; p = weaknesses[p].parent {
+		rec := weaknesses[p]
+		out = append(out, finding.WeaknessAncestor{ID: p, Name: rec.name, Abstraction: rec.abstraction})
+	}
+	slices.Reverse(out)
+	return out
 }
 
 // cvssScore is the registry's CVSS value for d, labelled for what it is: a
