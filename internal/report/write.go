@@ -185,15 +185,3 @@ func ResolveHostname() string {
 
 	return "unknown"
 }
-
-// pathWithin compares on path boundaries so a sibling is not mistaken for a child
-func pathWithin(target, base string) bool {
-	if target == base {
-		return true
-	}
-	rel, err := filepath.Rel(base, target)
-	if err != nil {
-		return false
-	}
-	return rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
-}

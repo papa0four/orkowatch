@@ -8,12 +8,12 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
 
+	"github.com/papa0four/orkowatch/internal/fspath"
 	"github.com/papa0four/orkowatch/internal/winfolder"
 )
 
@@ -39,10 +39,8 @@ func refusedReason(target string) string {
 	if err != nil {
 		return err.Error()
 	}
-	// Windows paths are case-insensitive, so fold both sides before comparing.
-	target = strings.ToLower(filepath.Clean(target))
 	for _, base := range bases {
-		if pathWithin(target, strings.ToLower(filepath.Clean(base))) {
+		if fspath.Within(target, base) {
 			return base
 		}
 	}
@@ -126,13 +124,12 @@ func isElevated() (bool, error) {
 // withinAllowlist permits an elevated write only under roots the operator
 // clearly owns, so a privileged run cannot silently write elsewhere.
 func withinAllowlist(target string) (bool, error) {
-	target = strings.ToLower(filepath.Clean(target))
 	for _, root := range allowlistRoots() {
 		real, err := canonicalParent(root)
 		if err != nil {
 			continue
 		}
-		if pathWithin(target, strings.ToLower(filepath.Clean(real))) {
+		if fspath.Within(target, real) {
 			return true, nil
 		}
 	}

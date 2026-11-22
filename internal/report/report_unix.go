@@ -12,6 +12,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"syscall"
+
+	"github.com/papa0four/orkowatch/internal/fspath"
 )
 
 const (
@@ -64,7 +66,7 @@ func canonicalParent(parent string) (string, error) {
 
 func refusedReason(target string) string {
 	for _, root := range systemRoots {
-		if pathWithin(target, root) {
+		if fspath.Within(target, root) {
 			return root
 		}
 	}
@@ -79,7 +81,7 @@ func refusedReason(target string) string {
 	for _, home := range homes {
 		for _, rel := range userPersistence {
 			base := filepath.Join(home, rel)
-			if pathWithin(target, base) {
+			if fspath.Within(target, base) {
 				return base
 			}
 		}
@@ -100,7 +102,7 @@ func withinAllowlist(target string) (bool, error) {
 		if err != nil {
 			continue
 		}
-		if pathWithin(target, real) {
+		if fspath.Within(target, real) {
 			return true, nil
 		}
 	}

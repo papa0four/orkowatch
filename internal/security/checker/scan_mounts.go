@@ -15,6 +15,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/papa0four/orkowatch/internal/fspath"
 	"github.com/papa0four/orkowatch/internal/security/finding"
 )
 
@@ -132,7 +133,7 @@ func planScan(root string, mounts []mount) scanPlan {
 	entered := map[string]bool{root: true}
 	var local, aliases []mount
 	for _, m := range mounts {
-		if m.point == root || !pathWithin(m.point, root) {
+		if m.point == root || !fspath.Within(m.point, root) {
 			continue
 		}
 		if m.hidden {
@@ -171,7 +172,7 @@ func planScan(root string, mounts []mount) scanPlan {
 	// filesystem the source is on, they are judged there; otherwise the
 	// alias is the only way to them and is walked like a local filesystem.
 	for _, m := range aliases {
-		shown := pathWithin(m.source, root) && entered[plan.mountOver(root, m.source)]
+		shown := fspath.Within(m.source, root) && entered[plan.mountOver(root, m.source)]
 		entered[m.point] = true
 		if shown {
 			plan.leave(m, leftSame, "shows "+m.source)
@@ -191,7 +192,7 @@ func rootMount(root string, mounts []mount) mount {
 	start := mount{point: root, shows: "/", kind: mountLocal}
 	var over mount
 	for _, m := range mounts {
-		if !m.hidden && pathWithin(root, m.point) && len(m.point) >= len(over.point) {
+		if !m.hidden && fspath.Within(root, m.point) && len(m.point) >= len(over.point) {
 			over = m
 		}
 	}
@@ -211,7 +212,7 @@ func rootMount(root string, mounts []mount) mount {
 // a mount point lies on the way, since the descent stops at each.
 func (p *scanPlan) shownBy(walked []mount, m mount) (string, bool) {
 	for _, w := range walked {
-		if w.fsid != m.fsid || !pathWithin(m.shows, w.shows) {
+		if w.fsid != m.fsid || !fspath.Within(m.shows, w.shows) {
 			continue
 		}
 		rel, err := filepath.Rel(w.shows, m.shows)
@@ -230,7 +231,7 @@ func (p *scanPlan) shownBy(walked []mount, m mount) (string, bool) {
 func (p *scanPlan) mountOver(from, path string) string {
 	over := from
 	for stop := range p.stops {
-		if stop != from && pathWithin(stop, from) && pathWithin(path, stop) && len(stop) > len(over) {
+		if stop != from && fspath.Within(stop, from) && fspath.Within(path, stop) && len(stop) > len(over) {
 			over = stop
 		}
 	}
