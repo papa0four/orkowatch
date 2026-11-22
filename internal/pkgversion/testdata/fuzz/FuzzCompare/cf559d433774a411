@@ -1,0 +1,4 @@
+go test fuzz v1
+byte('½')
+string("\x80\x00\x00\x000")
+string("\x00\x00\x00\x800")
