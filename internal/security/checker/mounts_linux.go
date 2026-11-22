@@ -9,6 +9,8 @@ import (
 	"os"
 	"strconv"
 	"strings"
+
+	"github.com/papa0four/orkowatch/internal/fspath"
 )
 
 // Where the kernel lists the mounts of this process's namespace and the
@@ -243,7 +245,7 @@ func coveredMount(line mountInfoLine, lines []mountInfoLine, depth int) bool {
 	for _, other := range lines {
 		switch {
 		case other.id == line.id:
-		case other.parent == line.parent && other.point != line.point && pathWithin(line.point, other.point):
+		case other.parent == line.parent && other.point != line.point && fspath.Within(line.point, other.point):
 			return true
 		case other.id == line.parent && other.id != other.parent:
 			if coveredMount(other, lines, depth-1) {

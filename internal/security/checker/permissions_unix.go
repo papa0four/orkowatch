@@ -15,6 +15,7 @@ import (
 	"sync"
 	"syscall"
 
+	"github.com/papa0four/orkowatch/internal/fspath"
 	"github.com/papa0four/orkowatch/internal/security/finding"
 	"github.com/papa0four/orkowatch/internal/security/registry"
 	"github.com/papa0four/orkowatch/internal/treewalk"
@@ -187,7 +188,7 @@ var pathLocations = append([]pathLocation{
 // none of pathLocations.
 func locationOf(path string) string {
 	for _, place := range pathLocations {
-		if pathWithin(path, place.prefix) {
+		if fspath.Within(path, place.prefix) {
 			return place.location
 		}
 	}
@@ -335,7 +336,7 @@ func (p *UnixPermissionChecker) effectiveRoot() (string, error) {
 func (p *UnixPermissionChecker) checkCriticalPaths(root string, r *report) {
 	var checked int
 	for _, cpath := range p.paths {
-		if !pathWithin(cpath.path, root) {
+		if !fspath.Within(cpath.path, root) {
 			continue
 		}
 		checked++
@@ -348,19 +349,6 @@ func (p *UnixPermissionChecker) checkCriticalPaths(root string, r *report) {
 		return
 	}
 	r.pass(ruleExcessMode, ruleNotRootOwned)
-}
-
-// pathWithin reports whether target lies at or beneath base, comparing on path
-// boundaries so a sibling is not mistaken for a child.
-func pathWithin(target, base string) bool {
-	if target == base {
-		return true
-	}
-	rel, err := filepath.Rel(base, target)
-	if err != nil {
-		return false
-	}
-	return rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
 // checkCriticalPath records every way cp departs from what a critical system

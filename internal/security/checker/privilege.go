@@ -16,6 +16,7 @@ import (
 	"os/exec"
 	"strings"
 
+	"github.com/papa0four/orkowatch/internal/elevation"
 	"github.com/papa0four/orkowatch/internal/security/finding"
 	"github.com/papa0four/orkowatch/internal/security/registry"
 )
@@ -60,7 +61,7 @@ type (
 	// runs the audit, which programs the host has, sudo and the group
 	// database.
 	privilegeSources struct {
-		euid      int
+		elevated  bool
 		installed func(program string) bool
 		sudo      sudoRun
 		groups    func(ctx context.Context) (privilegedGroups, error)
@@ -140,7 +141,7 @@ func lookupGroup(ctx context.Context, getent, group string) ([]byte, error) {
 // hostPrivilegeSources are the sources of the host the audit runs on.
 func hostPrivilegeSources() privilegeSources {
 	return privilegeSources{
-		euid:      os.Geteuid(),
+		elevated:  elevation.Elevated(),
 		installed: onPath,
 		sudo:      runSudo,
 		groups:    readAdminGroups,
@@ -179,7 +180,7 @@ func (h *hostAccounts) readPrivilege(ctx context.Context, src privilegeSources) 
 
 	sudo := src.installed("sudo")
 	switch {
-	case sudo && src.euid == rootUID:
+	case sudo && src.elevated:
 		h.askSudo(ctx, src.sudo)
 	case sudo:
 		h.unjudged = append(h.unjudged, unaskedSudo(ctx, src.groups, h.accounts)...)

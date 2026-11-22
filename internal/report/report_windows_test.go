@@ -5,6 +5,7 @@
 package report
 
 import (
+	"errors"
 	"path/filepath"
 	"testing"
 
@@ -37,5 +38,17 @@ func TestRefusedLocations(t *testing.T) {
 	}
 	if reason := refusedReason(filepath.Join(data, "owatch", "report.json")); reason != "" {
 		t.Errorf("ProgramData outside its Startup folder was refused: %q", reason)
+	}
+}
+
+// A destination given in extended-length or device form is refused as a
+// protected location, in the words the refusal has always used.
+func TestWriteRefusesDevicePath(t *testing.T) {
+	const want = "destination is a protected location: extended-length or device path"
+	for _, prefix := range []string{`\\?\`, `\\.\`} {
+		err := Write(prefix+filepath.Join(t.TempDir(), "report.json"), []byte("{}"), Options{})
+		if !errors.Is(err, ErrRefusedLocation) || err.Error() != want {
+			t.Errorf("a %s path gave %v, want %q", prefix, err, want)
+		}
 	}
 }

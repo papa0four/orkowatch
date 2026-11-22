@@ -14,6 +14,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/papa0four/orkowatch/internal/elevation"
 )
 
 // The accounts of the guest the lists below were read in: a_w is uid 1001, a
@@ -224,7 +226,7 @@ func TestSourcesEnumerable(t *testing.T) {
 // case resting on root's group wants rootGroupAsked, which the judge is told
 // of that group and which reach returns on no other path.
 func TestReachOfDirectories(t *testing.T) {
-	if os.Geteuid() != rootUID {
+	if !elevation.Elevated() {
 		t.Skip("making a directory of root's needs root")
 	}
 	const (
