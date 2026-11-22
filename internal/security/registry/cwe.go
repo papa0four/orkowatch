@@ -7,6 +7,7 @@ import (
 	_ "embed"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -39,7 +40,7 @@ type (
 	}
 
 	// weaknessRecord is a loaded entry. parent is empty for an entry with
-	// none.
+	// none, and the parents are what a finding's lineage is walked along.
 	weaknessRecord struct {
 		name        string
 		abstraction string
@@ -182,7 +183,20 @@ func (d FindingDefinition) weakness() *finding.Weakness {
 		return nil
 	}
 	rec := weaknesses[d.CWE]
-	return &finding.Weakness{ID: d.CWE, Name: rec.name, Description: rec.description, Usage: rec.usage, URL: cweURL(string(d.CWE))}
+	return &finding.Weakness{ID: d.CWE, Name: rec.name, Description: rec.description, Usage: rec.usage, URL: cweURL(string(d.CWE)), Lineage: lineage(d.CWE)}
+}
+
+// lineage returns the entries above id, broadest first and ending at its
+// parent. Load has refused a catalog whose parents are missing or form a
+// cycle, so the walk ends at an entry with no parent.
+func lineage(id finding.CWE) []finding.WeaknessAncestor {
+	var out []finding.WeaknessAncestor
+	for p := weaknesses[id].parent; p != ""; p = weaknesses[p].parent {
+		rec := weaknesses[p]
+		out = append(out, finding.WeaknessAncestor{ID: p, Name: rec.name, Abstraction: rec.abstraction})
+	}
+	slices.Reverse(out)
+	return out
 }
 
 // cvssScore is the registry's CVSS value for d, labelled for what it is: a

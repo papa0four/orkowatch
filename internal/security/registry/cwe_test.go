@@ -3,8 +3,12 @@
 package registry
 
 import (
+	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 
 	"github.com/papa0four/orkowatch/internal/security/finding"
 )
@@ -128,6 +132,58 @@ func TestShippedFindingsCarryWeaknessAndLabelledCVSS(t *testing.T) {
 		}
 		if f.CVSS == nil || f.CVSS.Nomenclature != "CVSS-B" || f.CVSS.Version != "4.0" || f.CVSS.Source != "registry" || f.CVSS.Score != d.CVSSScore || f.CVSS.Vector != d.CVSSVector {
 			t.Errorf("%s: CVSS %+v is not the registry's labelled baseline", label, f.CVSS)
+		}
+	}
+}
+
+// A finding's weakness carries the path down to it from its Pillar, through
+// the parents MITRE marks primary.
+func TestWeaknessCarriesItsLineage(t *testing.T) {
+	w := FindingDefinition{Result: finding.ResultFail, CWE: "CWE-521"}.weakness()
+	var got []string
+	for _, a := range w.Lineage {
+		got = append(got, string(a.ID)+" "+a.Abstraction)
+	}
+	want := []string{"CWE-284 Pillar", "CWE-287 Class", "CWE-1390 Class", "CWE-1391 Class"}
+	if !slices.Equal(got, want) {
+		t.Errorf("CWE-521 has lineage %v, want %v", got, want)
+	}
+	if w.Lineage[0].Name != "Improper Access Control" {
+		t.Errorf("the Pillar is named %q", w.Lineage[0].Name)
+	}
+	asJSON, err := json.Marshal(w)
+	if err != nil {
+		t.Fatal(err)
+	}
+	asYAML, err := yaml.Marshal(w)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(asJSON), `"lineage":[{"id":"CWE-284","name":"Improper Access Control","abstraction":"Pillar"}`) {
+		t.Errorf("JSON does not carry the lineage: %s", asJSON)
+	}
+	if !strings.Contains(string(asYAML), "lineage:\n    - id: CWE-284\n      name: Improper Access Control\n      abstraction: Pillar\n") {
+		t.Errorf("YAML does not carry the lineage:\n%s", asYAML)
+	}
+}
+
+// Every shipped finding's lineage starts at a Pillar and each entry is the
+// parent of the next, ending at the parent of the finding's own weakness.
+func TestShippedLineagesDescendFromAPillar(t *testing.T) {
+	for label, d := range allDefinitions() {
+		w := d.weakness()
+		if w == nil {
+			continue
+		}
+		if len(w.Lineage) == 0 || w.Lineage[0].Abstraction != "Pillar" || weaknesses[w.Lineage[0].ID].parent != "" {
+			t.Errorf("%s: %s has lineage %v, which does not start at a Pillar", label, w.ID, w.Lineage)
+			continue
+		}
+		next := append(slices.Clone(w.Lineage[1:]), finding.WeaknessAncestor{ID: w.ID})
+		for i, a := range w.Lineage {
+			if weaknesses[next[i].ID].parent != a.ID {
+				t.Errorf("%s: %s in the lineage of %s is not the parent of %s", label, a.ID, w.ID, next[i].ID)
+			}
 		}
 	}
 }
