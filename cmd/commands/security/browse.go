@@ -424,7 +424,7 @@ func browserItem(condition audit.ConditionView) tui.Item {
 func setWeaknessAndCVSS(item *tui.Item, def *audit.FindingView) {
 	switch {
 	case def.Weakness != nil:
-		item.Weakness = safeLines(audit.WeaknessText(*def.Weakness))
+		item.Weakness = safeLines(strings.Join(audit.WeaknessLines(*def.Weakness), "\n"))
 		item.WeaknessAbout = safeLines(def.Weakness.Description + "\n" + def.Weakness.URL)
 	case def.NoWeakness != "":
 		item.Weakness = "none"

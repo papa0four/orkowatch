@@ -470,7 +470,6 @@ func (c *allCmd) runSecurityAuditModule(ctx context.Context, mask selection.Chec
 	auditor := audit.NewSecurityAuditor(audit.Options{
 		Observer:    security.Observe(reporter),
 		MinSeverity: c.audit.MinSeverity(),
-		Enrich:      c.audit.Enrich(),
 		Checks:      selection.EnabledChecks(mask),
 		Unselected:  c.audit.Unselected(mask),
 		HostInfo:    hostInfo,

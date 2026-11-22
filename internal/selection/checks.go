@@ -1,10 +1,10 @@
 // internal/selection/checks.go
 
 // Package selection defines the CheckMask type, category taxonomy, and registry
-// used to identify which audit checks, modules, and enrichment adapters are
-// enabled for a given scan. The bitmask representation keeps check composition
-// O(1) and scales to 64 discrete entries across three fixed bit ranges, with
-// the top two bits reserved, without structural changes.
+// used to identify which audit checks and modules are enabled for a given
+// scan. The bitmask representation keeps check composition O(1) and scales to
+// 48 discrete entries across two fixed bit ranges, with bits 48 to 63
+// unassigned, without structural changes.
 package selection
 
 import (
@@ -13,15 +13,14 @@ import (
 )
 
 type (
-	// CheckMask is a bitmask of enabled audit checks, modules, and enrichment
-	// adapters. Each bit represents a single entry. Callers compose a mask by
-	// OR-ing the constants defined in this package. The 64-bit space is
-	// divided into three fixed ranges, with bits 62 and 63 reserved; see
-	// CheckCategory for boundaries.
+	// CheckMask is a bitmask of enabled audit checks and modules. Each bit
+	// represents a single entry. Callers compose a mask by OR-ing the
+	// constants defined in this package. The 64-bit space holds two fixed
+	// ranges, with bits 48 to 63 unassigned; see CheckCategory for boundaries.
 	CheckMask uint64
 
 	// CheckCategory identifies which bit range a registry entry occupies.
-	// The three categories map directly to the three fixed ranges in CheckMask.
+	// The two categories map directly to the two fixed ranges in CheckMask.
 	CheckCategory uint8
 
 	// registryEntry is a single record in the canonical check registry. It binds
@@ -85,26 +84,9 @@ const (
 	CheckUsers CheckMask = 1 << 27
 	// Bits 28-47 reserved for future audit checks.
 
-	// Enrichment bits: 48-61.
-	// One bit per enrichment adapter.
-
-	// EnrichGHSA enables GHSA advisory lookups against findings.
-	// Reserved until GHSA adapter lands.
-	EnrichGHSA CheckMask = 1 << 48
-	// EnrichKEV enables CISA KEV cross-reference against findings.
-	// Reserved until KEV adapter lands.
-	EnrichKEV CheckMask = 1 << 49
-	// EnrichNVD enables NVD CVE lookups against findings.
-	// Reserved until NVD adapter lands.
-	EnrichNVD CheckMask = 1 << 50
-	// EnrichEPSS enables EPSS score lookups against findings.
-	// Reserved until EPSS adapter lands.
-	EnrichEPSS CheckMask = 1 << 51
-	// Bits 52-61 reserved for future enrichment adapters.
-
-	// Bits 62-63 reserved. No composing flag exists: MITRE ATT&CK mapping is
-	// registry data shown without a flag, so the range that was set aside for
-	// one carries nothing.
+	// Bits 48-63 are unassigned. Nothing a run selects lies outside the
+	// modules and the checks: ATT&CK mapping is registry data shown without
+	// a flag, and CVE matching happens whenever datasets are held.
 )
 
 const (
@@ -112,8 +94,6 @@ const (
 	CategoryModule CheckCategory = iota
 	// CategoryCheck identifies an audit check bit (bits 24 - 47)
 	CategoryCheck
-	// CategoryEnrichment identifies an enrichment adapter bit (bits 48 - 61)
-	CategoryEnrichment
 
 	// categoryCount bounds the segments slice in Codes. It is derived from
 	// iota, so it tracks the const block automatically: it must remain the
@@ -134,8 +114,8 @@ const (
 )
 
 var (
-	// registry is the canonical ordered list of all check, module, and
-	// enrichment adapter entries. Iteration order determines the
+	// registry is the canonical ordered list of all check and module
+	// entries. Iteration order determines the
 	// left-to-right code segment produced by Codes -- entries must remain ordered
 	// alphabetically by code within each category. New entries append within their
 	// category's reserved bit range. Existing entries must never be reordered or
@@ -164,13 +144,6 @@ var (
 		{bit: CheckPerms, code: 'p', name: "permissions", flag: "fperms", category: CategoryCheck},
 		{bit: CheckSSH, code: 's', name: "ssh", flag: "ssh", category: CategoryCheck},
 		{bit: CheckUsers, code: 'u', name: "users", flag: "users", category: CategoryCheck},
-
-		// Enrichment adapters -- reserved until each adapter lands.
-		// flag names will be assigned when each adapter is implemented.
-		{bit: EnrichGHSA, code: 'g', name: "ghsa", flag: "ghsa", category: CategoryEnrichment},
-		{bit: EnrichKEV, code: 'k', name: "kev", flag: "kev", category: CategoryEnrichment},
-		{bit: EnrichNVD, code: 'n', name: "nvd", flag: "nvd", category: CategoryEnrichment},
-		{bit: EnrichEPSS, code: 'p', name: "epss", flag: "epss", category: CategoryEnrichment},
 	}
 
 	// checksByName is a derived lookup map built from the registry.
@@ -193,8 +166,8 @@ func SkipHint(category CheckCategory, names []string) string {
 }
 
 // Codes returns a filename-safe string encoding the enabled entries within
-// mask. Entries are grouped into three segments -- modules, checks, and
-// enrichment -- separated by hyphens. Each segment carries a single-byte
+// mask. Entries are grouped into two segments, modules and checks,
+// separated by a hyphen. Each segment carries a single-byte
 // category label followed by a dot (e.g. "m.os", "c.fpsu"). Empty segments are
 // omitted entirely. The resulting string is stable across runs for a given mask
 // value.
@@ -224,8 +197,8 @@ func Codes(mask CheckMask) string {
 }
 
 // EnabledChecks returns a slice of check names for the audit checks enabled
-// in mask. Only CategoryCheck entries are considered; module and enrichment
-// bits are ignored. The returned slice is used by the audit runner to select
+// in mask. Only CategoryCheck entries are considered; module bits are
+// ignored. The returned slice is used by the audit runner to select
 // which checks to execute.
 func EnabledChecks(mask CheckMask) []string {
 	var checks []string
@@ -270,8 +243,6 @@ func (c CheckCategory) String() string {
 		return "module"
 	case CategoryCheck:
 		return "check"
-	case CategoryEnrichment:
-		return "enrichment"
 	default:
 		return "unknown"
 	}
@@ -286,8 +257,6 @@ func (c CheckCategory) prefix() byte {
 		return 'm'
 	case CategoryCheck:
 		return 'c'
-	case CategoryEnrichment:
-		return 'e'
 	default:
 		return 0
 	}

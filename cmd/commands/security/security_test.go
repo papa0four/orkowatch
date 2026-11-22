@@ -175,3 +175,13 @@ func TestUnselectedSaysWhy(t *testing.T) {
 		})
 	}
 }
+
+// The audit takes no flag asking for CVE data: matching runs whenever
+// datasets are held, so there is nothing to ask for.
+func TestAuditHasNoEnrichFlag(t *testing.T) {
+	for _, flag := range []string{"--enrich", "-e"} {
+		if _, _, err := selected(t, flag); err == nil || !strings.Contains(err.Error(), "unknown") {
+			t.Errorf("%s: %v, want it refused as unknown", flag, err)
+		}
+	}
+}

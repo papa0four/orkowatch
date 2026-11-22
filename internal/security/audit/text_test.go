@@ -60,6 +60,25 @@ func TestTextShowsBothScores(t *testing.T) {
 	}
 }
 
+// The text report names the weakness, then its lineage from the Pillar down
+// to the weakness itself.
+func TestTextShowsTheWeaknessLineage(t *testing.T) {
+	def := hostScored()
+	def.Weakness = &finding.Weakness{ID: "CWE-266", Name: "Incorrect Privilege Assignment", Usage: "Allowed",
+		Lineage: []finding.WeaknessAncestor{
+			{ID: "CWE-284", Name: "Improper Access Control", Abstraction: "Pillar"},
+			{ID: "CWE-269", Name: "Improper Privilege Management", Abstraction: "Class"},
+		}}
+	want := "  Weakness: CWE-266 Incorrect Privilege Assignment (MITRE mapping usage: Allowed)\n" +
+		"    CWE-284 Improper Access Control (Pillar)\n" +
+		"    > CWE-269 Improper Privilege Management (Class)\n" +
+		"    > CWE-266 Incorrect Privilege Assignment\n" +
+		"  CVSS baseline:"
+	if text := findingText(t, def); !strings.Contains(text, want) {
+		t.Errorf("the text lacks the lineage %q:\n%s", want, text)
+	}
+}
+
 // A finding the host's evidence did not modify, and one with no rule, each say
 // that the baseline is the score and why.
 func TestTextStatesWhenTheBaselineStands(t *testing.T) {

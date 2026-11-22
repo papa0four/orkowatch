@@ -10,7 +10,7 @@
 // Text rendering functions take data and an io.Writer only; the package has
 // no dependency on cobra or on the audit engine. It defines no serialization
 // types of its own -- a package that owns domain data (internal/osfingerprint,
-// internal/security/enrichment) owns that data's serializable projection and
+// internal/sockets) owns that data's serializable projection and
 // its text renderer together, and calls into this package only for the
 // generic verbs above.
 package render

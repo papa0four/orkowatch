@@ -13,8 +13,7 @@ import (
 )
 
 // Tab identifiers. A tab's identifier fixes the key that jumps to it, so a
-// source has the same letter in every run. tabLetters also reserves a letter
-// for each source that arrives with the enrichment work.
+// source has the same letter in every run.
 const (
 	TabFindings = "findings"
 	TabSystem   = "system"
@@ -87,10 +86,6 @@ var (
 		TabSoftware: "s",
 		TabSockets:  "l",
 		TabAttack:   "m",
-		"nvd":       "n",
-		"kev":       "k",
-		"epss":      "e",
-		"ghsa":      "g",
 	}
 
 	// detailKeys is the viewport's key map. Its defaults bind j, k, h, l, f,
