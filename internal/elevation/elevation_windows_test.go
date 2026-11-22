@@ -16,6 +16,9 @@ const (
 	// everyoneSID is the well-known SID of the Everyone group.
 	everyoneSID = "S-1-1-0"
 
+	// administratorsSID is the well-known SID of the Administrators group.
+	administratorsSID = "S-1-5-32-544"
+
 	// highIntegritySID and systemIntegritySID are the mandatory labels of an
 	// elevated token and of the system's.
 	highIntegritySID   = "S-1-16-12288"
@@ -44,6 +47,24 @@ func TestElevated(t *testing.T) {
 	want := strings.Contains(groups, highIntegritySID) || strings.Contains(groups, systemIntegritySID)
 	if Elevated() != want {
 		t.Errorf("Elevated() = %v with these groups:\n%s", Elevated(), groups)
+	}
+}
+
+// The Administrators group is in effect exactly when whoami lists it as an
+// enabled group, and not when it is absent or held for deny only.
+func TestAdministratorInEffect(t *testing.T) {
+	out, err := exec.Command(systemProgram(t, "whoami.exe"), "/groups", "/fo", "csv").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var want bool
+	for _, line := range strings.Split(string(out), "\n") {
+		if strings.Contains(line, `"`+administratorsSID+`"`) {
+			want = strings.Contains(line, "Enabled group")
+		}
+	}
+	if AdministratorInEffect() != want {
+		t.Errorf("AdministratorInEffect() = %v with these groups:\n%s", AdministratorInEffect(), out)
 	}
 }
 
