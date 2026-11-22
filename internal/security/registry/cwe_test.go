@@ -72,28 +72,34 @@ func TestCatalogCarriesMITREsUsage(t *testing.T) {
 	if _, ok := weaknesses["CWE-16"]; ok {
 		t.Error("CWE-16, a grouping, is in the catalog of weaknesses")
 	}
-	// A child names its parent, so a mapping can be walked up or down.
-	if parents := weaknesses["CWE-266"].parents; len(parents) == 0 || parents[0] != "CWE-269" {
-		t.Errorf("CWE-266 has parents %v, want CWE-269", parents)
+	// A weakness with several parents in MITRE's view keeps the one MITRE marks
+	// primary, so it has one path to its Pillar.
+	for id, want := range map[finding.CWE]finding.CWE{"CWE-266": "CWE-269", "CWE-250": "CWE-269", "CWE-732": "CWE-285", "CWE-1188": "CWE-1419", "CWE-284": ""} {
+		if got := weaknesses[id].parent; got != want {
+			t.Errorf("%s has parent %q, want %q", id, got, want)
+		}
 	}
 }
 
-// A damaged catalog stops startup: an unknown usage, a parent the catalog lacks
-// and a cycle are each refused.
+// A damaged catalog stops startup: an unknown usage, a parent the catalog lacks,
+// a cycle and a list of parents in place of one are each refused.
 func TestCatalogLoaderRefusesDamage(t *testing.T) {
 	const head = "version: \"5.0\"\nverified: \"2026-11-15\"\nweaknesses:\n"
-	entry := func(id, usage, parents string) string {
-		return "  \"" + id + "\":\n    name: \"n\"\n    abstraction: \"Base\"\n    usage: \"" + usage + "\"\n    parents: [" + parents + "]\n"
+	entry := func(id, usage, parent string) string {
+		return "  \"" + id + "\":\n    name: \"n\"\n    abstraction: \"Base\"\n    usage: \"" + usage + "\"\n    parent: \"" + parent + "\"\n"
 	}
 	cases := map[string]string{
 		"an unknown usage":   head + entry("CWE-1", "Maybe", ""),
-		"a missing parent":   head + entry("CWE-1", "Allowed", `"CWE-2"`),
-		"a cycle":            head + entry("CWE-1", "Allowed", `"CWE-2"`) + entry("CWE-2", "Allowed", `"CWE-1"`),
+		"a missing parent":   head + entry("CWE-1", "Allowed", "CWE-2"),
+		"a cycle":            head + entry("CWE-1", "Allowed", "CWE-2") + entry("CWE-2", "Allowed", "CWE-1"),
+		"a longer cycle":     head + entry("CWE-1", "Allowed", "CWE-2") + entry("CWE-2", "Allowed", "CWE-3") + entry("CWE-3", "Allowed", "CWE-1"),
 		"an unknown field":   head + entry("CWE-1", "Allowed", "") + "    colour: red\n",
 		"no version":         "weaknesses:\n" + entry("CWE-1", "Allowed", ""),
 		"a malformed id":     head + entry("1", "Allowed", ""),
+		"a malformed parent": head + entry("CWE-1", "Allowed", "2"),
 		"an unknown kind":    strings.Replace(head+entry("CWE-1", "Allowed", ""), `"Base"`, `"Galaxy"`, 1),
-		"a parent of itself": head + entry("CWE-1", "Allowed", `"CWE-1"`),
+		"a parent of itself": head + entry("CWE-1", "Allowed", "CWE-1"),
+		"a list of parents":  head + "  \"CWE-1\":\n    name: \"n\"\n    abstraction: \"Base\"\n    usage: \"Allowed\"\n    parents: []\n",
 	}
 	for name, data := range cases {
 		func() {
