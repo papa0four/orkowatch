@@ -81,11 +81,7 @@ func Write(path string, data []byte, opts Options) error {
 		return fmt.Errorf("%w: %s", ErrRefusedLocation, reason)
 	}
 
-	elevated, err := isElevated()
-	if err != nil {
-		return fmt.Errorf("determine privilege: %w", err)
-	}
-	if elevated {
+	if elevation.Elevated() {
 		if err := guardElevatedWrite(target, realParent, opts); err != nil {
 			return err
 		}

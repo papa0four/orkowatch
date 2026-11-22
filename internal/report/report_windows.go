@@ -57,12 +57,6 @@ func refusedBases() ([]string, error) {
 	return bases, nil
 }
 
-// isElevated reports an elevated (Administrator) token, where a write can land
-// anywhere and the tool becomes a privileged write primitive.
-func isElevated() (bool, error) {
-	return windows.GetCurrentProcessToken().IsElevated(), nil
-}
-
 // openAndWrite creates target and writes data to it. The name is generated
 // per run, so nothing legitimate is ever there already: CREATE_NEW refuses
 // whatever is, and OPEN_REPARSE_POINT makes a planted link count as that

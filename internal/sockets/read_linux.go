@@ -18,6 +18,8 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+
+	"github.com/papa0four/orkowatch/internal/elevation"
 )
 
 const (
@@ -128,7 +130,7 @@ type (
 // the right to read their descriptors, so a run that is not root states a gap
 // for the sockets it could not attribute.
 func Read(ctx context.Context) (View, error) {
-	r := reader{proc: procRoot, privileged: os.Geteuid() == 0, userName: cachedAccountName()}
+	r := reader{proc: procRoot, privileged: elevation.Elevated(), userName: cachedAccountName()}
 	sockets, err := r.read(ctx)
 	if err != nil {
 		return View{}, err

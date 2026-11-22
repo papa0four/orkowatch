@@ -13,12 +13,7 @@ import (
 	"github.com/papa0four/orkowatch/internal/fspath"
 )
 
-const (
-	reportFileMode = 0600
-
-	// rootID is the superuser's uid and the gid of its group.
-	rootID = 0
-)
+const reportFileMode = 0600
 
 // systemRoots are refused because they sensitive to an attacker
 var systemRoots = []string{
@@ -58,12 +53,6 @@ func refusedReason(target string) string {
 		}
 	}
 	return ""
-}
-
-// isElevated reports root, where a write can land anywhere and the tool becomes
-// a privileged write primitive.
-func isElevated() (bool, error) {
-	return os.Geteuid() == rootID, nil
 }
 
 // openAndWrite creates target and writes data to it. The name is generated

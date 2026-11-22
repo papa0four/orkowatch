@@ -44,7 +44,7 @@ func judgeFreeBSD(gate suGate, credentialsRead bool) map[registry.FindingKey]fin
 			host.accounts[i].password = passwordUnknown
 		}
 	}
-	src := privilegeSources{euid: rootUID, installed: func(string) bool { return false }}
+	src := privilegeSources{elevated: true, installed: func(string) bool { return false }}
 	host.readPrivilege(context.Background(), src)
 	lookup := func(context.Context, string) ([]byte, error) { return []byte("wheel:*:0:root,a_w\n"), nil }
 	host.applySUGate(context.Background(), suPolicyFile, gate, lookup)

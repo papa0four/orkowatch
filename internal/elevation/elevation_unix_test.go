@@ -6,10 +6,22 @@ package elevation
 
 import (
 	"os"
+	"os/exec"
 	"os/user"
 	"strings"
 	"testing"
 )
+
+// The process is elevated exactly when id(1) says its effective user is root.
+func TestElevated(t *testing.T) {
+	out, err := exec.Command("id", "-u").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := strings.TrimSpace(string(out)) == "0"; Elevated() != want {
+		t.Errorf("Elevated() = %v with id -u printing %s", Elevated(), out)
+	}
+}
 
 // The operator is the account SUDO_USER names, and there is none when the
 // variable is unset or names no account.

@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
+
+	"github.com/papa0four/orkowatch/internal/elevation"
 )
 
 func skipBigEndian(t *testing.T) {
@@ -224,7 +226,7 @@ func TestAttribution(t *testing.T) {
 		t.Errorf("a socket no process holds, on a root run refused nothing: %+v", s)
 	}
 
-	if os.Geteuid() == 0 {
+	if elevation.Elevated() {
 		t.Skip("root reads every directory; the refusal case needs a user who may not")
 	}
 	refusedRoot := readOrFail(t, reader{proc: proc(t, true), privileged: true, userName: name})

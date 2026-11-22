@@ -6,13 +6,46 @@ package elevation
 
 import (
 	"os/exec"
+	"strings"
 	"testing"
 
 	"github.com/papa0four/orkowatch/internal/winfolder"
 )
 
-// everyoneSID is the well-known SID of the Everyone group.
-const everyoneSID = "S-1-1-0"
+const (
+	// everyoneSID is the well-known SID of the Everyone group.
+	everyoneSID = "S-1-1-0"
+
+	// highIntegritySID and systemIntegritySID are the mandatory labels of an
+	// elevated token and of the system's.
+	highIntegritySID   = "S-1-16-12288"
+	systemIntegritySID = "S-1-16-16384"
+)
+
+// systemProgram is the path of a program in the Windows system folder, so a
+// test runs Windows' own and not one of the same name earlier on PATH.
+func systemProgram(t *testing.T, name string) string {
+	t.Helper()
+	path, err := winfolder.System.Path(name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+// The process is elevated exactly when whoami lists a high or system
+// integrity label among its groups.
+func TestElevated(t *testing.T) {
+	out, err := exec.Command(systemProgram(t, "whoami.exe"), "/groups", "/fo", "csv").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	groups := string(out)
+	want := strings.Contains(groups, highIntegritySID) || strings.Contains(groups, systemIntegritySID)
+	if Elevated() != want {
+		t.Errorf("Elevated() = %v with these groups:\n%s", Elevated(), groups)
+	}
+}
 
 // The operator is the account running the process, with the profile Windows
 // records for it.
@@ -34,7 +67,7 @@ func TestExposure(t *testing.T) {
 		t.Errorf("a directory the account made: %q, %v", reason, err)
 	}
 
-	if out, err := exec.Command("icacls", dir, "/grant", "*"+everyoneSID+":(OI)(CI)M").CombinedOutput(); err != nil {
+	if out, err := exec.Command(systemProgram(t, "icacls.exe"), dir, "/grant", "*"+everyoneSID+":(OI)(CI)M").CombinedOutput(); err != nil {
 		t.Fatalf("icacls: %v: %s", err, out)
 	}
 	if reason, err := Exposure(dir); err != nil || reason != "writable by "+everyoneSID {
