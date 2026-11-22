@@ -29,9 +29,9 @@ and open an issue against this doc.
   and find nothing on a localized Windows; and files owned by a SID that no
   longer resolves go undetected. Tracked as a single fix (#111). Linux/Unix
   audit checks are not affected.
-- **`--enrich` currently has no effect.** No CVE/CWE enrichment adapter
-  (NVD, CISA KEV, EPSS, GHSA) is wired yet. The flag is accepted and does
-  nothing; findings are not annotated with CVE data.
+- **No CVE matching yet.** Installed software and the operating system are
+  not matched to CVEs, and findings carry no CVE data. There is no `--enrich`
+  flag; passing it fails as an unknown flag.
 - **There is no `--mitre` flag.** MITRE ATT&CK® mapping is registry data shown
   by default; see MITRE ATT&CK below. Passing `--mitre` fails as an unknown flag.
 - **macOS and BSD are implemented but not yet fully verified.** The Unix
@@ -41,8 +41,7 @@ and open an issue against this doc.
   #100; treat output there as unproven rather than trusted.
 - **Filename and report structure may still change.** The naming convention
   and JSON/YAML report shape are considered stable for the fields that exist
-  today, but new segments (enrichment, MITRE) will be added as those features
-  land.
+  today, but fields will be added as features land.
 - **No log capture or history modules yet.** OS fingerprinting, software
   inventory, the host's sockets (Linux and Windows), and the four audit
   checks (SSH, firewall, users, permissions) exist today.
@@ -133,7 +132,6 @@ With no check flags given, all checks run by default.
 | `--report-file` | Save report to directory; filename is generated automatically | — |
 | `--min-severity` | Minimum severity to report, judged on the severity on this host: NONE, LOW, MEDIUM, HIGH, CRITICAL | NONE |
 | `--timeout` | Maximum audit duration | 10m |
-| `--enrich, -e` | Query external sources to annotate findings with CVEs mapped to referenced CWEs | false |
 | `--allow-elevated-write` | Permit an elevated write outside the allowlisted directories or into a directory other users control | false |
 | `-v, --verbose` | Add the live findings feed to the progress display, or print progress lines when output is not a terminal; does not change report content | false |
 | `-y, --yes` | Do not ask before a permissions check that scans the entire filesystem | false |
@@ -188,7 +186,6 @@ individual audit checks within the audit module, or both together.
 | `--report-file` | Save report to directory; filename is generated automatically | — |
 | `--min-severity` | Minimum severity to report, judged on the severity on this host: NONE, LOW, MEDIUM, HIGH, CRITICAL | NONE |
 | `--timeout` | Maximum time to run all scans | 30m |
-| `--enrich, -e` | Query external sources to annotate findings with CVEs mapped to referenced CWEs | false |
 | `--allow-elevated-write` | Permit an elevated write outside the allowlisted directories or into a directory other users control | false |
 | `-v, --verbose` | Add the live findings feed to the progress display; does not change report content | false |
 | `-y, --yes` | Do not ask before a permissions check that scans the entire filesystem | false |
@@ -431,7 +428,7 @@ on this host.
 generates the filename automatically:
 
 ```text
-owatch-<hostname>-m.<module_codes>-c.<check_codes>-e.<enrichment_codes>-<timestamp>.<ext>
+owatch-<hostname>-m.<module_codes>-c.<check_codes>-<timestamp>.<ext>
 ```
 
 - Segments are omitted entirely when empty — there are never double hyphens.
@@ -465,18 +462,7 @@ segment below — a module code would be redundant with that.
 | `s` | SSH configuration | implemented |
 | `u` | User accounts | implemented |
 
-### `e.` — Enrichment adapters
-
-| Letter | Adapter | Status |
-|---|---|---|
-| `g` | GHSA advisories | reserved, not yet implemented |
-| `k` | CISA KEV | reserved, not yet implemented |
-| `n` | NVD (CVE lookup) | reserved, not yet implemented |
-| `p` | EPSS scoring | reserved, not yet implemented |
-
-No `e.` segment appears in any filename yet, since no adapter is wired.
-
-Note: c.s (SSH check) and m.s (software module) share the same letter — that's intentional and safe, since each category is its own namespace (the registry only enforces uniqueness within a category, not across all three). This distinction is worth stating explicitly so it doesn't read as a typo when someone's staring at `m.os-c.fpsu` for the first time.
+Note: c.s (SSH check) and m.s (software module) share the same letter — that's intentional and safe, since each category is its own namespace (the registry only enforces uniqueness within a category, not across both). This distinction is worth stating explicitly so it doesn't read as a typo when someone's staring at `m.os-c.fpsu` for the first time.
 
 ## Shell Completion
 

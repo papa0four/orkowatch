@@ -376,8 +376,9 @@ func mustLoad(name string, data []byte) map[FindingKey]FindingDefinition {
 
 // validated returns d with its defaults applied, or the reason it cannot be
 // used. A definition that can report fail names a weakness in the bundled CWE
-// dataset, because that identifier is the key enrichment looks weaknesses up
-// by, or says in no_weakness why none fits; one that cannot fail needs neither.
+// dataset, because that identifier is the key a weakness class's count of
+// known-exploited CVEs is looked up by, or says in no_weakness why none fits;
+// one that cannot fail needs neither.
 func (d FindingDefinition) validated() (FindingDefinition, error) {
 	if err := d.validateReferences(); err != nil {
 		return d, err

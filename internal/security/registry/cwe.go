@@ -37,10 +37,8 @@ type (
 		Description string   `yaml:"description"`
 	}
 
-	// weaknessRecord is a loaded entry. The parents are consumed by the NVD
-	// enrichment adapter, which reaches the CVEs NVD files under a child of a
-	// finding's weakness through them; until it exists the registry checks that
-	// they form a hierarchy.
+	// weaknessRecord is a loaded entry. The parents have no reader but the
+	// registry's check that they form a hierarchy.
 	weaknessRecord struct {
 		name        string
 		abstraction string

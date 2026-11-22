@@ -33,7 +33,6 @@ type (
 	AuditFlags struct {
 		skipChecks  []string
 		minSeverity string
-		enrich      bool
 		yes         bool
 
 		// skipMask is the resolved exclusion set, computed once in Resolve
@@ -84,8 +83,6 @@ func BindAudit(cmd *cobra.Command) *AuditFlags {
 			selection.ValidNamesFor(selection.CategoryCheck)))
 	cmd.Flags().StringVar(&a.minSeverity, "min-severity", finding.SeverityNone,
 		fmt.Sprintf("Minimum severity level to report, judged on the severity on this host (%s)", finding.SeverityNames()))
-	cmd.Flags().BoolVarP(&a.enrich, "enrich", "e", false,
-		"Query external sources to annotate findings with CVEs mapped to referenced CWEs")
 	cmd.Flags().BoolVarP(&a.yes, "yes", "y", false,
 		"Do not ask before a permissions check that scans the entire filesystem")
 	return a
@@ -118,11 +115,6 @@ func (a *AuditFlags) Resolve() error {
 // MinSeverity returns the canonical severity floor Resolve settled on.
 func (a *AuditFlags) MinSeverity() string {
 	return a.minSeverity
-}
-
-// Enrich reports whether findings are annotated from external sources.
-func (a *AuditFlags) Enrich() bool {
-	return a.enrich
 }
 
 // SkipMask returns the checks excluded by --skip-checks. Callers clear these
@@ -393,7 +385,6 @@ func (c *auditCmd) runAuditWithTimeout(cmd *cobra.Command, mask selection.CheckM
 			MinSeverity:   c.audit.MinSeverity(),
 			Checks:        selection.EnabledChecks(mask),
 			Unselected:    c.audit.Unselected(mask),
-			Enrich:        c.audit.Enrich(),
 		})
 		var err error
 		result, err = auditor.RunAudit(ctx)

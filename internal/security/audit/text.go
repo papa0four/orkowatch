@@ -8,12 +8,11 @@ import (
 	"strings"
 
 	"github.com/papa0four/orkowatch/internal/render"
-	"github.com/papa0four/orkowatch/internal/security/enrichment"
 	"github.com/papa0four/orkowatch/internal/security/finding"
 )
 
 // WriteViewText renders a completed audit as text: each check with its
-// findings, the enrichment block, suppression notice, and summary. It renders
+// findings, the suppression notice, and the summary. It renders
 // from the projection a saved report carries, so a live run and a saved report
 // show the same text. It does not render the system block; callers write that
 // separately via osfingerprint.WriteViewText. The first write error, if any, is
@@ -35,16 +34,6 @@ func WriteViewText(w io.Writer, v View) error {
 		if err := writeCheck(ew, check, minSeverity); err != nil {
 			return err
 		}
-	}
-
-	if err := enrichment.Block(w, enrichment.Data{
-		Requested: v.EnrichmentRequested,
-		Err:       v.EnrichmentError,
-		CWEs:      v.ReferenceCWEs,
-		Entries:   v.Entries,
-		Failures:  v.Failures,
-	}); err != nil {
-		return err
 	}
 
 	if err := render.SuppressionNotice(w, v.FindingsSuppressed,

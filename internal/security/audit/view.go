@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/papa0four/orkowatch/internal/osfingerprint"
-	"github.com/papa0four/orkowatch/internal/security/enrichment"
 	"github.com/papa0four/orkowatch/internal/security/finding"
 )
 
@@ -16,19 +15,15 @@ type (
 	// to findings at or above minSeverity. It is the single shape JSON,
 	// YAML, and WriteText all render from.
 	View struct {
-		Timestamp           string                    `json:"timestamp" yaml:"timestamp"`
-		Duration            string                    `json:"duration" yaml:"duration"`
-		MinSeverity         string                    `json:"min_severity,omitempty" yaml:"min_severity,omitempty"`
-		SystemInfo          *osfingerprint.SystemView `json:"system_info,omitempty" yaml:"system_info,omitempty"`
-		Results             []CheckView               `json:"results" yaml:"results"`
-		Summary             Summary                   `json:"summary" yaml:"summary"`
-		FindingsSuppressed  int                       `json:"findings_suppressed,omitempty" yaml:"findings_suppressed,omitempty"`
-		MinSeverityApplied  string                    `json:"min_severity_applied,omitempty" yaml:"min_severity_applied,omitempty"`
-		EnrichmentRequested bool                      `json:"enrichment_requested" yaml:"enrichment_requested"`
-		EnrichmentError     string                    `json:"enrichment_error,omitempty" yaml:"enrichment_error,omitempty"`
-		ReferenceCWEs       []string                  `json:"reference_cwes,omitempty" yaml:"reference_cwes,omitempty"`
-		Entries             []enrichment.EntryView    `json:"enrichment_entries,omitempty" yaml:"enrichment_entries,omitempty"`
-		Failures            []enrichment.FailureView  `json:"enrichment_failures,omitempty" yaml:"enrichment_failures,omitempty"`
+		Timestamp          string                    `json:"timestamp" yaml:"timestamp"`
+		Duration           string                    `json:"duration" yaml:"duration"`
+		MinSeverity        string                    `json:"min_severity,omitempty" yaml:"min_severity,omitempty"`
+		SystemInfo         *osfingerprint.SystemView `json:"system_info,omitempty" yaml:"system_info,omitempty"`
+		Results            []CheckView               `json:"results" yaml:"results"`
+		Summary            Summary                   `json:"summary" yaml:"summary"`
+		FindingsSuppressed int                       `json:"findings_suppressed,omitempty" yaml:"findings_suppressed,omitempty"`
+		MinSeverityApplied string                    `json:"min_severity_applied,omitempty" yaml:"min_severity_applied,omitempty"`
+		ReferenceCWEs      []string                  `json:"reference_cwes,omitempty" yaml:"reference_cwes,omitempty"`
 	}
 
 	// CheckView is the serializable projection of a single check's result.
@@ -89,24 +84,17 @@ type (
 // apply or could not be evaluated is not a judgment being filtered.
 func (r *Result) View(minSeverity string) View {
 	v := View{
-		Timestamp:           r.StartTime.UTC().Format(time.RFC3339),
-		Duration:            r.Duration.String(),
-		MinSeverity:         strings.ToUpper(minSeverity),
-		Summary:             r.Summary,
-		EnrichmentRequested: r.EnrichmentRequested,
-		ReferenceCWEs:       r.CWEs,
+		Timestamp:     r.StartTime.UTC().Format(time.RFC3339),
+		Duration:      r.Duration.String(),
+		MinSeverity:   strings.ToUpper(minSeverity),
+		Summary:       r.Summary,
+		ReferenceCWEs: r.CWEs,
 	}
 
 	if r.HostInfo != nil {
 		sv := r.HostInfo.View()
 		v.SystemInfo = &sv
 	}
-
-	if r.EnrichmentError != nil {
-		v.EnrichmentError = r.EnrichmentError.Error()
-	}
-	v.Entries = enrichment.Entries(r.CWEs, r.Enrichment)
-	v.Failures = enrichment.Failures(r.Enrichment)
 
 	for _, check := range r.Results {
 		cv := CheckView{
