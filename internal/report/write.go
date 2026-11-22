@@ -11,6 +11,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/papa0four/orkowatch/internal/fspath"
 )
 
 type (
@@ -57,8 +59,13 @@ func Write(path string, data []byte, opts Options) error {
 	// Resolve the parent against the real filesystem so a symlinked
 	// directory is judged by where it leads
 	parent := filepath.Dir(abs)
-	realParent, err := canonicalParent(parent)
-	if err != nil {
+	realParent, err := fspath.Real(parent)
+	switch {
+	case errors.Is(err, fspath.ErrDevicePath):
+		return fmt.Errorf("%w: %w", ErrRefusedLocation, err)
+	case errors.Is(err, fspath.ErrMissing):
+		return fmt.Errorf("%w: %s", ErrParentMissing, parent)
+	case err != nil:
 		return err
 	}
 
@@ -105,14 +112,26 @@ func guardElevatedWrite(target, realParent string, opts Options) error {
 		return fmt.Errorf("%w: %s is %s", ErrElevatedExposedDir, realParent, reason)
 	}
 
-	allowed, err := withinAllowlist(target)
-	if err != nil {
-		return err
-	}
-	if !allowed {
+	if !withinAllowlist(target) {
 		return ErrElevatedWriteDenied
 	}
 	return nil
+}
+
+// withinAllowlist permits an elevated write only under roots the operator
+// clearly owns, so a privileged run cannot silently write elsewhere. A root
+// that cannot be resolved admits nothing.
+func withinAllowlist(target string) bool {
+	for _, root := range allowlistRoots() {
+		real, err := fspath.Real(root)
+		if err != nil {
+			continue
+		}
+		if fspath.Within(target, real) {
+			return true
+		}
+	}
+	return false
 }
 
 // ValidateDir confirms path is an existing directory a report can be written

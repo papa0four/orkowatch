@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"strings"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -63,77 +62,10 @@ func refusedBases() ([]string, error) {
 	return bases, nil
 }
 
-// canonicalParent returns the OS-resolved long-form path of parent so the
-// location checks cannot be evaded by 8.3 short names, links, or trailing dots
-// and spaces.
-func canonicalParent(parent string) (final string, err error) {
-	if strings.HasPrefix(parent, `\\?\`) || strings.HasPrefix(parent, `\\.\`) {
-		return "", fmt.Errorf("%w: extended-length or device path", ErrRefusedLocation)
-	}
-
-	p, err := windows.UTF16PtrFromString(parent)
-	if err != nil {
-		return "", fmt.Errorf("encode path: %w", err)
-	}
-
-	// Backup semantics are required to obtain a directory handle.
-	h, err := windows.CreateFile(
-		p,
-		windows.FILE_READ_ATTRIBUTES,
-		windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE|windows.FILE_SHARE_DELETE,
-		nil,
-		windows.OPEN_EXISTING,
-		windows.FILE_FLAG_BACKUP_SEMANTICS,
-		0,
-	)
-	if err != nil {
-		return "", fmt.Errorf("%w: %s", ErrParentMissing, parent)
-	}
-	defer func() {
-		if cerr := windows.CloseHandle(h); cerr != nil && err == nil {
-			err = fmt.Errorf("close directory handle: %w", cerr)
-		}
-	}()
-
-	const finalPathFlags = 0
-	buf := make([]uint16, windows.MAX_PATH)
-	n, err := windows.GetFinalPathNameByHandle(h, &buf[0], windows.MAX_PATH, finalPathFlags)
-	if err != nil {
-		return "", fmt.Errorf("canonicalize path: %w", err)
-	}
-	if int(n) > len(buf) {
-		buf = make([]uint16, n)
-		if _, err := windows.GetFinalPathNameByHandle(h, &buf[0], n, finalPathFlags); err != nil {
-			return "", fmt.Errorf("canonicalize path: %w", err)
-		}
-	}
-
-	final = windows.UTF16ToString(buf)
-	if rest := strings.TrimPrefix(final, `\\?\UNC\`); rest != final {
-		return `\\` + rest, nil
-	}
-	return strings.TrimPrefix(final, `\\?\`), nil
-}
-
 // isElevated reports an elevated (Administrator) token, where a write can land
 // anywhere and the tool becomes a privileged write primitive.
 func isElevated() (bool, error) {
 	return windows.GetCurrentProcessToken().IsElevated(), nil
-}
-
-// withinAllowlist permits an elevated write only under roots the operator
-// clearly owns, so a privileged run cannot silently write elsewhere.
-func withinAllowlist(target string) (bool, error) {
-	for _, root := range allowlistRoots() {
-		real, err := canonicalParent(root)
-		if err != nil {
-			continue
-		}
-		if fspath.Within(target, real) {
-			return true, nil
-		}
-	}
-	return false, nil
 }
 
 // allowlistRoots are the working directory and the operator's profile folder

@@ -54,16 +54,6 @@ var userPersistence = []string{
 	"Library/LaunchAgents",
 }
 
-// canonicalParent resolves the parent chain so the location checks compare
-// against the real directory
-func canonicalParent(parent string) (string, error) {
-	real, err := filepath.EvalSymlinks(parent)
-	if err != nil {
-		return "", fmt.Errorf("%w: %s", ErrParentMissing, parent)
-	}
-	return real, nil
-}
-
 func refusedReason(target string) string {
 	for _, root := range systemRoots {
 		if fspath.Within(target, root) {
@@ -95,20 +85,8 @@ func isElevated() (bool, error) {
 	return os.Geteuid() == rootID, nil
 }
 
-// withinAllowlist permits an elevated write only under roots the operator clearly owns
-func withinAllowlist(target string) (bool, error) {
-	for _, root := range allowlistRoots() {
-		real, err := filepath.EvalSymlinks(root)
-		if err != nil {
-			continue
-		}
-		if fspath.Within(target, real) {
-			return true, nil
-		}
-	}
-	return false, nil
-}
-
+// allowlistRoots are the working directory and the home of the user behind
+// sudo.
 func allowlistRoots() []string {
 	roots := make([]string, 0, maxOperatorHomes)
 	if cwd, err := os.Getwd(); err == nil {
