@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/papa0four/orkowatch/internal/elevation"
 	"github.com/papa0four/orkowatch/internal/fspath"
 )
 
@@ -104,7 +105,7 @@ func guardElevatedWrite(target, realParent string, opts Options) error {
 		return nil
 	}
 
-	reason, err := exposure(realParent)
+	reason, err := elevation.Exposure(realParent)
 	if err != nil {
 		return fmt.Errorf("inspect destination directory: %w", err)
 	}
@@ -132,6 +133,20 @@ func withinAllowlist(target string) bool {
 		}
 	}
 	return false
+}
+
+// allowlistRoots are the working directory and the operator's home: on Unix
+// that of the user behind sudo, on Windows the profile of the account running
+// the process.
+func allowlistRoots() []string {
+	roots := make([]string, 0, maxOperatorHomes)
+	if cwd, err := os.Getwd(); err == nil {
+		roots = append(roots, cwd)
+	}
+	if invoker, ok := elevation.InvokingOperator(); ok {
+		roots = append(roots, invoker.Home)
+	}
+	return roots
 }
 
 // ValidateDir confirms path is an existing directory a report can be written
