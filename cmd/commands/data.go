@@ -13,6 +13,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/papa0four/orkowatch/internal/dataset"
+	"github.com/papa0four/orkowatch/internal/dataset/kev"
 	"github.com/papa0four/orkowatch/internal/dataset/store"
 	"github.com/papa0four/orkowatch/internal/elevation"
 	"github.com/papa0four/orkowatch/internal/osfingerprint"
@@ -37,10 +38,9 @@ type dataCmd struct {
 
 // knownDatasets lists the datasets this version of owatch knows. A source is
 // added here as a type that satisfies dataset.Dataset; the commands and the
-// store read every source through that interface and name none. None has
-// landed yet: the first is CISA's Known Exploited Vulnerabilities catalog.
+// store read every source through that interface and name none.
 func knownDatasets() []dataset.Dataset {
-	return nil
+	return []dataset.Dataset{kev.Catalog{}}
 }
 
 // newDataCmd returns the owatch data command and its subcommands, reading the
@@ -185,7 +185,7 @@ func (d *dataCmd) runImport(ctx context.Context, out io.Writer, from string) err
 		return err
 	}
 	if refused > 0 {
-		return fmt.Errorf("%d of the %d datasets in %s were not imported", refused, len(outcomes), from)
+		return fmt.Errorf("%d of %s in %s not imported", refused, render.Count(len(outcomes), "dataset", "datasets"), from)
 	}
 	return nil
 }
@@ -198,7 +198,7 @@ func printOutcomes(out io.Writer, outcomes []store.Outcome) (int, error) {
 	for _, o := range outcomes {
 		line := fmt.Sprintf("%s: %s", o.ID, o.Result)
 		if o.Attempts > 1 || o.Result == store.Failed {
-			line += fmt.Sprintf(" after %d attempts", o.Attempts)
+			line += " after " + render.Count(o.Attempts, "attempt", "attempts")
 		}
 		if o.Reason != "" {
 			line += ": " + o.Reason

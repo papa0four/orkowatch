@@ -139,7 +139,7 @@ func (d *dataCmd) runRefresh(ctx context.Context, out, prompt io.Writer, to, for
 		return err
 	}
 	if failed+declined > 0 {
-		return fmt.Errorf("%d of the %d datasets were not refreshed", failed+declined, len(wanted))
+		return fmt.Errorf("%d of %s not refreshed", failed+declined, render.Count(len(wanted), "dataset", "datasets"))
 	}
 	return nil
 }

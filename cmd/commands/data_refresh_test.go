@@ -95,10 +95,10 @@ func TestDataRefreshReportsAFailure(t *testing.T) {
 	d, s, origins := refreshing(t, false, "")
 	origins.fails["wanted"] = errors.New("https://data.example/wanted answered 404 Not Found")
 	out, err := run(d, "refresh")
-	if err == nil || !strings.Contains(err.Error(), "1 of the 1 datasets were not refreshed") {
+	if err == nil || !strings.Contains(err.Error(), "1 of 1 dataset not refreshed") {
 		t.Errorf("a failed fetch gave %v", err)
 	}
-	if !strings.Contains(out, "wanted: failed after 1 attempts: https://data.example/wanted answered 404 Not Found") || holds(s.Root(), "wanted") {
+	if !strings.Contains(out, "wanted: failed after 1 attempt: https://data.example/wanted answered 404 Not Found") || holds(s.Root(), "wanted") {
 		t.Errorf("refresh printed %q", out)
 	}
 }

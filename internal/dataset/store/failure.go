@@ -15,6 +15,7 @@ import (
 	"unicode"
 
 	"github.com/papa0four/orkowatch/internal/fspath"
+	"github.com/papa0four/orkowatch/internal/render"
 )
 
 const (
@@ -91,8 +92,8 @@ func attention(dir string) string {
 	case err != nil:
 		return "the record of a failed import cannot be read (" + err.Error() + "); resolve it and run owatch data import again"
 	case found:
-		return fmt.Sprintf("the import at %s failed after %d attempts: %s; resolve the cause and run owatch data import again",
-			rec.At.UTC().Format(time.RFC3339), rec.Attempts, rec.Reason)
+		return fmt.Sprintf("the import at %s failed after %s: %s; resolve the cause and run owatch data import again",
+			rec.At.UTC().Format(time.RFC3339), render.Count(rec.Attempts, "attempt", "attempts"), rec.Reason)
 	}
 	if strays(dir) {
 		return "an install of this dataset did not finish; run owatch data import again to complete it"

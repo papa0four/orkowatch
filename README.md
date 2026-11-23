@@ -393,6 +393,17 @@ A run as root or from an elevated terminal has no store yet, and the commands
 below refuse there. `owatch data refresh` is the only owatch command that opens
 a network connection.
 
+The datasets this version knows, each fetched from its publisher's own address:
+
+| Dataset | What it is | Fetched from | Applies to | License |
+|---|---|---|---|---|
+| `kev` | CISA's Known Exploited Vulnerabilities catalog | `www.cisa.gov` | Every host | CC0 1.0 |
+
+CISA distributes the catalog under the Creative Commons 0 1.0 license. Use of it
+does not authorize use of the CISA Logo or DHS Seal and is not an endorsement by
+CISA or DHS. owatch holds the catalog and reports its state; no report reads its
+entries yet.
+
 ```bash
 # Fetch the datasets this host needs, over HTTPS
 owatch data refresh

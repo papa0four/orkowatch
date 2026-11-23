@@ -65,7 +65,7 @@ func TestDataImport(t *testing.T) {
 
 	datasettest.Put(t, src, datasettest.Dataset{Name: "retired"}, datasettest.Content, dataNow.Add(-time.Hour), nil)
 	out, err = run(d, "import", src)
-	if err == nil || !strings.Contains(err.Error(), "1 of the 2 datasets") {
+	if err == nil || err.Error() != "1 of 2 datasets in "+src+" not imported" {
 		t.Errorf("a refused dataset gave %v", err)
 	}
 	if !strings.Contains(out, "retired: refused: this version of owatch does not know the dataset") ||
@@ -169,5 +169,44 @@ func TestDataStatusElevated(t *testing.T) {
 	d.open = func(context.Context) (store.Store, error) { return store.Store{}, store.ErrElevated }
 	if _, err := run(d, "status", "--plain"); err == nil || !strings.Contains(err.Error(), store.ErrElevated.Error()) {
 		t.Errorf("status gave %v, want the elevated refusal", err)
+	}
+}
+
+// Every dataset owatch knows can be held and fetched: a name the store can
+// hold that no other dataset has, an origin a fetch can start from, a limit
+// on what it may hold, and a license its manifest records. CISA's catalog is
+// one of them, and a store without it lists it as not held.
+func TestKnownDatasets(t *testing.T) {
+	seen := map[string]bool{}
+	for _, k := range knownDatasets() {
+		id := k.ID()
+		if !dataset.ValidID(id) || seen[id] {
+			t.Errorf("%q is not a name one dataset can have", id)
+		}
+		seen[id] = true
+		if hosts, err := k.Origin().Hosts(); err != nil || len(hosts) == 0 {
+			t.Errorf("%s: hosts a fetch may reach = %q, %v", id, hosts, err)
+		}
+		if k.MaxBytes() <= 0 || k.Origin().License == "" {
+			t.Errorf("%s: may hold %d bytes under the license %q", id, k.MaxBytes(), k.Origin().License)
+		}
+	}
+	if !seen["kev"] {
+		t.Errorf("the known datasets are %v, without kev", seen)
+	}
+
+	d, _ := testData(t, false, "")
+	d.known = knownDatasets()
+	dir := t.TempDir()
+	if _, err := run(d, "status", "-o", "text", "--report-file", dir); err != nil {
+		t.Fatal(err)
+	}
+	saved, err := filepath.Glob(filepath.Join(dir, "owatch-*"))
+	if err != nil || len(saved) != 1 {
+		t.Fatalf("saved reports: %v, %v", saved, err)
+	}
+	report, err := os.ReadFile(saved[0])
+	if err != nil || !strings.Contains(string(report), "kev  not held\n") {
+		t.Errorf("status of an empty store saved %q, %v", report, err)
 	}
 }
