@@ -19,6 +19,7 @@ type testDataset struct{}
 func (testDataset) ID() string                           { return "test-data" }
 func (testDataset) AppliesTo(*osfingerprint.OSInfo) bool { return true }
 func (testDataset) MaxBytes() int64                      { return 1 << 10 }
+func (testDataset) Origin() Origin                       { return Origin{} }
 func (testDataset) Check(io.Reader) (Facts, error)       { return Facts{}, nil }
 
 var now = time.Date(2026, 11, 22, 12, 0, 0, 0, time.UTC)
@@ -154,6 +155,27 @@ func TestStateAt(t *testing.T) {
 	} {
 		if got := StateAt(fetched, fetched.Add(tt.age)); got != tt.want {
 			t.Errorf("at %v after the fetch the state is %q, want %q", tt.age, got, tt.want)
+		}
+	}
+}
+
+// An origin's hosts are its address's own and the redirect hosts it lists,
+// in lower case; an address that is not HTTPS, and a redirect host that is a
+// path or holds a port, are refused.
+func TestOriginHosts(t *testing.T) {
+	hosts, err := Origin{URL: "https://Data.Example/kev.json", RedirectHosts: []string{"CDN.example"}}.Hosts()
+	if err != nil || len(hosts) != 2 || hosts[0] != "data.example" || hosts[1] != "cdn.example" {
+		t.Errorf("hosts %q, %v", hosts, err)
+	}
+	for name, o := range map[string]Origin{
+		"plain HTTP":           {URL: "http://data.example/kev.json"},
+		"no address":           {},
+		"a redirect with path": {URL: "https://data.example/k", RedirectHosts: []string{"cdn.example/x"}},
+		"a redirect with port": {URL: "https://data.example/k", RedirectHosts: []string{"cdn.example:8443"}},
+		"an empty redirect":    {URL: "https://data.example/k", RedirectHosts: []string{""}},
+	} {
+		if _, err := o.Hosts(); !errors.Is(err, ErrManifest) {
+			t.Errorf("%s: gave %v, want it refused", name, err)
 		}
 	}
 }
