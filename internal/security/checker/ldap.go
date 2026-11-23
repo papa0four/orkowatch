@@ -187,9 +187,9 @@ func (j nslcdJudge) certificate() {
 
 // ignorecase judges whether nslcd matches names without regard to case: the
 // last ignorecase line is the one in force, and it is off unless set.
-// nslcd.conf(5): "Setting this to yes could open up the system to
-// authorisation bypass vulnerabilities and introduce nscd cache poisoning
-// vulnerabilities which allow denial of service."
+// nslcd.conf(5) warns that setting it to yes could open the system to
+// authorization bypass vulnerabilities and to nscd cache poisoning
+// vulnerabilities that allow denial of service.
 func (j nslcdJudge) ignorecase() {
 	const option = "ignorecase"
 	if set, ok := j.config.options.last(option); ok && slices.Contains(nslcdTrue, strings.ToLower(set.value)) {
