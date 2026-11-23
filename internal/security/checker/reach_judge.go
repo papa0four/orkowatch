@@ -3,7 +3,7 @@
 // internal/security/checker/reach_judge.go
 
 // What a directory confers when its mode bits deny traversal, on the
-// platforms whose access control lists are read: the POSIX.1e judgement and
+// platforms whose access control lists are read: the POSIX.1e judgment and
 // who holds root's group. Each platform supplies the read of the list, of
 // supplementary membership and of which account sources it can list in full.
 

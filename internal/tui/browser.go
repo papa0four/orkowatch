@@ -99,7 +99,7 @@ type (
 		Text  string
 	}
 
-	// SummaryLine is one labelled figure in the browser's summary.
+	// SummaryLine is one labeled figure in the browser's summary.
 	SummaryLine struct {
 		Label string
 		Value string
@@ -121,7 +121,7 @@ type (
 		// Weakness is the CWE entry the finding maps to, with MITRE's
 		// description of it, or the reason none fits. CVSS is the registry's
 		// baseline and HostCVSS the score on this host with what it rests on,
-		// each labelled with what it is a statement about. SeverityBasis says
+		// each labeled with what it is a statement about. SeverityBasis says
 		// which of them Severity is.
 		Weakness      string
 		WeaknessAbout string
@@ -835,7 +835,7 @@ func label(text string) hint { return hint{action: text} }
 // width is the columns the hint takes when drawn.
 func (h hint) width() int { return lipgloss.Width(h.render()) }
 
-// render draws the keys in parentheses, in the text colour so they stand out
+// render draws the keys in parentheses, in the text color so they stand out
 // from the muted action beside them.
 func (h hint) render() string {
 	parts := make([]string, 0, len(h.keys))
@@ -855,7 +855,7 @@ func (h hint) render() string {
 // helpView draws the footer: the keys that do something in the focused pane,
 // each in parentheses so it reads apart from the words describing it. When the
 // window is too narrow for all of them the ones before the last are dropped
-// from the end backwards, search and pane first, so the way out always stays.
+// from the end backward, search and pane first, so the way out always stays.
 func (b browser) helpView() string {
 	hints := b.help()
 	const gap = 3

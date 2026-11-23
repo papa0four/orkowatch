@@ -321,7 +321,7 @@ func (c *auditCmd) runE(cmd *cobra.Command, _ []string) error {
 	interactive := render.StdoutIsTerminal() && render.StdinIsTerminal()
 	switch err := c.audit.ConfirmFullScan(mask, c.scanRoot, interactive, os.Stdin, os.Stderr); {
 	case errors.Is(err, ErrScanDeclined):
-		fmt.Fprintln(os.Stderr, "Scan cancelled.")
+		fmt.Fprintln(os.Stderr, "Scan canceled.")
 		return nil
 	case err != nil:
 		return err

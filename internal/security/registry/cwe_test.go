@@ -61,7 +61,7 @@ func TestEveryUnusableWeaknessIsRefused(t *testing.T) {
 }
 
 // The catalog holds MITRE's weaknesses with their usage, including the ones
-// MITRE discourages or prohibits, so a mapping to one is recognised and refused
+// MITRE discourages or prohibits, so a mapping to one is recognized and refused
 // and not mistaken for a typo. Groupings such as CWE-16 are not weaknesses and
 // are absent.
 func TestCatalogCarriesMITREsUsage(t *testing.T) {
@@ -97,7 +97,7 @@ func TestCatalogLoaderRefusesDamage(t *testing.T) {
 		"a missing parent":   head + entry("CWE-1", "Allowed", "CWE-2"),
 		"a cycle":            head + entry("CWE-1", "Allowed", "CWE-2") + entry("CWE-2", "Allowed", "CWE-1"),
 		"a longer cycle":     head + entry("CWE-1", "Allowed", "CWE-2") + entry("CWE-2", "Allowed", "CWE-3") + entry("CWE-3", "Allowed", "CWE-1"),
-		"an unknown field":   head + entry("CWE-1", "Allowed", "") + "    colour: red\n",
+		"an unknown field":   head + entry("CWE-1", "Allowed", "") + "    color: red\n",
 		"no version":         "weaknesses:\n" + entry("CWE-1", "Allowed", ""),
 		"a malformed id":     head + entry("1", "Allowed", ""),
 		"a malformed parent": head + entry("CWE-1", "Allowed", "2"),
@@ -118,9 +118,9 @@ func TestCatalogLoaderRefusesDamage(t *testing.T) {
 }
 
 // Every shipped finding carries its weakness's name and MITRE's description
-// from the catalog, or the reason none applies, and a CVSS score labelled as
+// from the catalog, or the reason none applies, and a CVSS score labeled as
 // the baseline it is.
-func TestShippedFindingsCarryWeaknessAndLabelledCVSS(t *testing.T) {
+func TestShippedFindingsCarryWeaknessAndLabeledCVSS(t *testing.T) {
 	for label, d := range allDefinitions() {
 		f := d.Finding()
 		switch {
@@ -131,7 +131,7 @@ func TestShippedFindingsCarryWeaknessAndLabelledCVSS(t *testing.T) {
 			t.Errorf("%s: carries neither a weakness nor a reason", label)
 		}
 		if f.CVSS == nil || f.CVSS.Nomenclature != "CVSS-B" || f.CVSS.Version != "4.0" || f.CVSS.Source != "registry" || f.CVSS.Score != d.CVSSScore || f.CVSS.Vector != d.CVSSVector {
-			t.Errorf("%s: CVSS %+v is not the registry's labelled baseline", label, f.CVSS)
+			t.Errorf("%s: CVSS %+v is not the registry's labeled baseline", label, f.CVSS)
 		}
 	}
 }

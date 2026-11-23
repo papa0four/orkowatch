@@ -159,7 +159,7 @@ func TestEnvironmentalFollowsTheEvidence(t *testing.T) {
 	case all.CVSS.Vector != modified.String() || all.CVSS.Score != modified.Score() || all.CVSS.Severity != v4.Severity(modified.Score()):
 		t.Errorf("score %+v, want %s at %.1f", all.CVSS, modified, modified.Score())
 	case all.CVSS.Nomenclature != "CVSS-BE" || all.CVSS.Source != "host evidence" || all.CVSS.CalculatorURL != v4.CalculatorURL(modified.String()):
-		t.Errorf("score labelled %+v", all.CVSS)
+		t.Errorf("score labeled %+v", all.CVSS)
 	case all.Modified[0].Metric != "MPR" || all.Modified[0].Value != "H" || all.Modified[0].Carried != 2 || all.Modified[0].Subjects != 2 || all.Modified[0].Fact.Value != finding.ReachRootOnly:
 		t.Errorf("modified %+v", all.Modified[0])
 	}
@@ -200,7 +200,7 @@ func TestEnvironmentalFollowsTheEvidence(t *testing.T) {
 // the metric, and subjects that disagree score no lower than either value alone
 // would: the score never falls below what one subject supports. At least one
 // shipped rule moves a finding to another severity, so the host score is not a
-// relabelled baseline.
+// relabeled baseline.
 func TestShippedRulesScoreTheHost(t *testing.T) {
 	var cases, moved int
 	for label, d := range allDefinitions() {

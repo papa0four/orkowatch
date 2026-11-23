@@ -3,7 +3,7 @@
 // Package v4 scores CVSS v4.0 vectors by the algorithm FIRST publishes, as its
 // reference calculator implements it (https://github.com/FIRSTdotorg/cvss-v4-calculator,
 // Copyright (c) 2023 FIRST.ORG, Inc., Red Hat, and contributors, BSD 2-Clause;
-// the licence text is in internal/notices/THIRD_PARTY_NOTICES.md). Its consumers
+// the license text is in internal/notices/THIRD_PARTY_NOTICES.md). Its consumers
 // are the registry's baselines, the environmental score computed for each host,
 // and the v4.0 scores NVD publishes for a CVE. A v4.0 score
 // is not the value of an equation: it is the score of the MacroVector a vector

@@ -61,8 +61,8 @@ func directoryClients(families []registry.Distro) []directoryClient {
 }
 
 // openLDAPConfig returns where the OpenLDAP client library of the most
-// specific recognised family reads its configuration, or empty when no family
-// is recognised.
+// specific recognized family reads its configuration, or empty when no family
+// is recognized.
 func openLDAPConfig(families []registry.Distro) string {
 	for _, family := range families {
 		switch family {

@@ -362,7 +362,7 @@ firewall.firewalld_not_running:
     appearance of a managed firewall.
   resolution: >
     Start and enable the daemon: systemctl enable --now firewalld. Confirm
-    the active zone and its permitted services afterwards with
+    the active zone and its permitted services afterward with
     firewall-cmd --list-all, and narrow the zone to the services the host
     actually offers.
   references:

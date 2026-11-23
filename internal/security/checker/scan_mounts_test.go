@@ -118,7 +118,7 @@ func TestPlanScan(t *testing.T) {
 				"/run/user: hidden beneath another mount",
 				"/run/user: same filesystem as another path, walked at /mnt/wslg",
 				"/snap/core22/2139: FUSE filesystem",
-				"/srv/odd: no judgement for the filesystem type",
+				"/srv/odd: no judgment for the filesystem type",
 				"/tmp/.X11-unix: same filesystem as another path, walked at /mnt/wslg",
 			},
 		},
@@ -249,7 +249,7 @@ func TestReportScanNamesWhatWasLeft(t *testing.T) {
 	reportScan(r, fsScan{left: gaps, scanned: 3}, nil)
 	details = strings.Join(r.finish().Details, "\n")
 	for _, want := range []string{
-		"[!] Not walked, no judgement for the filesystem type: /srv/odd (oddfs)",
+		"[!] Not walked, no judgment for the filesystem type: /srv/odd (oddfs)",
 		"[!] Not walked, not in the mount table when the scan began: /media/late",
 	} {
 		if !strings.Contains(details, want) {

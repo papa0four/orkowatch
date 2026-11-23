@@ -660,7 +660,7 @@ permissions.unowned_file:
     find(1) describes as "the file belongs to an unknown user" or "an
     unknown group". On FreeBSD 15.1 a file an account owned outside its
     home directory keeps the account's numbers after pw userdel, and
-    neither resolves afterwards: pw(8) removes only "the user's home
+    neither resolves afterward: pw(8) removes only "the user's home
     directory and all of its contents", and with -r alone.
   impact: >
     The next account or group created with the same number owns the entry.

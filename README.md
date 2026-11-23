@@ -354,7 +354,7 @@ no entry describes a finding, which is the case for a disabled SELinux, the find
 says so and gives the reason (`no_weakness`) rather than naming a weakness that does
 not fit.
 
-Every finding shows two CVSS v4.0 scores, each labelled with FIRST's nomenclature.
+Every finding shows two CVSS v4.0 scores, each labeled with FIRST's nomenclature.
 The baseline (`cvss`) is CVSS-B, a base score for the condition in general, and its
 label says it is not measured on the host. The score on this host (`host_score`) is
 CVSS-BE: where the evidence a checker recorded meets one of the registry's rules,

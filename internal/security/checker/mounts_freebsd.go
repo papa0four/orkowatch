@@ -36,7 +36,7 @@ const (
 
 // readMounts reads the mount table and judges each mount by the flags the
 // kernel keeps for its filesystem type, so no type is named here. The mount
-// flag MNT_LOCAL is not the judgement: procfs carries it.
+// flag MNT_LOCAL is not the judgment: procfs carries it.
 func readMounts() (mounts []mount, judged bool, err error) {
 	raw, err := unix.SysctlRaw(vfsConfList)
 	if err != nil {

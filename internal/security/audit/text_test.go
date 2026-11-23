@@ -42,7 +42,7 @@ func findingText(t *testing.T, def *FindingView) string {
 }
 
 // The text report shows the baseline and the score on this host, each
-// labelled, and traces the host score to the fact and passage behind it.
+// labeled, and traces the host score to the fact and passage behind it.
 func TestTextShowsBothScores(t *testing.T) {
 	text := findingText(t, hostScored())
 	for _, want := range []string{

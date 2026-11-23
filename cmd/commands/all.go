@@ -242,7 +242,7 @@ func (c *allCmd) runAllScans(cmd *cobra.Command, args []string) error {
 	interactive := render.StdoutIsTerminal()
 	switch err := c.audit.ConfirmFullScan(c.auditMask(mask), "", interactive && render.StdinIsTerminal(), os.Stdin, os.Stderr); {
 	case errors.Is(err, security.ErrScanDeclined):
-		fmt.Fprintln(os.Stderr, "Scan cancelled.")
+		fmt.Fprintln(os.Stderr, "Scan canceled.")
 		return nil
 	case err != nil:
 		return err

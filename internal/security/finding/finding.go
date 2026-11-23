@@ -171,7 +171,7 @@ type (
 	// rule of its definition is accounted for: Modified holds the metrics the
 	// evidence set, and Unmodified each metric it left at the baseline's
 	// value, with why. CVSS is the CVSS-BE score, nil when no rule set a
-	// metric, because a score is labelled with E only when an Environmental
+	// metric, because a score is labeled with E only when an Environmental
 	// metric was used to compute it; the baseline then stands.
 	HostScore struct {
 		CVSS       *CVSSScore         `json:"cvss,omitempty" yaml:"cvss,omitempty"`

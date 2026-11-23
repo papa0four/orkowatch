@@ -6,7 +6,7 @@
 //	Copyright (c) 2023 FIRST.ORG, Inc., Red Hat, and contributors
 //	SPDX-License-Identifier: BSD-2-Clause
 //
-// The licence text is reproduced in internal/notices/THIRD_PARTY_NOTICES.md.
+// The license text is reproduced in internal/notices/THIRD_PARTY_NOTICES.md.
 
 package v4
 

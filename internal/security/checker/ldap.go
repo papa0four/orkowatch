@@ -76,8 +76,8 @@ func recordNslcdUse(r *report, config nslcdConfig, lookups, logins []finding.Evi
 			judge.clear = append(judge.clear, settingEvidence("uri", server))
 		case ldapOverTLS:
 			judge.tls = append(judge.tls, settingEvidence("uri", server))
-		case ldapUnrecognised:
-			judge.unrecognised = append(judge.unrecognised, fmt.Sprintf("%s names %q", server.at(), server.value))
+		case ldapUnrecognized:
+			judge.unrecognized = append(judge.unrecognized, fmt.Sprintf("%s names %q", server.at(), server.value))
 		}
 	}
 	judge.unencrypted(ruleNslcdLookups, lookups, "the name service switch does not name ldap")
@@ -118,24 +118,24 @@ func recordNslcdPassword(r *report, fsys fs.FS, owner fileOwner, config nslcdCon
 
 // nslcdJudge concludes the rules that read what nslcd.conf sets. clear are
 // the servers reached in clear unless ssl says otherwise, tls those reached
-// over TLS whatever it says, and unrecognised the uri arguments that are
+// over TLS whatever it says, and unrecognized the uri arguments that are
 // neither a URI of the library nor a DNS lookup.
 type nslcdJudge struct {
 	r            *report
 	config       nslcdConfig
 	clear        []finding.Evidence
 	tls          []finding.Evidence
-	unrecognised []string
+	unrecognized []string
 }
 
 // unknown reports a rule unknown for the uri arguments that could not be
 // read, and whether there were any.
 func (j nslcdJudge) unknown(key registry.FindingKey) bool {
-	if len(j.unrecognised) == 0 {
+	if len(j.unrecognized) == 0 {
 		return false
 	}
 	j.r.inconclusive(finding.ResultUnknown,
-		strings.Join(j.unrecognised, "; ")+", which is not a server nslcd.conf(5) describes, so how nslcd connects is not known", key)
+		strings.Join(j.unrecognized, "; ")+", which is not a server nslcd.conf(5) describes, so how nslcd connects is not known", key)
 	return true
 }
 

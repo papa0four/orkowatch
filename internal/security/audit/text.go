@@ -152,20 +152,20 @@ func writeFinding(ew *render.ErrWriter, condition ConditionView) error {
 // registry's baseline, and the score on this host with what it rests on.
 func writeWeaknessAndCVSS(ew *render.ErrWriter, def *FindingView) {
 	if def.Weakness != nil {
-		writeLabelled(ew, "Weakness", WeaknessLines(*def.Weakness))
+		writeLabeled(ew, "Weakness", WeaknessLines(*def.Weakness))
 	} else if def.NoWeakness != "" {
 		ew.Printf("  Weakness: none. %s\n", def.NoWeakness)
 	}
 	if def.CVSS == nil {
 		return
 	}
-	writeLabelled(ew, "CVSS baseline", ScoreLines(*def.CVSS))
-	writeLabelled(ew, "CVSS on this host", HostScoreLines(def.Host))
+	writeLabeled(ew, "CVSS baseline", ScoreLines(*def.CVSS))
+	writeLabeled(ew, "CVSS on this host", HostScoreLines(def.Host))
 }
 
-// writeLabelled writes a block's first line after its label and the lines that
+// writeLabeled writes a block's first line after its label and the lines that
 // trace it indented beneath.
-func writeLabelled(ew *render.ErrWriter, label string, lines []string) {
+func writeLabeled(ew *render.ErrWriter, label string, lines []string) {
 	ew.Printf("  %s: %s\n", label, lines[0])
 	for _, line := range lines[1:] {
 		ew.Printf("    %s\n", line)
@@ -243,7 +243,7 @@ func CVSSText(s finding.CVSSScore) string {
 	return fmt.Sprintf("%.1f %s  %s v%s, %s  %s", s.Score, s.Severity, s.Nomenclature, s.Version, s.Basis, s.Vector)
 }
 
-// ScoreLines renders a CVSS score as every view shows it: the labelled score,
+// ScoreLines renders a CVSS score as every view shows it: the labeled score,
 // then the link that opens FIRST's calculator on its vector.
 func ScoreLines(s finding.CVSSScore) []string {
 	lines := []string{CVSSText(s)}

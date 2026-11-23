@@ -296,7 +296,7 @@ func (d FindingDefinition) Environmental(evidence []finding.Evidence) *finding.H
 		host.Modified = append(host.Modified, m)
 	}
 	if len(host.Modified) > 0 {
-		host.CVSS = labelledScore(vector, "host evidence", "Modified Base metrics derived from evidence recorded on this host")
+		host.CVSS = labeledScore(vector, "host evidence", "Modified Base metrics derived from evidence recorded on this host")
 	}
 	return host
 }

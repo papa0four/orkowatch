@@ -99,7 +99,7 @@ func TestAttackTabStatesTheBasis(t *testing.T) {
 }
 
 // The browser's finding detail carries the weakness with MITRE's description
-// and the labelled CVSS, or the reason no weakness applies.
+// and the labeled CVSS, or the reason no weakness applies.
 func TestBrowserItemCarriesWeaknessAndCVSS(t *testing.T) {
 	cond := audit.ConditionView{Key: "permissions.world_writable_file", Result: finding.ResultFail,
 		Finding: &audit.FindingView{Title: "World-writable file", Severity: "HIGH",

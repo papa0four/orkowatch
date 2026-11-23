@@ -22,7 +22,7 @@
 #
 # T1685 and T1686 are the current techniques for disabling security tools and
 # system firewalls. The D3FEND knowledge base, which MITRE publishes, marks
-# the earlier T1562.001 and T1562.004 as revoked in their favour.
+# the earlier T1562.001 and T1562.004 as revoked in their favor.
 
 version: "v20.1"
 

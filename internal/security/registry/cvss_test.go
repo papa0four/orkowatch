@@ -39,7 +39,7 @@ func TestBaselineMustBeAConsistentV4BaseVector(t *testing.T) {
 	}
 }
 
-// Every shipped baseline is labelled as a CVSS-B v4.0 score with a link that
+// Every shipped baseline is labeled as a CVSS-B v4.0 score with a link that
 // opens FIRST's calculator on its vector.
 func TestShippedBaselinesCarryTheCalculatorLink(t *testing.T) {
 	for label, d := range allDefinitions() {
