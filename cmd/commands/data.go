@@ -13,6 +13,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/papa0four/orkowatch/internal/dataset"
+	"github.com/papa0four/orkowatch/internal/dataset/kev"
 	"github.com/papa0four/orkowatch/internal/dataset/store"
 	"github.com/papa0four/orkowatch/internal/elevation"
 	"github.com/papa0four/orkowatch/internal/osfingerprint"
@@ -37,10 +38,9 @@ type dataCmd struct {
 
 // knownDatasets lists the datasets this version of owatch knows. A source is
 // added here as a type that satisfies dataset.Dataset; the commands and the
-// store read every source through that interface and name none. None has
-// landed yet: the first is CISA's Known Exploited Vulnerabilities catalog.
+// store read every source through that interface and name none.
 func knownDatasets() []dataset.Dataset {
-	return nil
+	return []dataset.Dataset{kev.Catalog{}}
 }
 
 // newDataCmd returns the owatch data command and its subcommands, reading the

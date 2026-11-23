@@ -171,3 +171,42 @@ func TestDataStatusElevated(t *testing.T) {
 		t.Errorf("status gave %v, want the elevated refusal", err)
 	}
 }
+
+// Every dataset owatch knows can be held and fetched: a name the store can
+// hold that no other dataset has, an origin a fetch can start from, a limit
+// on what it may hold, and a license its manifest records. CISA's catalog is
+// one of them, and a store without it lists it as not held.
+func TestKnownDatasets(t *testing.T) {
+	seen := map[string]bool{}
+	for _, k := range knownDatasets() {
+		id := k.ID()
+		if !dataset.ValidID(id) || seen[id] {
+			t.Errorf("%q is not a name one dataset can have", id)
+		}
+		seen[id] = true
+		if hosts, err := k.Origin().Hosts(); err != nil || len(hosts) == 0 {
+			t.Errorf("%s: hosts a fetch may reach = %q, %v", id, hosts, err)
+		}
+		if k.MaxBytes() <= 0 || k.Origin().License == "" {
+			t.Errorf("%s: may hold %d bytes under the license %q", id, k.MaxBytes(), k.Origin().License)
+		}
+	}
+	if !seen["kev"] {
+		t.Errorf("the known datasets are %v, without kev", seen)
+	}
+
+	d, _ := testData(t, false, "")
+	d.known = knownDatasets()
+	dir := t.TempDir()
+	if _, err := run(d, "status", "-o", "text", "--report-file", dir); err != nil {
+		t.Fatal(err)
+	}
+	saved, err := filepath.Glob(filepath.Join(dir, "owatch-*"))
+	if err != nil || len(saved) != 1 {
+		t.Fatalf("saved reports: %v, %v", saved, err)
+	}
+	report, err := os.ReadFile(saved[0])
+	if err != nil || !strings.Contains(string(report), "kev  not held\n") {
+		t.Errorf("status of an empty store saved %q, %v", report, err)
+	}
+}
