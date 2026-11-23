@@ -15,6 +15,9 @@ func newOsinfoCmd() *cobra.Command {
 		short: "Gather OS Fingerprint information",
 		long: `osinfo will scan the host machine and retrieve basic OS fingerprint information such as platform, version, and kernel details.
 
+The Target line names this host as owatch data refresh --for takes it, to fetch
+on another host the datasets this one needs.
+
 The report opens in the results browser on a terminal, with the same layout as an audit.`,
 		example: `  # Open the OS fingerprint in the results browser
   owatch osinfo

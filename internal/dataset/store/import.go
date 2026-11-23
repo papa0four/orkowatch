@@ -97,7 +97,13 @@ func (s Store) Import(ctx context.Context, from string, known []dataset.Dataset,
 		return nil, err
 	}
 	defer func() { err = errors.Join(err, release()) }()
+	return s.importEntries(ctx, from, entries, known, host, now), nil
+}
 
+// importEntries imports the entries of the directory from, under the store's
+// lock, which the caller holds.
+func (s Store) importEntries(ctx context.Context, from string, entries []os.DirEntry, known []dataset.Dataset, host *osfingerprint.OSInfo, now time.Time) []Outcome {
+	var outcomes []Outcome
 	byID := make(map[string]dataset.Dataset, len(known))
 	for _, d := range known {
 		byID[d.ID()] = d
@@ -109,7 +115,7 @@ func (s Store) Import(ctx context.Context, from string, known []dataset.Dataset,
 		}
 		outcomes = append(outcomes, s.importOne(ctx, src, e, byID, host, now))
 	}
-	return outcomes, nil
+	return outcomes
 }
 
 // importOne imports one entry of the directory src.
@@ -139,13 +145,20 @@ func (s Store) importOne(ctx context.Context, src Store, e os.DirEntry, byID map
 
 	attempts, err := retry(ctx, func() error { return s.install(src, d, m) })
 	if err != nil {
-		reason := err.Error()
-		if rerr := s.recordFailure(id, failure{Attempts: attempts, Reason: reason, At: now}); rerr != nil {
-			reason += "; the failure could not be recorded: " + rerr.Error()
-		}
-		return Outcome{ID: id, Result: Failed, Reason: reason, Attempts: attempts}
+		return s.failed(id, attempts, err, now)
 	}
 	return Outcome{ID: id, Result: Installed, Attempts: attempts}
+}
+
+// failed is the outcome of a dataset that could not be brought into the
+// store, recorded beside the copy held so status shows it until an install
+// of the dataset succeeds.
+func (s Store) failed(id string, attempts int, err error, now time.Time) Outcome {
+	reason := err.Error()
+	if rerr := s.recordFailure(id, failure{Attempts: attempts, Reason: reason, At: now}); rerr != nil {
+		reason += "; the failure could not be recorded: " + rerr.Error()
+	}
+	return Outcome{ID: id, Result: Failed, Reason: reason, Attempts: attempts}
 }
 
 // checkWith is the read of a dataset that runs its own check of the content.
@@ -156,12 +169,20 @@ func checkWith(d dataset.Dataset) func(io.Reader) error {
 	}
 }
 
+// passes reports whether err is a failure worth trying again: one the system
+// reports as passing, or one that says so itself, as a fetch does of a
+// timeout or of a server that is briefly unable to answer.
+func passes(err error) bool {
+	var self interface{ Passing() bool }
+	return transient(err) || (errors.As(err, &self) && self.Passing())
+}
+
 // retry runs step until it succeeds, fails for a reason that does not pass,
 // or has been tried maxAttempts times, and says how many times it ran.
 func retry(ctx context.Context, step func() error) (int, error) {
 	for attempt := 1; ; attempt++ {
 		err := step()
-		if err == nil || attempt == maxAttempts || !transient(err) {
+		if err == nil || attempt == maxAttempts || !passes(err) {
 			return attempt, err
 		}
 		select {

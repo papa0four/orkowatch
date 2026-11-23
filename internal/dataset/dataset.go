@@ -21,6 +21,11 @@ type (
 		// so that a host holds only what it can use.
 		AppliesTo(host *osfingerprint.OSInfo) bool
 
+		// Origin is where the dataset is fetched from and the terms it
+		// comes under. Only a fetch reads it; a dataset held is judged by
+		// its manifest and its content.
+		Origin() Origin
+
 		// MaxBytes is the most the dataset's data may hold. A larger file is
 		// refused before it is read.
 		MaxBytes() int64

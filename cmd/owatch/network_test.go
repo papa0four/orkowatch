@@ -19,7 +19,7 @@ const moduleRoot = "../.."
 
 // connectingImports are the packages that exist to open network connections,
 // matched as a path or as the start of one.
-var connectingImports = []string{"net/http", "crypto/tls", "net/rpc", "net/smtp", "golang.org/x/net"}
+var connectingImports = []string{"net/http", "crypto/tls", "net/rpc", "net/smtp", "golang.org/x/net", fetchPackage}
 
 // connectingNames are what opens a connection, accepts one, or asks a resolver
 // across the network, named by the package that provides them.
@@ -35,15 +35,22 @@ var connectingNames = map[string][]string{
 	"golang.org/x/sys/windows": {"Connect", "WSAConnect"},
 }
 
-// allowedToConnect lists the files that may open a network connection. It is
-// empty: no owatch command connects to anything. The command that fetches
-// datasets is the one that will, and its files are added here when it lands,
-// with a test that no other command reaches them.
-var allowedToConnect []string
+// fetchPackage is the one package of owatch that opens network connections.
+const fetchPackage = "github.com/papa0four/orkowatch/internal/dataset/fetch"
 
-// No file of owatch outside the list above imports a package that exists to
-// open network connections, or names a function or type that dials, listens,
-// or resolves across the network. This holds for every path through every
+// allowedToConnect lists the files that may open a network connection: those
+// of the package that fetches datasets, and no other.
+var allowedToConnect = []string{"internal/dataset/fetch/fetch.go"}
+
+// allowedToFetch lists the files that may import the package that connects:
+// the command that refreshes datasets, and no other, so no other command can
+// reach a connection through it.
+var allowedToFetch = []string{"cmd/commands/data_refresh.go"}
+
+// No file of owatch outside the first list above imports a package that
+// exists to open network connections, or names a function or type that
+// dials, listens, or resolves across the network, and none outside the second
+// imports the package that does. This holds for every path through every
 // command, since it is a property of the source and not of the runs a test
 // happened to make. The modules owatch depends on are not read here.
 func TestNoCommandOpensANetworkConnection(t *testing.T) {
@@ -67,13 +74,7 @@ func TestNoCommandOpensANetworkConnection(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		rel = filepath.ToSlash(rel)
-		if slices.Contains(allowedToConnect, rel) {
-			return nil
-		}
-		for _, found := range connections(t, path) {
-			t.Errorf("%s: %s", rel, found)
-		}
+		judge(t, path, filepath.ToSlash(rel))
 		return nil
 	})
 	if err != nil {
@@ -81,6 +82,21 @@ func TestNoCommandOpensANetworkConnection(t *testing.T) {
 	}
 	if files == 0 {
 		t.Fatal("no Go file was read")
+	}
+}
+
+// judge fails the test for each way the file at path, named rel within the
+// module, could open a connection it is not allowed.
+func judge(t *testing.T, path, rel string) {
+	t.Helper()
+	if slices.Contains(allowedToConnect, rel) {
+		return
+	}
+	for _, found := range connections(t, path) {
+		if found == "imports "+fetchPackage && slices.Contains(allowedToFetch, rel) {
+			continue
+		}
+		t.Errorf("%s: %s", rel, found)
 	}
 }
 

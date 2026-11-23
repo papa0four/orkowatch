@@ -264,6 +264,7 @@ func systemTab(system osfingerprint.SystemView) tui.Tab {
 	add("version", system.PlatformVersion)
 	add("kernel", system.KernelVersion)
 	add("architecture", system.Architecture)
+	add("target", system.Target)
 	extra := make([]string, 0, len(system.AdditionalInfo))
 	for name := range system.AdditionalInfo {
 		extra = append(extra, name)

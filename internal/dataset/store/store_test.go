@@ -211,6 +211,10 @@ func TestStatusRows(t *testing.T) {
 
 	put(t, s, former, content, now.Add(-time.Hour), nil)
 	put(t, s, testDataset{Name: "retired"}, content, now.Add(-time.Hour), nil)
+	// A directory of the store's own, where a fetch is staged, is not listed.
+	if err := os.Mkdir(filepath.Join(s.root, ".staging"), 0o700); err != nil {
+		t.Fatal(err)
+	}
 
 	view, err = s.Status(known, &osfingerprint.OSInfo{}, now)
 	if err != nil {

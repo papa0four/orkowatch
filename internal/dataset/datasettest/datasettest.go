@@ -35,10 +35,11 @@ const (
 
 // Dataset is a dataset made for tests: a header line, the date of its data,
 // and anything after. Applies says whether it applies to every host or to
-// none.
+// none, and From is where a test serves it.
 type Dataset struct {
 	Name    string
 	Applies bool
+	From    dataset.Origin
 }
 
 // ID names the dataset.
@@ -46,6 +47,9 @@ func (d Dataset) ID() string { return d.Name }
 
 // AppliesTo reports Applies whatever the host.
 func (d Dataset) AppliesTo(*osfingerprint.OSInfo) bool { return d.Applies }
+
+// Origin is From.
+func (d Dataset) Origin() dataset.Origin { return d.From }
 
 // MaxBytes is MaxBytes.
 func (Dataset) MaxBytes() int64 { return MaxBytes }
