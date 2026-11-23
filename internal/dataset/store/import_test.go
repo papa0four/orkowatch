@@ -191,7 +191,7 @@ func TestImportRecordsAFailure(t *testing.T) {
 	if row.State != dataset.StateCurrent || row.DataDate != "2026-11-20" {
 		t.Errorf("the held copy is %+v, want it current and unchanged", row)
 	}
-	if !strings.Contains(row.Attention, "failed after 1 attempts") || !strings.Contains(row.Attention, "2026-11-22T12:00:00Z") {
+	if !strings.Contains(row.Attention, "failed after 1 attempt:") || !strings.Contains(row.Attention, "2026-11-22T12:00:00Z") {
 		t.Errorf("attention %q, want the failure with its time and attempts", row.Attention)
 	}
 

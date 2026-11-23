@@ -65,7 +65,7 @@ func TestDataImport(t *testing.T) {
 
 	datasettest.Put(t, src, datasettest.Dataset{Name: "retired"}, datasettest.Content, dataNow.Add(-time.Hour), nil)
 	out, err = run(d, "import", src)
-	if err == nil || !strings.Contains(err.Error(), "1 of the 2 datasets") {
+	if err == nil || err.Error() != "1 of 2 datasets in "+src+" not imported" {
 		t.Errorf("a refused dataset gave %v", err)
 	}
 	if !strings.Contains(out, "retired: refused: this version of owatch does not know the dataset") ||

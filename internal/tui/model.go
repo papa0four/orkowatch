@@ -14,6 +14,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
+	"github.com/papa0four/orkowatch/internal/render"
 	"github.com/papa0four/orkowatch/internal/security/finding"
 )
 
@@ -342,11 +343,7 @@ func outcomeSummary(outcome Outcome) (color.Color, string) {
 				worst = found.Severity
 			}
 		}
-		noun := "findings"
-		if count == 1 {
-			noun = "finding"
-		}
-		return severityColor(worst), fmt.Sprintf("%d %s", count, noun)
+		return severityColor(worst), render.Count(count, "finding", "findings")
 	}
 	return resultColor(outcome.Result), string(outcome.Result)
 }

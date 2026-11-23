@@ -185,7 +185,7 @@ func (d *dataCmd) runImport(ctx context.Context, out io.Writer, from string) err
 		return err
 	}
 	if refused > 0 {
-		return fmt.Errorf("%d of the %d datasets in %s were not imported", refused, len(outcomes), from)
+		return fmt.Errorf("%d of %s in %s not imported", refused, render.Count(len(outcomes), "dataset", "datasets"), from)
 	}
 	return nil
 }
@@ -198,7 +198,7 @@ func printOutcomes(out io.Writer, outcomes []store.Outcome) (int, error) {
 	for _, o := range outcomes {
 		line := fmt.Sprintf("%s: %s", o.ID, o.Result)
 		if o.Attempts > 1 || o.Result == store.Failed {
-			line += fmt.Sprintf(" after %d attempts", o.Attempts)
+			line += " after " + render.Count(o.Attempts, "attempt", "attempts")
 		}
 		if o.Reason != "" {
 			line += ": " + o.Reason
