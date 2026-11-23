@@ -8,7 +8,8 @@ import (
 )
 
 // Each row is written with what bears on its state, a held dataset with its
-// source and license under it, and an empty store says so.
+// source and license under it, and an empty store says so. A name holding a
+// terminal escape is written quoted and escaped.
 func TestWriteText(t *testing.T) {
 	var b strings.Builder
 	err := WriteText(&b, View{Store: "/store", Datasets: []Row{
@@ -17,19 +18,21 @@ func TestWriteText(t *testing.T) {
 		{ID: "epss", State: StateNotHeld},
 		{ID: "bad", State: StateUnusable, Reason: "checksum", Attention: "the import failed"},
 		{ID: "old", State: StateNotApplicable, Size: 512},
+		{ID: "x\x1b[2J", State: StateUnknown, Size: 1},
 	}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	want := `Store: /store
 
-"kev"   current: data of 2026-11-20, fetched 2026-11-22T11:00:00Z, 3.0 MiB
-        source https://data.example/kev
-        license CC0 1.0; CISA
-"epss"  not held
-"bad"   unusable: checksum
-        needs attention: the import failed
-"old"   no longer applies, 512 B
+kev         current: data of 2026-11-20, fetched 2026-11-22T11:00:00Z, 3.0 MiB
+            source https://data.example/kev
+            license CC0 1.0; CISA
+epss        not held
+bad         unusable: checksum
+            needs attention: the import failed
+old         no longer applies, 512 B
+"x\x1b[2J"  unknown to this version, 1 B
 `
 	if b.String() != want {
 		t.Errorf("got\n%s\nwant\n%s", b.String(), want)

@@ -20,6 +20,7 @@ const (
 	TabSoftware = "software"
 	TabSockets  = "sockets"
 	TabAttack   = "attack"
+	TabDatasets = "datasets"
 
 	// The headings of the source table in the left pane, and the gap between
 	// its two columns.
@@ -86,6 +87,7 @@ var (
 		TabSoftware: "s",
 		TabSockets:  "l",
 		TabAttack:   "m",
+		TabDatasets: "d",
 	}
 
 	// detailKeys is the viewport's key map. Its defaults bind j, k, h, l, f,

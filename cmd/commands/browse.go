@@ -18,6 +18,7 @@ import (
 
 	"github.com/papa0four/orkowatch/cmd/commands/delivery"
 	"github.com/papa0four/orkowatch/cmd/commands/security"
+	"github.com/papa0four/orkowatch/internal/dataset"
 	"github.com/papa0four/orkowatch/internal/osfingerprint"
 	"github.com/papa0four/orkowatch/internal/render"
 	"github.com/papa0four/orkowatch/internal/security/audit"
@@ -51,6 +52,7 @@ type (
 		System   *osfingerprint.SystemView  `json:"system" yaml:"system"`
 		Software *softwarelist.SoftwareView `json:"software" yaml:"software"`
 		Sockets  *sockets.View              `json:"sockets" yaml:"sockets"`
+		Datasets *dataset.View              `json:"datasets" yaml:"datasets"`
 		Security *audit.View                `json:"security" yaml:"security"`
 	}
 )
@@ -65,7 +67,8 @@ func newBrowseCmd() *cobra.Command {
 		Short: "Open a saved report in the results browser",
 		Long: fmt.Sprintf(`Open a report saved with --report-file in the interactive results browser.
 The report must be in a format that holds the whole report (%s) and come from
-owatch audit or owatch all. The format is taken from the file's extension, or
+owatch audit, owatch all, a command that runs one of all's modules, or owatch
+data status. The format is taken from the file's extension, or
 from --input-format when the extension does not say. With no file named, the
 newest owatch report in the current directory is opened. The full report under
 t is shown as text unless --output names another format; every other part of the
@@ -249,6 +252,7 @@ func decodeReport(path string, format, view delivery.Format, data []byte) (tui.R
 			System:    saved.System,
 			Software:  saved.Software,
 			Sockets:   saved.Sockets,
+			Datasets:  saved.Datasets,
 			Security:  saved.Security,
 		}
 		text, err := fullReport(all, view, func(w io.Writer) error { return writeAllText(w, all) })

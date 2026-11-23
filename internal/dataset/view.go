@@ -75,7 +75,7 @@ const (
 // of a store, used by status and by a saved status report alike.
 func WriteText(w io.Writer, v View) error {
 	ew := render.NewErrWriter(w)
-	ew.Printf("Store: %s\n\n", v.Store)
+	ew.Printf("Store: %s\n\n", render.HostText(v.Store))
 	if len(v.Datasets) == 0 {
 		ew.Printf("No dataset applies to this host, and the store holds none.\n")
 		return ew.Err()
@@ -83,35 +83,39 @@ func WriteText(w io.Writer, v View) error {
 
 	width := 0
 	for _, r := range v.Datasets {
-		width = max(width, len(strconv.Quote(r.ID)))
+		width = max(width, len(render.HostText(r.ID)))
 	}
 	for _, r := range v.Datasets {
-		ew.Printf("%-*s  %s\n", width, strconv.Quote(r.ID), rowDetail(r))
+		ew.Printf("%-*s  %s\n", width, render.HostText(r.ID), rowDetail(r))
 		if r.Source != "" {
-			ew.Printf("%-*s  source %s\n", width, "", r.Source)
+			ew.Printf("%-*s  source %s\n", width, "", render.HostText(r.Source))
 		}
 		if r.License != "" || r.Attribution != "" {
-			ew.Printf("%-*s  license %s; %s\n", width, "", r.License, r.Attribution)
+			ew.Printf("%-*s  license %s\n", width, "", render.HostText(r.License+"; "+r.Attribution))
 		}
 		if r.Attention != "" {
-			ew.Printf("%-*s  needs attention: %s\n", width, "", r.Attention)
+			ew.Printf("%-*s  needs attention: %s\n", width, "", render.HostText(r.Attention))
 		}
 	}
 	return ew.Err()
 }
 
-// rowDetail is what follows a dataset's name on its line.
+// rowDetail is what follows a dataset's name on its line. A row comes from
+// the store, or from a saved report when one is shown, so what it says goes
+// through render.HostText before it reaches a terminal.
 func rowDetail(r Row) string {
+	var detail string
 	switch r.State {
 	case StateCurrent, StateOutOfSync, StateStale:
-		return fmt.Sprintf("%s: data of %s, fetched %s, %s", r.State, r.DataDate, r.Fetched, Size(r.Size))
+		detail = fmt.Sprintf("%s: data of %s, fetched %s, %s", r.State, r.DataDate, r.Fetched, Size(r.Size))
 	case StateUnusable:
-		return fmt.Sprintf("%s: %s", r.State, r.Reason)
+		detail = fmt.Sprintf("%s: %s", r.State, r.Reason)
 	case StateNotApplicable, StateUnknown:
-		return fmt.Sprintf("%s, %s", r.State, Size(r.Size))
+		detail = fmt.Sprintf("%s, %s", r.State, Size(r.Size))
 	default:
-		return string(r.State)
+		detail = string(r.State)
 	}
+	return render.HostText(detail)
 }
 
 // Size writes a size in bytes in the largest unit that keeps it at least 1.

@@ -16,6 +16,7 @@ import (
 	"github.com/papa0four/orkowatch/internal/dataset/store"
 	"github.com/papa0four/orkowatch/internal/osfingerprint"
 	"github.com/papa0four/orkowatch/internal/render"
+	"github.com/papa0four/orkowatch/internal/selection"
 )
 
 // dataCmd is what the owatch data commands read from the host, held apart so
@@ -65,11 +66,70 @@ No owatch data command opens a network connection.`,
 			if err := cmd.Help(); err != nil {
 				return fmt.Errorf("displaying help: %w", err)
 			}
-			return errors.New("owatch data requires a subcommand (import, remove)")
+			return errors.New("owatch data requires a subcommand (import, remove, status)")
 		},
 	}
-	cmd.AddCommand(d.importCmd(), d.removeCmd())
+	cmd.AddCommand(d.importCmd(), d.removeCmd(), d.statusCmd())
 	return cmd
+}
+
+// statusCmd returns owatch data status, which is delivered as the report of
+// one module is.
+func (d *dataCmd) statusCmd() *cobra.Command {
+	return newModuleCmd(standaloneModule{
+		use:   "status",
+		short: "Show the datasets held, how old they are, and what needs attention",
+		long: `List each dataset that applies to this host, held or not, with the date of
+its data, when it was fetched, its size, and its state: current, out of sync
+more than 7 days after it was fetched, or stale more than 14 days after. A held
+dataset is read and checked as any read checks it, so a damaged one is listed as
+unusable with the reason. A dataset whose last import failed, or whose install
+did not finish, says what needs attention. Datasets held that no longer apply to
+this host, or that this version does not know, are listed with their size;
+owatch data remove deletes one.
+
+The report opens in the results browser on a terminal, with the same layout as an
+audit.`,
+		example: `  # Open the datasets in the results browser
+  owatch data status
+
+  # Print them as text instead of opening the results browser
+  owatch data status --plain
+
+  # Save them to a directory in JSON format
+  owatch data status -o json --report-file /path/to/reports`,
+	}, inventory{
+		name:    selection.NameDatasets,
+		mask:    selection.ModuleDatasets,
+		label:   "datasets",
+		collect: d.collectStatus,
+	}, "data status")
+}
+
+// collectStatus reads the store's state and records how it ended in result,
+// as each of all's modules does.
+func (d *dataCmd) collectStatus(ctx context.Context, result *ScanResult) {
+	view, err := d.status(ctx)
+	if err != nil {
+		result.Errors = append(result.Errors, fmt.Sprintf("Datasets error: %v", err))
+		result.Modules = append(result.Modules, erroredModule(selection.NameDatasets, err))
+		return
+	}
+	result.Datasets = &view
+	result.Modules = append(result.Modules, inventoryModule(selection.NameDatasets))
+}
+
+// status reads what the process's store holds of the known datasets.
+func (d *dataCmd) status(ctx context.Context) (dataset.View, error) {
+	s, err := d.open(ctx)
+	if err != nil {
+		return dataset.View{}, err
+	}
+	host, err := d.host()
+	if err != nil {
+		return dataset.View{}, fmt.Errorf("identify the host: %w", err)
+	}
+	return s.Status(d.known, host, d.now())
 }
 
 // importCmd returns owatch data import.
@@ -118,14 +178,14 @@ func (d *dataCmd) runImport(ctx context.Context, out io.Writer, from string) err
 	ew := render.NewErrWriter(out)
 	refused := 0
 	for _, o := range outcomes {
-		line := fmt.Sprintf("%q: %s", o.ID, o.Result)
+		line := fmt.Sprintf("%s: %s", o.ID, o.Result)
 		if o.Attempts > 1 || o.Result == store.Failed {
 			line += fmt.Sprintf(" after %d attempts", o.Attempts)
 		}
 		if o.Reason != "" {
 			line += ": " + o.Reason
 		}
-		ew.Printf("%s\n", line)
+		ew.Printf("%s\n", render.HostText(line))
 		if o.NeedsAttention() {
 			refused++
 		}
@@ -178,7 +238,8 @@ func (d *dataCmd) runRemove(ctx context.Context, out, prompt io.Writer, id strin
 		if !d.interactive() {
 			return errors.New("owatch data remove asks before deleting; run it at a terminal, or pass --yes")
 		}
-		ok, err := render.Confirm(d.in, prompt, fmt.Sprintf("Delete the dataset %q from %s? A host with no network cannot fetch it again.", id, s.Root()))
+		ok, err := render.Confirm(d.in, prompt,
+			render.HostText(fmt.Sprintf("Delete the dataset %s from %s?", id, s.Root()))+" A host with no network cannot fetch it again.")
 		if err != nil {
 			return err
 		}
@@ -190,6 +251,6 @@ func (d *dataCmd) runRemove(ctx context.Context, out, prompt io.Writer, id strin
 	if err := s.Remove(ctx, id); err != nil {
 		return err
 	}
-	_, err = fmt.Fprintf(out, "Deleted %q from %s\n", id, s.Root())
+	_, err = fmt.Fprintln(out, render.HostText(fmt.Sprintf("Deleted %s from %s", id, s.Root())))
 	return err
 }

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/papa0four/orkowatch/internal/dataset"
 	"github.com/papa0four/orkowatch/internal/osfingerprint"
 	"github.com/papa0four/orkowatch/internal/render"
 	"github.com/papa0four/orkowatch/internal/security/audit"
@@ -20,8 +21,8 @@ import (
 )
 
 // BrowserSource is what a finished run holds for the browser to show. Audit,
-// System, Software and Sockets are the projections a saved report carries, so a live
-// run and a saved file are shown from the same data. Modules says how each
+// System, Software, Sockets, and Datasets are the projections a saved report
+// carries, so a live run and a saved file are shown from the same data. Modules says how each
 // module of an all run ended, which is what a tab with no data explains
 // itself with; the audit command has none.
 type BrowserSource struct {
@@ -30,6 +31,7 @@ type BrowserSource struct {
 	System   *osfingerprint.SystemView
 	Software *softwarelist.SoftwareView
 	Sockets  *sockets.View
+	Datasets *dataset.View
 	Modules  []ModuleNote
 	Text     string
 }
@@ -77,31 +79,44 @@ func BrowserReport(src BrowserSource) tui.Report {
 	} else {
 		report.FindingsNote = notRun(src.Modules, selection.NameAudit)
 	}
+	report.Tabs = sourceTabs(src)
+	return report
+}
 
+// sourceTabs are the tabs beyond the findings, in the order they are offered.
+func sourceTabs(src BrowserSource) []tui.Tab {
+	var tabs []tui.Tab
 	if src.System != nil {
-		report.Tabs = append(report.Tabs, systemTab(*src.System))
+		tabs = append(tabs, systemTab(*src.System))
 	} else {
-		report.Tabs = append(report.Tabs, tui.Tab{ID: tui.TabSystem, Name: "System", Note: notRun(src.Modules, selection.NameOS)})
+		tabs = append(tabs, tui.Tab{ID: tui.TabSystem, Name: "System", Note: notRun(src.Modules, selection.NameOS)})
 	}
 
 	if src.Software != nil {
-		report.Tabs = append(report.Tabs, softwareTab(*src.Software))
+		tabs = append(tabs, softwareTab(*src.Software))
 	} else {
-		report.Tabs = append(report.Tabs, tui.Tab{ID: tui.TabSoftware, Name: "Software", Note: notRun(src.Modules, selection.NameSoftware)})
+		tabs = append(tabs, tui.Tab{ID: tui.TabSoftware, Name: "Software", Note: notRun(src.Modules, selection.NameSoftware)})
 	}
 
 	if src.Sockets != nil {
-		report.Tabs = append(report.Tabs, socketsTab(*src.Sockets))
+		tabs = append(tabs, socketsTab(*src.Sockets))
 	} else {
-		report.Tabs = append(report.Tabs, tui.Tab{ID: tui.TabSockets, Name: "Sockets", Note: notRun(src.Modules, selection.NameListeners)})
+		tabs = append(tabs, tui.Tab{ID: tui.TabSockets, Name: "Sockets", Note: notRun(src.Modules, selection.NameListeners)})
+	}
+
+	// Only owatch data status reports the datasets, so their tab is offered
+	// only by a report that holds them and every other report opens as it
+	// did.
+	if src.Datasets != nil {
+		tabs = append(tabs, datasetsTab(*src.Datasets))
 	}
 
 	if src.Audit != nil {
 		if tab, ok := attackTab(src.Audit); ok {
-			report.Tabs = append(report.Tabs, tab)
+			tabs = append(tabs, tab)
 		}
 	}
-	return report
+	return tabs
 }
 
 // attackTab groups the run's findings by the ATT&CK technique each makes
@@ -169,6 +184,7 @@ func landingTab(modules []ModuleNote) string {
 		selection.NameOS:        tui.TabSystem,
 		selection.NameSoftware:  tui.TabSoftware,
 		selection.NameListeners: tui.TabSockets,
+		selection.NameDatasets:  tui.TabDatasets,
 	}
 	first := tui.TabFindings
 	for _, m := range modules {
@@ -261,6 +277,38 @@ func systemTab(system osfingerprint.SystemView) tui.Tab {
 		Subtitle: safeLines(system.OS + " " + system.PlatformVersion),
 		Fields:   fields,
 	}}}
+}
+
+// datasetsTab is the store's datasets, one record each in the order status
+// lists them, with what needs attention ahead of the rest. A store that holds
+// nothing and has nothing that applies says so in place of the list.
+func datasetsTab(v dataset.View) tui.Tab {
+	tab := tui.Tab{ID: tui.TabDatasets, Name: "Datasets"}
+	for _, r := range v.Datasets {
+		var fields []tui.SummaryLine
+		add := func(label, value string) {
+			if value != "" {
+				fields = append(fields, tui.SummaryLine{Label: label, Value: safeLines(value)})
+			}
+		}
+		add("state", string(r.State))
+		add("needs attention", r.Attention)
+		add("reason", r.Reason)
+		add("date of the data", r.DataDate)
+		add("fetched", r.Fetched)
+		if r.Size > 0 {
+			add("size", dataset.Size(r.Size))
+		}
+		add("source", r.Source)
+		add("license", r.License)
+		add("attribution", r.Attribution)
+		add("store", v.Store)
+		tab.Records = append(tab.Records, tui.Record{Title: safeLines(r.ID), Subtitle: safeLines(string(r.State)), Fields: fields})
+	}
+	if len(tab.Records) == 0 {
+		tab.Note = safeLines("No dataset applies to this host, and the store at " + v.Store + " holds none.")
+	}
+	return tab
 }
 
 // socketsTab is the host's sockets, one record each, in the categories and

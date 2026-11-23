@@ -63,6 +63,7 @@ and open an issue against this doc.
 | `owatch browse [report-file]` | Open a saved report in the results browser; reads any format that holds the whole report (JSON, YAML) |
 | `owatch data import <directory>` | Install vulnerability datasets from a directory, with no network (see Vulnerability Datasets below) |
 | `owatch data remove <dataset>` | Delete a dataset from the store, after asking |
+| `owatch data status` | Show the datasets held, how old they are, and what needs attention |
 | `owatch completion` | Generate shell completion scripts (see Shell Completion below) |
 | `owatch help` | Show the full command menu (equivalent to `-h`/`--help`) |
 | `owatch notices` | Print the third-party notices for the MITRE data owatch carries |
@@ -396,7 +397,20 @@ owatch data import /media/usb/owatch-datasets
 
 # Delete a dataset, after a question; --yes skips it
 owatch data remove kev
+
+# Show what is held, in the results browser, as text, or saved
+owatch data status
+owatch data status --plain
+owatch data status -o json --report-file /path/to/reports
 ```
+
+`owatch data status` lists each dataset that applies to the host, held or not,
+with the date of its data, when it was fetched, its size, and its state: current,
+out of sync more than 7 days after it was fetched, or stale more than 14 days
+after. A dataset whose last import failed, or whose install did not finish, says
+what needs attention. Datasets held that no longer apply to the host, or that this
+version does not know, are listed with their size. Its report is delivered as the
+other reports are, and `owatch browse` opens a saved one on its Datasets tab.
 
 Every dataset is checked whenever it is read, wherever it came from: its
 manifest is validated, its data is opened only as a regular file and never

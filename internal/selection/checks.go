@@ -69,7 +69,12 @@ const (
 	ModuleRemote CheckMask = 1 << 5
 	// ModuleSoftware identifies the software inventory module.
 	ModuleSoftware CheckMask = 1 << 6
-	// Bits 7-23 reserved for future modules.
+	// ModuleDatasets identifies the state of the vulnerability datasets
+	// held on the host, which owatch data status reports. all does not run
+	// it; it is a module so a status report is named and read back as the
+	// report of one module is.
+	ModuleDatasets CheckMask = 1 << 7
+	// Bits 8-23 reserved for future modules.
 
 	// Audit check bits: 24-47.
 	// One bit per logical check regardless of platform implementation.
@@ -108,6 +113,7 @@ const (
 // of their own.
 const (
 	NameAudit     = "audit"
+	NameDatasets  = "datasets"
 	NameListeners = "listeners"
 	NameOS        = "osinfo"
 	NameSoftware  = "software"
@@ -130,6 +136,7 @@ var (
 		// Reserved entries are wired now to lock in bit positions permanently;
 		// implementation lands in a future branch.
 		{bit: ModuleAudit, code: 'a', name: NameAudit, flag: NameAudit, category: CategoryModule},
+		{bit: ModuleDatasets, code: 'd', name: NameDatasets, flag: NameDatasets, category: CategoryModule},
 		{bit: ModuleHistory, code: 'h', name: "history", flag: "history", category: CategoryModule},
 		{bit: ModuleLogs, code: 'l', name: "logs", flag: "logs", category: CategoryModule},
 		{bit: ModuleListeners, code: 'n', name: NameListeners, flag: NameListeners, category: CategoryModule},

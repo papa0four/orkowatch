@@ -6,8 +6,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/papa0four/orkowatch/internal/dataset"
 	"github.com/papa0four/orkowatch/internal/security/audit"
 	"github.com/papa0four/orkowatch/internal/security/finding"
+	"github.com/papa0four/orkowatch/internal/selection"
 	"github.com/papa0four/orkowatch/internal/softwarelist"
 	"github.com/papa0four/orkowatch/internal/tui"
 )
@@ -180,5 +182,29 @@ func TestSoftwareTabShowsWhatTheManagerStates(t *testing.T) {
 	}
 	if got := labels(tab.Records[1]); got != "name=Some Application; version=1.2" {
 		t.Errorf("an application's fields are %q, want its name and version alone", got)
+	}
+}
+
+// A report that holds no datasets offers no Datasets tab, so every report but
+// owatch data status's opens as it did; one that does offers it, and a run
+// of that module alone opens on it.
+func TestDatasetsTabOnlyWhenHeld(t *testing.T) {
+	for _, src := range []BrowserSource{{Title: "audit"}, {Title: "all", Modules: []ModuleNote{{Name: selection.NameOS}}}} {
+		for _, tab := range BrowserReport(src).Tabs {
+			if tab.ID == tui.TabDatasets {
+				t.Errorf("%s offers a Datasets tab", src.Title)
+			}
+		}
+	}
+	report := BrowserReport(BrowserSource{
+		Datasets: &dataset.View{Store: "/store", Datasets: []dataset.Row{{ID: "kev", State: dataset.StateNotHeld}}},
+		Modules:  []ModuleNote{{Name: selection.NameDatasets, Result: finding.ResultInformational}},
+	})
+	if report.Start != tui.TabDatasets {
+		t.Errorf("opens on %q, want the datasets", report.Start)
+	}
+	empty := datasetsTab(dataset.View{Store: "/store"})
+	if len(empty.Records) != 0 || !strings.Contains(empty.Note, "/store holds none") {
+		t.Errorf("an empty store gave %+v", empty)
 	}
 }
