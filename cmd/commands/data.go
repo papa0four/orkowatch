@@ -14,6 +14,7 @@ import (
 
 	"github.com/papa0four/orkowatch/internal/dataset"
 	"github.com/papa0four/orkowatch/internal/dataset/store"
+	"github.com/papa0four/orkowatch/internal/elevation"
 	"github.com/papa0four/orkowatch/internal/osfingerprint"
 	"github.com/papa0four/orkowatch/internal/render"
 	"github.com/papa0four/orkowatch/internal/selection"
@@ -21,7 +22,8 @@ import (
 
 // dataCmd is what the owatch data commands read from the host, held apart so
 // a test can give each its own: the datasets owatch knows, the store, the
-// host's identity, the time, and whether a person is at the terminal to ask.
+// host's identity, the time, whether a person is at the terminal to ask,
+// whether the process is elevated, and what fetches a dataset.
 type dataCmd struct {
 	known       []dataset.Dataset
 	open        func(context.Context) (store.Store, error)
@@ -29,6 +31,8 @@ type dataCmd struct {
 	now         func() time.Time
 	interactive func() bool
 	in          io.Reader
+	elevated    func() bool
+	fetcher     func() (fetcher, error)
 }
 
 // knownDatasets lists the datasets this version of owatch knows. A source is
@@ -49,6 +53,8 @@ func newDataCmd() *cobra.Command {
 		now:         time.Now,
 		interactive: func() bool { return render.StdinIsTerminal() && render.StdoutIsTerminal() },
 		in:          os.Stdin,
+		elevated:    elevation.Elevated,
+		fetcher:     newFetcher,
 	})
 }
 
@@ -60,16 +66,16 @@ func dataCommand(d *dataCmd) *cobra.Command {
 		Long: `Manage the vulnerability datasets owatch holds on this host, which it reads
 with no network. Each account has its own store, at a fixed place under the
 account's home. A run as root or from an elevated terminal has no store yet.
-No owatch data command opens a network connection.`,
+Only owatch data refresh opens a network connection.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if err := cmd.Help(); err != nil {
 				return fmt.Errorf("displaying help: %w", err)
 			}
-			return errors.New("owatch data requires a subcommand (import, remove, status)")
+			return errors.New("owatch data requires a subcommand (import, refresh, remove, status)")
 		},
 	}
-	cmd.AddCommand(d.importCmd(), d.removeCmd(), d.statusCmd())
+	cmd.AddCommand(d.importCmd(), d.refreshCmd(), d.removeCmd(), d.statusCmd())
 	return cmd
 }
 
@@ -174,7 +180,19 @@ func (d *dataCmd) runImport(ctx context.Context, out io.Writer, from string) err
 	if len(outcomes) == 0 {
 		return fmt.Errorf("no dataset found in %s", from)
 	}
+	refused, err := printOutcomes(out, outcomes)
+	if err != nil {
+		return err
+	}
+	if refused > 0 {
+		return fmt.Errorf("%d of the %d datasets in %s were not imported", refused, len(outcomes), from)
+	}
+	return nil
+}
 
+// printOutcomes writes one line per dataset an import or a refresh dealt
+// with, and returns how many need the operator.
+func printOutcomes(out io.Writer, outcomes []store.Outcome) (int, error) {
 	ew := render.NewErrWriter(out)
 	refused := 0
 	for _, o := range outcomes {
@@ -190,13 +208,7 @@ func (d *dataCmd) runImport(ctx context.Context, out io.Writer, from string) err
 			refused++
 		}
 	}
-	if err := ew.Err(); err != nil {
-		return err
-	}
-	if refused > 0 {
-		return fmt.Errorf("%d of the %d datasets in %s were not imported", refused, len(outcomes), from)
-	}
-	return nil
+	return refused, ew.Err()
 }
 
 // removeCmd returns owatch data remove.

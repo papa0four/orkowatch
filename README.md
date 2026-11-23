@@ -61,7 +61,8 @@ and open an issue against this doc.
 | `owatch audit` | Run security audit checks |
 | `owatch all` | Run all available scans |
 | `owatch browse [report-file]` | Open a saved report in the results browser; reads any format that holds the whole report (JSON, YAML) |
-| `owatch data import <directory>` | Install vulnerability datasets from a directory, with no network (see Vulnerability Datasets below) |
+| `owatch data refresh` | Fetch the vulnerability datasets this host needs, over HTTPS (see Vulnerability Datasets below) |
+| `owatch data import <directory>` | Install vulnerability datasets from a directory, with no network |
 | `owatch data remove <dataset>` | Delete a dataset from the store, after asking |
 | `owatch data status` | Show the datasets held, how old they are, and what needs attention |
 | `owatch completion` | Generate shell completion scripts (see Shell Completion below) |
@@ -389,9 +390,18 @@ system records for the account, which no environment variable moves:
 | Windows | `<profile>\AppData\Local\owatch\datasets` |
 
 A run as root or from an elevated terminal has no store yet, and the commands
-below refuse there. No `owatch data` command opens a network connection.
+below refuse there. `owatch data refresh` is the only owatch command that opens
+a network connection.
 
 ```bash
+# Fetch the datasets this host needs, over HTTPS
+owatch data refresh
+
+# Fetch them into a directory to carry to a host with no network,
+# for this host or for another one
+owatch data refresh --to /media/usb/owatch-datasets
+owatch data refresh --to /media/usb/owatch-datasets --for linux/debian/12
+
 # Install the datasets in a directory, such as one carried from another host
 owatch data import /media/usb/owatch-datasets
 
@@ -403,6 +413,21 @@ owatch data status
 owatch data status --plain
 owatch data status -o json --report-file /path/to/reports
 ```
+
+`owatch data refresh` connects over HTTPS to the address each dataset's source
+publishes it at, follows a redirect only to a host that dataset names, and sends
+nothing about the host: every request carries `User-Agent: owatch` and no other
+detail. It reads no more than a dataset may hold and gives up on a download after
+10 minutes. A proxy named by `HTTPS_PROXY` is used, and no other environment
+variable changes where it connects. It prints each dataset's size before fetching
+it and asks before one larger than 100 MiB; `--yes` skips the question. What is
+fetched is checked as any dataset is before it replaces the copy held, a download
+that fails because a server is briefly unable to answer is tried three times, and
+a dataset that could not be refreshed keeps the copy held. `--for` names another
+host as `owatch osinfo` describes it there, `os/distribution/release`, and needs
+`--to`. `refresh` never runs as root or from an elevated terminal, and no flag
+changes that: a host whose only account is root imports datasets fetched
+elsewhere.
 
 `owatch data status` lists each dataset that applies to the host, held or not,
 with the date of its data, when it was fetched, its size, and its state: current,

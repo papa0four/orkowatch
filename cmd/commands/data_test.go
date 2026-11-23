@@ -35,6 +35,7 @@ func testData(t *testing.T, interactive bool, answer string) (*dataCmd, store.St
 		now:         func() time.Time { return dataNow },
 		interactive: func() bool { return interactive },
 		in:          strings.NewReader(answer),
+		elevated:    func() bool { return false },
 	}, s
 }
 
