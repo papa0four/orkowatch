@@ -15,7 +15,7 @@ func TestWriteText(t *testing.T) {
 		{ID: "kev", State: StateCurrent, Source: "https://data.example/kev", DataDate: "2026-11-20",
 			Fetched: "2026-11-22T11:00:00Z", Size: 3 << 20, License: "CC0 1.0", Attribution: "CISA"},
 		{ID: "epss", State: StateNotHeld},
-		{ID: "bad", State: StateUnusable, Reason: "checksum"},
+		{ID: "bad", State: StateUnusable, Reason: "checksum", Attention: "the import failed"},
 		{ID: "old", State: StateNotApplicable, Size: 512},
 	}})
 	if err != nil {
@@ -28,6 +28,7 @@ func TestWriteText(t *testing.T) {
         license CC0 1.0; CISA
 "epss"  not held
 "bad"   unusable: checksum
+        needs attention: the import failed
 "old"   no longer applies, 512 B
 `
 	if b.String() != want {

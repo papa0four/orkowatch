@@ -19,7 +19,9 @@ import (
 // row for each dataset that applies to host, held or not, and one for each
 // directory in the store that holds a dataset not applying to host or one
 // known does not name. A held dataset is checked as any read checks it, so a
-// row that says current says the data was read and found sound.
+// row that says current says the data was read and found sound, and a row
+// says what needs attention: an import that failed, or an install that did
+// not finish.
 func (s Store) Status(known []dataset.Dataset, host *osfingerprint.OSInfo, now time.Time) (dataset.View, error) {
 	view := dataset.View{Store: s.root, Datasets: []dataset.Row{}}
 	named := make(map[string]bool, len(known))
@@ -34,7 +36,9 @@ func (s Store) Status(known []dataset.Dataset, host *osfingerprint.OSInfo, now t
 		case applies && !held:
 			view.Datasets = append(view.Datasets, dataset.Row{ID: d.ID(), State: dataset.StateNotHeld})
 		case applies:
-			view.Datasets = append(view.Datasets, s.heldRow(d, now))
+			row := s.heldRow(d, now)
+			row.Attention = attention(s.dir(d.ID()))
+			view.Datasets = append(view.Datasets, row)
 		case held:
 			view.Datasets = append(view.Datasets, s.sizedRow(d.ID(), dataset.StateNotApplicable))
 		}

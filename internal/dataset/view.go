@@ -51,6 +51,11 @@ type Row struct {
 	Size        int64  `json:"size,omitempty" yaml:"size,omitempty"`
 	License     string `json:"license,omitempty" yaml:"license,omitempty"`
 	Attribution string `json:"attribution,omitempty" yaml:"attribution,omitempty"`
+
+	// Attention is what about the dataset the operator must deal with,
+	// whatever its state: an import of it that failed, with the reason, or
+	// an install of it that did not finish.
+	Attention string `json:"attention,omitempty" yaml:"attention,omitempty"`
 }
 
 const (
@@ -64,8 +69,9 @@ const (
 )
 
 // WriteText writes v as status prints it: the store, then one line per
-// dataset with its state and what bears on it, and for a held dataset the
-// source, license, and attribution under it. This is the one text renderer
+// dataset with its state and what bears on it, and under it, for a held
+// dataset, the source, license, and attribution, and what needs attention.
+// This is the one text renderer
 // of a store, used by status and by a saved status report alike.
 func WriteText(w io.Writer, v View) error {
 	ew := render.NewErrWriter(w)
@@ -86,6 +92,9 @@ func WriteText(w io.Writer, v View) error {
 		}
 		if r.License != "" || r.Attribution != "" {
 			ew.Printf("%-*s  license %s; %s\n", width, "", r.License, r.Attribution)
+		}
+		if r.Attention != "" {
+			ew.Printf("%-*s  needs attention: %s\n", width, "", r.Attention)
 		}
 	}
 	return ew.Err()
