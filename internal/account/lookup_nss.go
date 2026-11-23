@@ -14,8 +14,11 @@ import (
 
 const (
 	// GetentProgram reads a database through the name service switch, which
-	// holds the entries of every source the host is configured for.
-	GetentProgram = "getent"
+	// holds the entries of every source the host is configured for. It is
+	// named by its full path, where the systems owatch supports install it,
+	// and not looked up through PATH: an elevated run started with the
+	// caller's PATH would otherwise run whichever getent came first.
+	GetentProgram = "/usr/bin/getent"
 
 	// GetentNotFound is the exit status getent(1) gives for a key the
 	// database does not hold, which is an answer and not a failed lookup.

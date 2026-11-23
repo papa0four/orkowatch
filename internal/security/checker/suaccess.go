@@ -10,6 +10,7 @@ package checker
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"github.com/papa0four/orkowatch/internal/account"
@@ -51,7 +52,7 @@ func (h *hostAccounts) applySUGate(ctx context.Context, file string, gate suGate
 		})
 		return
 	case !isSafeUsername(gate.group) || strings.HasPrefix(gate.group, "-"):
-		unknown(fmt.Sprintf("the group %q that %s names is not a name passed to %s", gate.group, file, account.GetentProgram))
+		unknown(fmt.Sprintf("the group %q that %s names is not a name passed to %s", gate.group, file, filepath.Base(account.GetentProgram)))
 		return
 	}
 
