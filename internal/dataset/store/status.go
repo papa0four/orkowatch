@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/papa0four/orkowatch/internal/dataset"
@@ -88,7 +89,9 @@ func (s Store) sizedRow(id string, state dataset.State) dataset.Row {
 }
 
 // unknownDirs lists the directories in the store that named does not hold, in
-// name order. A missing store has none.
+// name order. A missing store has none. One whose name begins with a dot is
+// the store's own, where a fetch is staged, and is passed over as Import
+// passes over it.
 func (s Store) unknownDirs(named map[string]bool) ([]string, error) {
 	entries, err := readDirBounded(s.root)
 	if errors.Is(err, os.ErrNotExist) {
@@ -99,7 +102,7 @@ func (s Store) unknownDirs(named map[string]bool) ([]string, error) {
 	}
 	var ids []string
 	for _, e := range entries {
-		if e.IsDir() && !named[e.Name()] {
+		if e.IsDir() && !named[e.Name()] && !strings.HasPrefix(e.Name(), ".") {
 			ids = append(ids, e.Name())
 		}
 	}
