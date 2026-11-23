@@ -61,6 +61,8 @@ and open an issue against this doc.
 | `owatch audit` | Run security audit checks |
 | `owatch all` | Run all available scans |
 | `owatch browse [report-file]` | Open a saved report in the results browser; reads any format that holds the whole report (JSON, YAML) |
+| `owatch data import <directory>` | Install vulnerability datasets from a directory, with no network (see Vulnerability Datasets below) |
+| `owatch data remove <dataset>` | Delete a dataset from the store, after asking |
 | `owatch completion` | Generate shell completion scripts (see Shell Completion below) |
 | `owatch help` | Show the full command menu (equivalent to `-h`/`--help`) |
 | `owatch notices` | Print the third-party notices for the MITRE data owatch carries |
@@ -372,6 +374,40 @@ owatch computes both itself and never requests the link.
 A finding's severity is the CVSS-BE severity when the host's evidence modified the
 score, and otherwise the registry's rating, which is the severity band of the
 baseline.
+
+## Vulnerability Datasets
+
+owatch holds the vulnerability data it reads on the host, so a run needs no
+network. Each account has its own store, at a fixed place under the home the
+system records for the account, which no environment variable moves:
+
+| Platform | Store |
+|---|---|
+| Linux, FreeBSD, OpenBSD, NetBSD | `~/.local/share/owatch/datasets` |
+| macOS | `~/Library/Application Support/owatch/datasets` |
+| Windows | `<profile>\AppData\Local\owatch\datasets` |
+
+A run as root or from an elevated terminal has no store yet, and the commands
+below refuse there. No `owatch data` command opens a network connection.
+
+```bash
+# Install the datasets in a directory, such as one carried from another host
+owatch data import /media/usb/owatch-datasets
+
+# Delete a dataset, after a question; --yes skips it
+owatch data remove kev
+```
+
+Every dataset is checked whenever it is read, wherever it came from: its
+manifest is validated, its data is opened only as a regular file and never
+through a link, held to the size its manifest gives, and hashed against the
+checksum the manifest records, and its content must be what its source
+publishes. `import` refuses a dataset that fails any of these with the reason,
+skips one that does not apply to the host, and leaves the held copy when it was
+fetched no earlier. An install that fails because a file is in use is tried
+three times; one that fails for another reason is recorded and shown until the
+dataset is installed. The store keeps one copy of each dataset, and a dataset
+leaves it only through `owatch data remove`.
 
 ## Third-Party Notices
 
