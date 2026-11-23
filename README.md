@@ -400,7 +400,7 @@ owatch data refresh
 # Fetch them into a directory to carry to a host with no network,
 # for this host or for another one
 owatch data refresh --to /media/usb/owatch-datasets
-owatch data refresh --to /media/usb/owatch-datasets --for linux/debian/12
+owatch data refresh --to /media/usb/owatch-datasets --for linux/ubuntu/22.04
 
 # Install the datasets in a directory, such as one carried from another host
 owatch data import /media/usb/owatch-datasets
@@ -424,7 +424,8 @@ it and asks before one larger than 100 MiB; `--yes` skips the question. What is
 fetched is checked as any dataset is before it replaces the copy held, a download
 that fails because a server is briefly unable to answer is tried three times, and
 a dataset that could not be refreshed keeps the copy held. `--for` names another
-host as `owatch osinfo` describes it there, `os/distribution/release`, and needs
+host by the `Target` line `owatch osinfo` prints there, `os/platform/version`,
+copied as printed and quoted when it holds a space, as on Windows. It needs
 `--to`. `refresh` never runs as root or from an elevated terminal, and no flag
 changes that: a host whose only account is root imports datasets fetched
 elsewhere.

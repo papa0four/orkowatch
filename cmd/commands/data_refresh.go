@@ -10,8 +10,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"slices"
-	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -25,10 +23,6 @@ import (
 // largeDownload is the size past which a dataset is asked about before it is
 // fetched, so a first refresh over a metered or slow link is a choice.
 const largeDownload = 100 << 20
-
-// forParts is the most parts --for takes: an operating system, a
-// distribution, and a release.
-const forParts = 3
 
 // fetcher is what brings a dataset from its origin: how large it is there,
 // and its data.
@@ -46,10 +40,6 @@ func newFetcher() (fetcher, error) {
 // instead.
 var errRefreshElevated = errors.New("owatch data refresh does not run as root or from an elevated terminal: " +
 	"run it as an ordinary account, or run it on another host with --to and bring the directory here for owatch data import")
-
-// supportedOS are the operating systems --for can name, as owatch osinfo
-// prints them.
-var supportedOS = []string{"darwin", "freebsd", "linux", "netbsd", "openbsd", "windows"}
 
 // refreshCmd returns owatch data refresh.
 func (d *dataCmd) refreshCmd() *cobra.Command {
@@ -79,9 +69,9 @@ reason once. A dataset that could not be refreshed keeps the copy held, and
 owatch data status shows the failure until it is refreshed.
 
 --to writes the datasets to a directory to carry to another host, where owatch
-data import installs them. --for names that host, as owatch osinfo describes
-it there: an operating system, then a distribution and a release where it has
-them.
+data import installs them. --for names that host by the Target line owatch
+osinfo prints there, os/platform/version, copied as it is printed. Quote it
+when it holds a space, as Windows does.
 
 refresh never runs as root or from an elevated terminal, and no flag changes
 that.`,
@@ -92,7 +82,7 @@ that.`,
   owatch data refresh --to /media/usb/owatch-datasets
 
   # Fetch the datasets another host needs
-  owatch data refresh --to /media/usb/owatch-datasets --for linux/debian/12
+  owatch data refresh --to /media/usb/owatch-datasets --for linux/ubuntu/22.04
 
   # Fetch through a proxy, and without questions
   HTTPS_PROXY=http://proxy.example:3128 owatch data refresh --yes`,
@@ -101,7 +91,7 @@ that.`,
 		},
 	}
 	cmd.Flags().StringVar(&to, "to", "", "Write the datasets to this directory instead of the store, to carry to another host")
-	cmd.Flags().StringVar(&forHost, "for", "", "Fetch for another host, named os/distribution/release as owatch osinfo prints them (requires --to)")
+	cmd.Flags().StringVar(&forHost, "for", "", "Fetch for another host, named by the Target line owatch osinfo prints there (requires --to)")
 	cmd.Flags().BoolVar(&yes, "yes", false, "Fetch a dataset larger than 100 MiB without asking first")
 	return cmd
 }
@@ -164,7 +154,10 @@ func (d *dataCmd) refreshTarget(ctx context.Context, to, forHost string) (*osfin
 	var host *osfingerprint.OSInfo
 	var err error
 	if forHost != "" {
-		host, err = parseFor(forHost)
+		host, err = osfingerprint.ParseTarget(forHost)
+		if err != nil {
+			err = fmt.Errorf("--for: %w", err)
+		}
 	} else {
 		host, err = d.host()
 	}
@@ -176,19 +169,6 @@ func (d *dataCmd) refreshTarget(ctx context.Context, to, forHost string) (*osfin
 	}
 	dest, err := d.open(ctx)
 	return host, dest, err
-}
-
-// parseFor reads the host --for names: os, os/distribution, or
-// os/distribution/release, with the distribution left empty where the system
-// has none, as in freebsd//14.1.
-func parseFor(value string) (*osfingerprint.OSInfo, error) {
-	parts := strings.Split(strings.ToLower(value), "/")
-	if len(parts) > forParts || !slices.Contains(supportedOS, parts[0]) {
-		return nil, fmt.Errorf("--for %q does not name a host: give os/distribution/release, where os is one of %s",
-			value, strings.Join(supportedOS, ", "))
-	}
-	parts = append(parts, make([]string, forParts-len(parts))...)
-	return &osfingerprint.OSInfo{OS: parts[0], Platform: parts[1], PlatformVersion: parts[2]}, nil
 }
 
 // choose prints the size of each of wanted and returns those to fetch: every

@@ -10,10 +10,19 @@ import (
 	"fmt"
 	"io"
 	"runtime"
+	"slices"
 	"sort"
+	"strings"
 
 	"github.com/shirou/gopsutil/host"
 )
+
+// targetParts is the number of parts a target holds: an operating system, a
+// platform, and a platform version.
+const targetParts = 3
+
+// supportedOS are the operating systems a target can name, as OS holds them.
+var supportedOS = []string{"darwin", "freebsd", "linux", "netbsd", "openbsd", "windows"}
 
 type (
 	// OSInfo holds operating system fingerprint details retrieved from the host.
@@ -33,7 +42,10 @@ type (
 	// KernelVersion when it equals PlatformVersion; PlatformVersion is the
 	// always-present version anchor. This is the single structured shape for the
 	// system block across every command, so audit and all serialize host identity
-	// identically rather than each maintaining its own struct.
+	// identically rather than each maintaining its own struct. Target is the
+	// host named as another host's owatch data refresh --for takes it, with the
+	// platform as the host reports it, so it carries Platform even where the
+	// Platform field is omitted.
 	SystemView struct {
 		OS              string            `json:"os" yaml:"os"`
 		Hostname        string            `json:"hostname" yaml:"hostname"`
@@ -41,6 +53,7 @@ type (
 		PlatformVersion string            `json:"platform_version" yaml:"platform_version"`
 		KernelVersion   string            `json:"kernel_version,omitempty" yaml:"kernel_version,omitempty"`
 		Architecture    string            `json:"architecture" yaml:"architecture"`
+		Target          string            `json:"target,omitempty" yaml:"target,omitempty"`
 		AdditionalInfo  map[string]string `json:"additional_info,omitempty" yaml:"additional_info,omitempty"`
 	}
 )
@@ -71,6 +84,37 @@ func (o *OSInfo) DistinctKernelVersion() string {
 		return ""
 	}
 	return o.KernelVersion
+}
+
+// Target returns o named as os/platform/version, with trailing empty parts
+// dropped, so that ParseTarget on another host reads back the fields a
+// dataset decides by as this host reports them. It returns the empty string
+// when o cannot be named that way: an operating system a target cannot name,
+// or a part that holds a slash.
+func (o *OSInfo) Target() string {
+	parts := []string{o.OS, o.Platform, o.PlatformVersion}
+	if !slices.Contains(supportedOS, o.OS) || slices.ContainsFunc(parts, func(p string) bool { return strings.Contains(p, "/") }) {
+		return ""
+	}
+	for parts[len(parts)-1] == "" {
+		parts = parts[:len(parts)-1]
+	}
+	return strings.Join(parts, "/")
+}
+
+// ParseTarget reads a target as Target writes it: os, os/platform, or
+// os/platform/version. The operating system is read in any case. The platform
+// and version are kept as given, since a dataset compares them with what the
+// named host reports.
+func ParseTarget(value string) (*OSInfo, error) {
+	parts := strings.Split(value, "/")
+	parts[0] = strings.ToLower(parts[0])
+	if len(parts) > targetParts || !slices.Contains(supportedOS, parts[0]) {
+		return nil, fmt.Errorf("%q does not name a host: give it as owatch osinfo prints Target there, os/platform/version, where os is one of %s",
+			value, strings.Join(supportedOS, ", "))
+	}
+	parts = append(parts, make([]string, targetParts-len(parts))...)
+	return &OSInfo{OS: parts[0], Platform: parts[1], PlatformVersion: parts[2]}, nil
 }
 
 // GetOSFingerprint retrieves OS-Specific fingerprinting information
@@ -149,6 +193,11 @@ func WriteViewText(w io.Writer, v SystemView) error {
 	if err := writeLine(w, "Architecture", v.Architecture); err != nil {
 		return err
 	}
+	if v.Target != "" {
+		if err := writeLine(w, "Target", v.Target); err != nil {
+			return err
+		}
+	}
 
 	keys := make([]string, 0, len(v.AdditionalInfo))
 	for key := range v.AdditionalInfo {
@@ -177,6 +226,7 @@ func (o *OSInfo) View() SystemView {
 		PlatformVersion: o.PlatformVersion,
 		KernelVersion:   o.DistinctKernelVersion(),
 		Architecture:    o.Architecture,
+		Target:          o.Target(),
 		AdditionalInfo:  o.AdditionalInfo,
 	}
 }

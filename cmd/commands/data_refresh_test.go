@@ -150,7 +150,7 @@ func TestDataRefreshForAnotherHost(t *testing.T) {
 	origins.sizes["debian-data"] = int64(len(datasettest.Content))
 	carried := filepath.Join(t.TempDir(), "carried")
 
-	out, err := run(d, "refresh", "--to", carried, "--for", "Linux/Debian/12")
+	out, err := run(d, "refresh", "--to", carried, "--for", "linux/debian/12.8")
 	if err != nil || !holds(carried, "wanted") || !holds(carried, "debian-data") || holds(s.Root(), "wanted") {
 		t.Fatalf("refresh --to --for printed %q, %v", out, err)
 	}
@@ -176,22 +176,6 @@ func TestDataRefreshForAnotherHost(t *testing.T) {
 	}
 	if len(origins.fetched) != fetched {
 		t.Errorf("a refused refresh fetched: %q", origins.fetched)
-	}
-}
-
-// --for is read as os, os/distribution, or os/distribution/release, in any
-// case, with an empty distribution allowed.
-func TestParseFor(t *testing.T) {
-	for value, want := range map[string]osfingerprint.OSInfo{
-		"windows":            {OS: "windows"},
-		"linux/ubuntu":       {OS: "linux", Platform: "ubuntu"},
-		"Linux/Ubuntu/22.04": {OS: "linux", Platform: "ubuntu", PlatformVersion: "22.04"},
-		"freebsd//14.1":      {OS: "freebsd", PlatformVersion: "14.1"},
-	} {
-		got, err := parseFor(value)
-		if err != nil || got.OS != want.OS || got.Platform != want.Platform || got.PlatformVersion != want.PlatformVersion {
-			t.Errorf("parseFor(%q) = %+v, %v, want %+v", value, got, err, want)
-		}
 	}
 }
 
