@@ -9,7 +9,7 @@ import (
 )
 
 // ErrNotRegular means the path names something other than a regular file: a
-// link, a directory, a FIFO or a device.
+// link, a directory, a FIFO, or a device.
 var ErrNotRegular = errors.New("not a regular file")
 
 // refused states that path is not a regular file.

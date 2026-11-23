@@ -43,7 +43,7 @@ type (
 const maxIDLen = 64
 
 // idPattern admits lower-case letters and digits in words joined by single
-// hyphens: nothing that is a path separator, a relative step or a name a
+// hyphens: nothing that is a path separator, a relative step, or a name a
 // filesystem treats specially.
 var idPattern = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
 

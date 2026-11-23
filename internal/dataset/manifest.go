@@ -26,7 +26,7 @@ const (
 	// memory before it was judged.
 	maxManifestBytes = 64 << 10
 
-	// maxTextLen bounds the source address, license and attribution.
+	// maxTextLen bounds the source address, license, and attribution.
 	maxTextLen = 2048
 
 	// checksumLen is the length of a SHA-256 checksum in hexadecimal.
