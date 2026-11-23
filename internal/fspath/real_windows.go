@@ -6,6 +6,7 @@ package fspath
 
 import (
 	"fmt"
+	"io/fs"
 	"strings"
 
 	"golang.org/x/sys/windows"
@@ -35,7 +36,7 @@ func Real(dir string) (final string, err error) {
 		0,
 	)
 	if err != nil {
-		return "", fmt.Errorf("%w: %s", ErrMissing, dir)
+		return "", missing{&fs.PathError{Op: "open", Path: dir, Err: err}}
 	}
 	defer func() {
 		if cerr := windows.CloseHandle(h); cerr != nil && err == nil {
