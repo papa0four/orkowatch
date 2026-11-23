@@ -3,13 +3,11 @@
 package security
 
 import (
-	"bufio"
 	"errors"
-	"fmt"
 	"io"
 	"strconv"
-	"strings"
 
+	"github.com/papa0four/orkowatch/internal/render"
 	"github.com/papa0four/orkowatch/internal/security/audit"
 	"github.com/papa0four/orkowatch/internal/security/finding"
 	"github.com/papa0four/orkowatch/internal/selection"
@@ -92,20 +90,14 @@ func (a *AuditFlags) ConfirmFullScan(mask selection.CheckMask, scanRoot string, 
 		return nil
 	}
 
-	if _, err := fmt.Fprint(out, "The permissions check will scan the entire filesystem, which can take several minutes.\n"+
+	yes, err := render.Confirm(in, out, "The permissions check will scan the entire filesystem, which can take several minutes.\n"+
 		"Narrow it with --fperms <path>, or skip this question with --yes.\n"+
-		"Proceed? [y/N] "); err != nil {
-		return fmt.Errorf("ask for confirmation: %w", err)
-	}
-
-	answer, err := bufio.NewReader(in).ReadString('\n')
-	if err != nil && !errors.Is(err, io.EOF) {
-		return fmt.Errorf("read confirmation: %w", err)
-	}
-	switch strings.ToLower(strings.TrimSpace(answer)) {
-	case "y", "yes":
-		return nil
-	default:
+		"Proceed?")
+	switch {
+	case err != nil:
+		return err
+	case !yes:
 		return ErrScanDeclined
 	}
+	return nil
 }
