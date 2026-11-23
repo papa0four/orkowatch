@@ -33,6 +33,10 @@ const (
 	// covers its cwd-plus-home allowlist roots.
 	maxOperatorHomes = 2
 
+	// reportFileMode keeps a report, which describes what is weak on the
+	// host, to the account that wrote it.
+	reportFileMode = 0600
+
 	// maxHostnameLen is the longest a single DNS label can be (RFC 1035
 	// section 2.3.4), which is the most os.Hostname can return.
 	maxHostnameLen = 63
@@ -143,6 +147,27 @@ func allowlistRoots() []string {
 		roots = append(roots, invoker.Home)
 	}
 	return roots
+}
+
+// openAndWrite creates target and writes data to it. The name is generated
+// per run, so nothing legitimate is ever there already, and the file is
+// created only where nothing is: a link or FIFO planted to redirect a
+// privileged write is refused.
+func openAndWrite(target string, data []byte) (err error) {
+	f, err := fspath.CreateNew(target, reportFileMode)
+	if err != nil {
+		return fmt.Errorf("create destination: %w", err)
+	}
+	defer func() {
+		if cerr := f.Close(); cerr != nil && err == nil {
+			err = cerr
+		}
+	}()
+
+	if _, werr := f.Write(data); werr != nil {
+		return fmt.Errorf("write report: %w", werr)
+	}
+	return nil
 }
 
 // ValidateDir confirms path is an existing directory a report can be written

@@ -5,11 +5,6 @@
 package report
 
 import (
-	"fmt"
-	"os"
-
-	"golang.org/x/sys/windows"
-
 	"github.com/papa0four/orkowatch/internal/fspath"
 	"github.com/papa0four/orkowatch/internal/winfolder"
 )
@@ -55,40 +50,4 @@ func refusedBases() ([]string, error) {
 		bases = append(bases, base)
 	}
 	return bases, nil
-}
-
-// openAndWrite creates target and writes data to it. The name is generated
-// per run, so nothing legitimate is ever there already: CREATE_NEW refuses
-// whatever is, and OPEN_REPARSE_POINT makes a planted link count as that
-// existing entry where the default open would resolve it and create its
-// target.
-func openAndWrite(target string, data []byte) (err error) {
-	path, err := windows.UTF16PtrFromString(target)
-	if err != nil {
-		return fmt.Errorf("encode path: %w", err)
-	}
-
-	handle, err := windows.CreateFile(
-		path,
-		windows.GENERIC_WRITE,
-		0,
-		nil,
-		windows.CREATE_NEW,
-		windows.FILE_ATTRIBUTE_NORMAL|windows.FILE_FLAG_OPEN_REPARSE_POINT,
-		0,
-	)
-	if err != nil {
-		return fmt.Errorf("create destination: %w", err)
-	}
-	f := os.NewFile(uintptr(handle), target)
-	defer func() {
-		if cerr := f.Close(); cerr != nil && err == nil {
-			err = cerr
-		}
-	}()
-
-	if _, werr := f.Write(data); werr != nil {
-		return fmt.Errorf("write report: %w", werr)
-	}
-	return nil
 }

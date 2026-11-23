@@ -5,15 +5,12 @@
 package report
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 
 	"github.com/papa0four/orkowatch/internal/elevation"
 	"github.com/papa0four/orkowatch/internal/fspath"
 )
-
-const reportFileMode = 0600
 
 // systemRoots are refused because they sensitive to an attacker
 var systemRoots = []string{
@@ -53,26 +50,4 @@ func refusedReason(target string) string {
 		}
 	}
 	return ""
-}
-
-// openAndWrite creates target and writes data to it. The name is generated
-// per run, so nothing legitimate is ever there already: exclusive creation
-// refuses whatever is, including a link or FIFO planted to redirect a
-// privileged write, where an open that tolerated an existing entry would
-// follow or truncate it.
-func openAndWrite(target string, data []byte) (err error) {
-	f, err := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_EXCL, reportFileMode) // #nosec G304 -- target validated through the guard pipeline and created exclusively
-	if err != nil {
-		return fmt.Errorf("create destination: %w", err)
-	}
-	defer func() {
-		if cerr := f.Close(); cerr != nil && err == nil {
-			err = cerr
-		}
-	}()
-
-	if _, werr := f.Write(data); werr != nil {
-		return fmt.Errorf("write report: %w", werr)
-	}
-	return nil
 }
