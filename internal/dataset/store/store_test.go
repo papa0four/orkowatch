@@ -3,12 +3,8 @@
 package store
 
 import (
-	"bufio"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,88 +12,29 @@ import (
 	"time"
 
 	"github.com/papa0four/orkowatch/internal/dataset"
+	"github.com/papa0four/orkowatch/internal/dataset/datasettest"
 	"github.com/papa0four/orkowatch/internal/elevation"
 	"github.com/papa0four/orkowatch/internal/osfingerprint"
 )
 
-// testHeader opens every file of the test dataset; the line after it is the
-// date of its data.
-const testHeader = "owatch-test-dataset\n"
-
 var now = time.Date(2026, 11, 22, 12, 0, 0, 0, time.UTC)
 
-// testDataset is a dataset made for the tests: a header line, the date of its
-// data, and anything after.
-type testDataset struct {
-	id      string
-	applies bool
-}
+// testDataset is the dataset made for the tests, and content a sound file of
+// it.
+type testDataset = datasettest.Dataset
 
-func (d testDataset) ID() string                           { return d.id }
-func (d testDataset) AppliesTo(*osfingerprint.OSInfo) bool { return d.applies }
-func (testDataset) MaxBytes() int64                        { return 1 << 10 }
+const content = datasettest.Content
 
-func (testDataset) Check(data io.Reader) (dataset.Facts, error) {
-	r := bufio.NewReader(data)
-	header, err := r.ReadString('\n')
-	if err != nil || header != testHeader {
-		return dataset.Facts{}, errors.New("not the test dataset")
-	}
-	line, err := r.ReadString('\n')
-	if err != nil {
-		return dataset.Facts{}, errors.New("no date")
-	}
-	date, err := time.Parse(time.DateOnly, strings.TrimSpace(line))
-	if err != nil {
-		return dataset.Facts{}, errors.New("no date")
-	}
-	return dataset.Facts{Date: date}, nil
-}
-
-// content is a sound file of the test dataset.
-const content = testHeader + "2026-11-20\nentries\n"
-
-// put holds content in s as the dataset d, with the manifest that describes
-// it changed by edit when edit is not nil.
+// put holds data in s as the dataset d, with the manifest that describes it
+// changed by edit when edit is not nil.
 func put(t *testing.T, s Store, d dataset.Dataset, data string, fetched time.Time, edit func(*dataset.Manifest)) {
 	t.Helper()
-	sum := sha256.Sum256([]byte(data))
-	m := dataset.Manifest{
-		Format:      dataset.ManifestFormat,
-		ID:          d.ID(),
-		Source:      "https://data.example/" + d.ID(),
-		Fetched:     fetched,
-		SHA256:      hex.EncodeToString(sum[:]),
-		Size:        int64(len(data)),
-		License:     "CC0 1.0",
-		Attribution: "Made for the tests",
-	}
-	if edit != nil {
-		edit(&m)
-	}
-	dir := s.dir(d.ID())
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, hex.EncodeToString(sum[:])+dataSuffix), []byte(data), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	f, err := os.Create(filepath.Join(dir, manifestName))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := m.Encode(f); err != nil {
-		t.Fatal(err)
-	}
-	if err := f.Close(); err != nil {
-		t.Fatal(err)
-	}
+	datasettest.Put(t, s.root, d, data, fetched, edit)
 }
 
-// dataFile is the path of the data file held for d.
+// dataFile is the path of the file holding data for d in s.
 func dataFile(s Store, d dataset.Dataset, data string) string {
-	sum := sha256.Sum256([]byte(data))
-	return filepath.Join(s.dir(d.ID()), hex.EncodeToString(sum[:])+dataSuffix)
+	return filepath.Join(s.dir(d.ID()), datasettest.DataName(data))
 }
 
 // rowOf returns the status row of id.
@@ -120,12 +57,12 @@ func rowOf(t *testing.T, s Store, known []dataset.Dataset, id string) dataset.Ro
 // say.
 func TestStatusOfAHeldDataset(t *testing.T) {
 	s := Store{root: t.TempDir()}
-	d := testDataset{id: "test-data", applies: true}
+	d := testDataset{Name: "test-data", Applies: true}
 	put(t, s, d, content, now.Add(-time.Hour), nil)
 
-	got := rowOf(t, s, []dataset.Dataset{d}, d.id)
+	got := rowOf(t, s, []dataset.Dataset{d}, d.Name)
 	want := dataset.Row{
-		ID:          d.id,
+		ID:          d.Name,
 		State:       dataset.StateCurrent,
 		Source:      "https://data.example/test-data",
 		DataDate:    "2026-11-20",
@@ -147,9 +84,9 @@ func TestStatusAge(t *testing.T) {
 		15 * 24 * time.Hour: dataset.StateStale,
 	} {
 		s := Store{root: t.TempDir()}
-		d := testDataset{id: "test-data", applies: true}
+		d := testDataset{Name: "test-data", Applies: true}
 		put(t, s, d, content, now.Add(-age), nil)
-		if got := rowOf(t, s, []dataset.Dataset{d}, d.id).State; got != want {
+		if got := rowOf(t, s, []dataset.Dataset{d}, d.Name).State; got != want {
 			t.Errorf("fetched %v ago: %q, want %q", age, got, want)
 		}
 	}
@@ -160,7 +97,7 @@ func TestStatusAge(t *testing.T) {
 // regular file, is reported as unusable with the reason, and nothing it says
 // is shown.
 func TestStatusRefusesADamagedDataset(t *testing.T) {
-	d := testDataset{id: "test-data", applies: true}
+	d := testDataset{Name: "test-data", Applies: true}
 	for _, tt := range []struct {
 		name   string
 		damage func(t *testing.T, s Store, d dataset.Dataset)
@@ -181,7 +118,7 @@ func TestStatusRefusesADamagedDataset(t *testing.T) {
 			put(t, s, d, content, now.Add(-time.Hour), nil)
 			tt.damage(t, s, d)
 
-			got := rowOf(t, s, []dataset.Dataset{d}, d.id)
+			got := rowOf(t, s, []dataset.Dataset{d}, d.Name)
 			if got.State != dataset.StateUnusable || !strings.Contains(got.Reason, tt.reason) {
 				t.Errorf("row %+v, want unusable for a reason naming %q", got, tt.reason)
 			}
@@ -238,9 +175,9 @@ func replaceWithDir(path func(Store, dataset.Dataset) string) func(*testing.T, S
 // cannot be swapped for one elsewhere.
 func TestStatusRefusesALinkedManifest(t *testing.T) {
 	s := Store{root: t.TempDir()}
-	d := testDataset{id: "test-data", applies: true}
+	d := testDataset{Name: "test-data", Applies: true}
 	put(t, s, d, content, now.Add(-time.Hour), nil)
-	path := filepath.Join(s.dir(d.id), manifestName)
+	path := filepath.Join(s.dir(d.Name), manifestName)
 	elsewhere := filepath.Join(t.TempDir(), manifestName)
 	if err := os.Rename(path, elsewhere); err != nil {
 		t.Fatal(err)
@@ -248,7 +185,7 @@ func TestStatusRefusesALinkedManifest(t *testing.T) {
 	if err := os.Symlink(elsewhere, path); err != nil {
 		t.Skipf("this account cannot make a link: %v", err)
 	}
-	if got := rowOf(t, s, []dataset.Dataset{d}, d.id); got.State != dataset.StateUnusable || !strings.Contains(got.Reason, "not a regular file") {
+	if got := rowOf(t, s, []dataset.Dataset{d}, d.Name); got.State != dataset.StateUnusable || !strings.Contains(got.Reason, "not a regular file") {
 		t.Errorf("row %+v, want unusable as not a regular file", got)
 	}
 }
@@ -259,9 +196,9 @@ func TestStatusRefusesALinkedManifest(t *testing.T) {
 // not exist yet holds nothing.
 func TestStatusRows(t *testing.T) {
 	s := Store{root: filepath.Join(t.TempDir(), "store")}
-	wanted := testDataset{id: "wanted", applies: true}
-	former := testDataset{id: "former", applies: false}
-	elsewhere := testDataset{id: "elsewhere", applies: false}
+	wanted := testDataset{Name: "wanted", Applies: true}
+	former := testDataset{Name: "former", Applies: false}
+	elsewhere := testDataset{Name: "elsewhere", Applies: false}
 	known := []dataset.Dataset{wanted, former, elsewhere}
 
 	view, err := s.Status(known, &osfingerprint.OSInfo{}, now)
@@ -273,7 +210,7 @@ func TestStatusRows(t *testing.T) {
 	}
 
 	put(t, s, former, content, now.Add(-time.Hour), nil)
-	put(t, s, testDataset{id: "retired"}, content, now.Add(-time.Hour), nil)
+	put(t, s, testDataset{Name: "retired"}, content, now.Add(-time.Hour), nil)
 
 	view, err = s.Status(known, &osfingerprint.OSInfo{}, now)
 	if err != nil {

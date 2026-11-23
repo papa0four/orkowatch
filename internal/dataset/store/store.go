@@ -65,7 +65,14 @@ func ForProcess(ctx context.Context) (Store, error) {
 	if err != nil {
 		return Store{}, fmt.Errorf("locate the dataset store: %w", err)
 	}
-	return Store{root: root}, nil
+	return At(root), nil
+}
+
+// At returns the store in the directory root, which need not exist yet: a
+// directory written in the store's layout to carry to another host is one,
+// as is the store ForProcess finds.
+func At(root string) Store {
+	return Store{root: root}
 }
 
 // Root is the store's directory.

@@ -18,8 +18,8 @@ import (
 )
 
 var (
-	wanted = testDataset{id: "wanted", applies: true}
-	known  = []dataset.Dataset{wanted, testDataset{id: "elsewhere", applies: false}}
+	wanted = testDataset{Name: "wanted", Applies: true}
+	known  = []dataset.Dataset{wanted, testDataset{Name: "elsewhere", Applies: false}}
 )
 
 // importFrom imports the directory src into s and returns the outcomes.
@@ -75,7 +75,7 @@ func TestImportInstalls(t *testing.T) {
 // the reason, and nothing of it reaches the store.
 func TestImportRefuses(t *testing.T) {
 	s, src := stores(t)
-	put(t, src, testDataset{id: "retired"}, content, now.Add(-time.Hour), nil)
+	put(t, src, testDataset{Name: "retired"}, content, now.Add(-time.Hour), nil)
 	if err := os.Mkdir(filepath.Join(src.root, "Not_A_Name"), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -121,7 +121,7 @@ func TestImportKeepsAndSkips(t *testing.T) {
 	s, src := stores(t)
 	put(t, s, wanted, content, now.Add(-time.Hour), nil)
 	put(t, src, wanted, strings.Replace(content, "entries", "older", 1), now.Add(-2*time.Hour), nil)
-	put(t, src, testDataset{id: "elsewhere"}, content, now.Add(-time.Hour), nil)
+	put(t, src, testDataset{Name: "elsewhere"}, content, now.Add(-time.Hour), nil)
 
 	got := importFrom(t, s, src)
 	if len(got) != 2 || got[0].ID != "elsewhere" || got[0].Result != Skipped || got[1].ID != "wanted" || got[1].Result != Kept {
