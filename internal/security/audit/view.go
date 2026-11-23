@@ -67,7 +67,7 @@ type (
 
 		// Weakness is the CWE entry the finding maps to. NoWeakness says why
 		// none does, when the registry records that none fits. CVSS is the
-		// registry's baseline for the condition, labelled as such, and Host
+		// registry's baseline for the condition, labeled as such, and Host
 		// how the condition scores on this host and why, which Severity
 		// follows when the host's evidence modified the score.
 		Weakness   *finding.Weakness  `json:"weakness,omitempty" yaml:"weakness,omitempty"`

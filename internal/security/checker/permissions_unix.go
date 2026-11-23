@@ -15,6 +15,7 @@ import (
 	"sync"
 	"syscall"
 
+	"github.com/papa0four/orkowatch/internal/account"
 	"github.com/papa0four/orkowatch/internal/fspath"
 	"github.com/papa0four/orkowatch/internal/security/finding"
 	"github.com/papa0four/orkowatch/internal/security/registry"
@@ -139,8 +140,7 @@ const (
 	bitOtherExecute  os.FileMode = 0001
 
 	// Account databases consulted before the name service.
-	unixPasswdFile = "/etc/passwd"
-	unixGroupFile  = "/etc/group"
+	unixGroupFile = "/etc/group"
 
 	identityKindUser  identityKind = "user"
 	identityKindGroup identityKind = "group"
@@ -209,7 +209,7 @@ const (
 // they declare is known without consulting the name service.
 func newIdentityCache() *identityCache {
 	return &identityCache{
-		users:  localIDs(unixPasswdFile),
+		users:  localIDs(account.PasswdFile),
 		groups: localIDs(unixGroupFile),
 	}
 }
@@ -225,10 +225,10 @@ func localIDs(path string) map[uint32]bool {
 	}
 	for _, line := range strings.Split(string(data), "\n") {
 		fields := strings.Split(line, ":")
-		if len(fields) <= unixIDField {
+		if len(fields) <= account.IDField {
 			continue
 		}
-		if id, ok := parseUnixID(fields[unixIDField]); ok {
+		if id, ok := account.ParseID(fields[account.IDField]); ok {
 			ids[id] = true
 		}
 	}
@@ -393,7 +393,7 @@ func checkCriticalPath(cp criticalPath, r *report) {
 	case uid != rootUID:
 		r.observed(ruleNotRootOwned, evidence(finding.KindFile, cp.path,
 			fact(finding.FactDescription, cp.description),
-			fact(finding.FactUID, formatUnixID(uid)),
+			fact(finding.FactUID, account.FormatID(uid)),
 			fact(finding.FactExpected, "root")))
 	case modeOK:
 		r.note(finding.SymbolOK, "%s has correct permissions and ownership: %s root", cp.path, formatMode(mode))
@@ -704,8 +704,8 @@ func fileIdentity(info fs.FileInfo) (uid, gid uint32, dev uint64, ok bool) {
 func (e scanEntry) evidence() finding.Evidence {
 	return evidence(finding.KindFile, e.path,
 		fact(finding.FactMode, formatMode(e.mode)),
-		fact(finding.FactUID, formatUnixID(e.uid)),
-		fact(finding.FactGID, formatUnixID(e.gid)),
+		fact(finding.FactUID, account.FormatID(e.uid)),
+		fact(finding.FactGID, account.FormatID(e.gid)),
 		fact(finding.FactUnresolved, e.unresolved()),
 		fact(finding.FactReach, e.reach.label()),
 		fact(finding.FactLocation, locationOf(e.path)))

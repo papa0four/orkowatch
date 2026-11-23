@@ -84,7 +84,7 @@ func Run[S, R any](ctx context.Context, workers int, roots []Dir[S], visit Visit
 
 // take returns the next directory to read, waiting for one while other
 // workers may still produce some. It reports false when the walk is over or
-// ctx is done. A cancelled walk ends as soon as the visits in flight return:
+// ctx is done. A canceled walk ends as soon as the visits in flight return:
 // each of them wakes the waiters when it finishes.
 func (q *queue[S]) take(ctx context.Context) (Dir[S], bool) {
 	q.mu.Lock()

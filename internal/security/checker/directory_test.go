@@ -33,7 +33,7 @@ func TestReadNSSwitch(t *testing.T) {
 }
 
 // The OpenLDAP client is looked for where each family's libldap reads it, and
-// a distribution of no recognised family is not guessed at.
+// a distribution of no recognized family is not guessed at.
 func TestOpenLDAPConfig(t *testing.T) {
 	cases := map[registry.Distro]string{
 		registry.DistroDebian:  "/etc/ldap/ldap.conf",
@@ -139,7 +139,7 @@ func TestRecordDirectoryClientsUndetermined(t *testing.T) {
 	for _, c := range r.finish().Conditions {
 		switch {
 		case c.Key == "users.ldap_configured" && (c.Result != finding.ResultNotChecked || !strings.Contains(c.Reason, "not established")):
-			t.Errorf("OpenLDAP client on an unrecognised distribution: %+v", c)
+			t.Errorf("OpenLDAP client on an unrecognized distribution: %+v", c)
 		case c.Key != "users.ldap_configured" && (c.Result != finding.ResultError || !strings.Contains(c.Reason, fs.ErrPermission.Error())):
 			t.Errorf("%s whose presence is unknown: %+v", c.Key, c)
 		}

@@ -597,7 +597,7 @@ jobs:
 
           for result in "${results[@]}"; do
             if [[ "$result" == "failure" || "$result" == "cancelled" ]]; then
-              echo "A required CI job failed or was cancelled."
+              echo "A required CI job failed or was canceled."
               exit 1
             fi
           done

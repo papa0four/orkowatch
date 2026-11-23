@@ -6,7 +6,7 @@
 //	Copyright (c) 2023 FIRST.ORG, Inc., Red Hat, and contributors
 //	SPDX-License-Identifier: BSD-2-Clause
 //
-// The licence text is reproduced in internal/notices/THIRD_PARTY_NOTICES.md.
+// The license text is reproduced in internal/notices/THIRD_PARTY_NOTICES.md.
 // The order of operations is the reference's, down to which maximal vector it
 // picks and how a missing lower MacroVector is skipped, because a score that
 // differs from FIRST's calculator by a tenth is a wrong score.

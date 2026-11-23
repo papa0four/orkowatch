@@ -4,7 +4,7 @@
 
 // Which filesystems beneath a scan root the permissions scan walks. Each
 // platform reads its mount table and judges every mount; the plan made from
-// those judgements is the same on all of them.
+// those judgments is the same on all of them.
 
 package checker
 
@@ -99,7 +99,7 @@ var leftReasons = map[leftReason]struct {
 	leftSame:             {"same filesystem as another path", false},
 	leftHidden:           {"hidden beneath another mount", false},
 	leftUnjudgedPlatform: {"filesystems are not judged on this platform", false},
-	leftUnjudged:         {"no judgement for the filesystem type", true},
+	leftUnjudged:         {"no judgment for the filesystem type", true},
 	leftUnlisted:         {"not in the mount table when the scan began", true},
 	leftNoTable:          {"the mount table could not be read", true},
 }

@@ -12,7 +12,7 @@ var (
 	ErrMissing = errors.New("directory does not exist")
 
 	// ErrDevicePath means the path is in a Windows extended-length or device
-	// form, which names an entry without the normalisation the comparison
+	// form, which names an entry without the normalization the comparison
 	// rules rely on. No other platform returns it.
 	ErrDevicePath = errors.New("extended-length or device path")
 )

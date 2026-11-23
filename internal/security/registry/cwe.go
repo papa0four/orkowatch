@@ -199,7 +199,7 @@ func lineage(id finding.CWE) []finding.WeaknessAncestor {
 	return out
 }
 
-// cvssScore is the registry's CVSS value for d, labelled for what it is: a
+// cvssScore is the registry's CVSS value for d, labeled for what it is: a
 // base score for the condition in general, written by review and checked by
 // the registry against its vector, and not a measurement of the host the
 // finding was raised on. Load has refused a definition whose vector does not
@@ -211,15 +211,15 @@ func (d FindingDefinition) cvssScore() *finding.CVSSScore {
 	if err != nil {
 		return nil
 	}
-	return labelledScore(vector, "registry", "baseline for the condition, not measured on this host")
+	return labeledScore(vector, "registry", "baseline for the condition, not measured on this host")
 }
 
-// labelledScore is the score of vector with everything a displayed CVSS score
+// labeledScore is the score of vector with everything a displayed CVSS score
 // states about itself: the version, the FIRST nomenclature label, the severity
 // band, whose score it is, what it is a statement about, and the link that
 // opens FIRST's calculator on it. The baseline and the host score are both
-// built here, so the two cannot be labelled differently.
-func labelledScore(vector v4.Vector, source, basis string) *finding.CVSSScore {
+// built here, so the two cannot be labeled differently.
+func labeledScore(vector v4.Vector, source, basis string) *finding.CVSSScore {
 	text := vector.String()
 	version, _, _ := strings.Cut(strings.TrimPrefix(text, "CVSS:"), "/")
 	score := vector.Score()

@@ -2,86 +2,38 @@
 
 // internal/security/checker/accountdb.go
 
-// Account database access shared by the Linux and BSD readers: the POSIX
-// passwd line format read from disk, and the name service switch that
-// resolves identifiers the local files do not declare.
+// Account database access shared by the Linux and BSD readers: the records
+// the account package reads, held as the checks hold them, and the name
+// service switch that resolves identifiers the local files do not declare.
 
 package checker
 
 import (
 	"bytes"
 	"context"
-	"fmt"
-	"os"
 	"os/exec"
-	"strings"
+
+	"github.com/papa0four/orkowatch/internal/account"
 )
 
-// /etc/passwd field indices as defined by POSIX.
-const (
-	passwdFieldUsername = iota
-	passwdFieldPassword
-	passwdFieldUID
-	passwdFieldGID
-	passwdFieldGECOS
-	passwdFieldHomeDir
-	passwdFieldShell
-	passwdFieldCount
-)
-
-// parsePasswdEntry parses one /etc/passwd line into the identity every POSIX
-// platform records for an account. It reports false for blank and comment
-// lines and for records too short or malformed to name an account; what the
-// identity means, and whether it is privileged, is the platform reader's
-// judgment.
-func parsePasswdEntry(line string) (userAccount, bool) {
-	if line == "" || line[0] == '#' {
-		return userAccount{}, false
-	}
-
-	fields := strings.Split(line, ":")
-	if len(fields) < passwdFieldCount {
-		return userAccount{}, false
-	}
-
-	uid, ok := parseUnixID(fields[passwdFieldUID])
-	if !ok {
-		return userAccount{}, false
-	}
-	gid, ok := parseUnixID(fields[passwdFieldGID])
-	if !ok {
-		return userAccount{}, false
-	}
-
-	return userAccount{
-		username: fields[passwdFieldUsername],
-		uid:      uid,
-		gid:      gid,
-		homeDir:  fields[passwdFieldHomeDir],
-		shell:    fields[passwdFieldShell],
-	}, true
-}
-
-// parseAccounts parses passwd-format data, one account per line, skipping
-// whatever parsePasswdEntry rejects. The local file and getent passwd both
-// produce this format.
-func parseAccounts(data []byte) []userAccount {
-	var accounts []userAccount
-	for _, line := range strings.Split(string(data), "\n") {
-		if account, ok := parsePasswdEntry(line); ok {
-			accounts = append(accounts, account)
-		}
-	}
-	return accounts
+// fromAccount holds the identity every POSIX platform records for an account
+// as the checks hold it. What the identity means, and whether it is
+// privileged, is the platform reader's judgment.
+func fromAccount(a account.Account) userAccount {
+	return userAccount{username: a.Name, uid: a.UID, gid: a.GID, homeDir: a.Home, shell: a.Shell}
 }
 
 // localAccounts returns the accounts the local passwd file declares.
 func localAccounts() ([]userAccount, error) {
-	data, err := os.ReadFile(unixPasswdFile)
+	local, err := account.Local()
 	if err != nil {
-		return nil, fmt.Errorf("read %s: %w", unixPasswdFile, err)
+		return nil, err
 	}
-	return parseAccounts(data), nil
+	accounts := make([]userAccount, 0, len(local))
+	for _, a := range local {
+		accounts = append(accounts, fromAccount(a))
+	}
+	return accounts, nil
 }
 
 // nameServiceKnows asks the name service switch about a single identifier.
@@ -92,7 +44,7 @@ func nameServiceKnows(ctx context.Context, kind identityKind, id uint32) bool {
 	if kind == identityKindGroup {
 		database = "group"
 	}
-	cmd := exec.CommandContext(ctx, "getent", database, formatUnixID(id)) // #nosec G204 -- command is fixed and the sole variable argument is a numeric identifier read from the filesystem
+	cmd := exec.CommandContext(ctx, account.GetentProgram, database, account.FormatID(id)) // #nosec G204 -- command is fixed and the sole variable argument is a numeric identifier read from the filesystem
 	out, err := cmd.Output()
 	if err != nil {
 		return false

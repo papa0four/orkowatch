@@ -9,6 +9,8 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+
+	"github.com/papa0four/orkowatch/internal/account"
 )
 
 const (
@@ -67,7 +69,7 @@ func readHostAccounts(ctx context.Context) (hostAccounts, error) {
 		return os.ReadFile(filepath.Join(pamPolicyDir, service)) // #nosec G304 -- service is a name readSUGate has refused path separators in
 	}
 	lookup := func(ctx context.Context, group string) ([]byte, error) {
-		return lookupGroup(ctx, getentProgram, group)
+		return lookupGroup(ctx, account.GetentProgram, group)
 	}
 	host.applySUGate(ctx, suPolicyFile, readSUGate(policy), lookup)
 	return host, nil

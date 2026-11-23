@@ -37,7 +37,7 @@ const (
 type (
 	// Ending is how the work Run showed came to an end. It is read at the
 	// moment the work returns, so nothing a caller does with the results
-	// afterwards, such as showing them for as long as the operator reads,
+	// afterward, such as showing them for as long as the operator reads,
 	// is counted against the work's deadline.
 	Ending uint8
 
@@ -99,7 +99,7 @@ type (
 )
 
 // Run calls work and shows its progress until it returns, and says how it
-// ended. The context passed to work is cancelled when the operator
+// ended. The context passed to work is canceled when the operator
 // interrupts from the display, and Run returns once work has. An interrupt
 // is reported over a deadline that passed while the work was stopping. The
 // error is work's own, or the display's, and the ending says nothing then.
@@ -133,7 +133,7 @@ func Run(ctx context.Context, opts Options, work func(context.Context, Reporter)
 
 	// Whatever ended the display, the work is stopped and waited for before
 	// Run returns, so nothing is left running behind it. After a normal end
-	// the work has already returned and cancelling it changes nothing.
+	// the work has already returned and canceling it changes nothing.
 	cancel()
 	<-finished
 

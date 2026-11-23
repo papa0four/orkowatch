@@ -3,7 +3,7 @@
 // internal/security/checker/reach_judge.go
 
 // What a directory confers when its mode bits deny traversal, on the
-// platforms whose access control lists are read: the POSIX.1e judgement and
+// platforms whose access control lists are read: the POSIX.1e judgment and
 // who holds root's group. Each platform supplies the read of the list, of
 // supplementary membership and of which account sources it can list in full.
 
@@ -16,6 +16,8 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+
+	"github.com/papa0four/orkowatch/internal/account"
 )
 
 // POSIX.1e entry tags and the execute permission. linux/posix_acl.h and
@@ -133,19 +135,19 @@ func (j *deniedJudge) rootGroupReach(ctx context.Context) reachability {
 // enumerated; otherwise an account this host cannot list might hold the
 // group, and the answer is undetermined.
 func rootGroupReach(ctx context.Context) reachability {
-	output, err := exec.CommandContext(ctx, getentProgram, "passwd").Output()
+	output, err := exec.CommandContext(ctx, account.GetentProgram, "passwd").Output() // #nosec G204 -- the program is the fixed path account.GetentProgram and the argument a literal
 	if err != nil {
 		return reachUndetermined
 	}
 
 	var names []string
-	for _, account := range parseAccounts(output) {
+	for _, a := range account.ParseAll(output) {
 		switch {
-		case account.uid == rootUID:
-		case account.gid == rootGID:
+		case a.UID == rootUID:
+		case a.GID == rootGID:
 			return reachNonRoot
 		default:
-			names = append(names, account.username)
+			names = append(names, a.Name)
 		}
 	}
 

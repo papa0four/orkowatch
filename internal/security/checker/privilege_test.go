@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/papa0four/orkowatch/internal/account"
 	"github.com/papa0four/orkowatch/internal/security/finding"
 	"github.com/papa0four/orkowatch/internal/security/registry"
 )
@@ -20,10 +21,10 @@ import (
 func TestLookupGroup(t *testing.T) {
 	ctx := context.Background()
 
-	if entry, err := lookupGroup(ctx, getentProgram, "daemon"); err != nil || !strings.HasPrefix(string(entry), "daemon:") {
+	if entry, err := lookupGroup(ctx, account.GetentProgram, "daemon"); err != nil || !strings.HasPrefix(string(entry), "daemon:") {
 		t.Errorf("daemon: entry %q, err %v; want its entry", entry, err)
 	}
-	if entry, err := lookupGroup(ctx, getentProgram, "owatch-no-such-group"); err != nil || entry != nil {
+	if entry, err := lookupGroup(ctx, account.GetentProgram, "owatch-no-such-group"); err != nil || entry != nil {
 		t.Errorf("a group that does not exist: entry %q, err %v; want neither", entry, err)
 	}
 	// false exits 1, which is not the status for a key that is not found.

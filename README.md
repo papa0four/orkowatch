@@ -61,6 +61,9 @@ and open an issue against this doc.
 | `owatch audit` | Run security audit checks |
 | `owatch all` | Run all available scans |
 | `owatch browse [report-file]` | Open a saved report in the results browser; reads any format that holds the whole report (JSON, YAML) |
+| `owatch data import <directory>` | Install vulnerability datasets from a directory, with no network (see Vulnerability Datasets below) |
+| `owatch data remove <dataset>` | Delete a dataset from the store, after asking |
+| `owatch data status` | Show the datasets held, how old they are, and what needs attention |
 | `owatch completion` | Generate shell completion scripts (see Shell Completion below) |
 | `owatch help` | Show the full command menu (equivalent to `-h`/`--help`) |
 | `owatch notices` | Print the third-party notices for the MITRE data owatch carries |
@@ -354,7 +357,7 @@ no entry describes a finding, which is the case for a disabled SELinux, the find
 says so and gives the reason (`no_weakness`) rather than naming a weakness that does
 not fit.
 
-Every finding shows two CVSS v4.0 scores, each labelled with FIRST's nomenclature.
+Every finding shows two CVSS v4.0 scores, each labeled with FIRST's nomenclature.
 The baseline (`cvss`) is CVSS-B, a base score for the condition in general, and its
 label says it is not measured on the host. The score on this host (`host_score`) is
 CVSS-BE: where the evidence a checker recorded meets one of the registry's rules,
@@ -372,6 +375,53 @@ owatch computes both itself and never requests the link.
 A finding's severity is the CVSS-BE severity when the host's evidence modified the
 score, and otherwise the registry's rating, which is the severity band of the
 baseline.
+
+## Vulnerability Datasets
+
+owatch holds the vulnerability data it reads on the host, so a run needs no
+network. Each account has its own store, at a fixed place under the home the
+system records for the account, which no environment variable moves:
+
+| Platform | Store |
+|---|---|
+| Linux, FreeBSD, OpenBSD, NetBSD | `~/.local/share/owatch/datasets` |
+| macOS | `~/Library/Application Support/owatch/datasets` |
+| Windows | `<profile>\AppData\Local\owatch\datasets` |
+
+A run as root or from an elevated terminal has no store yet, and the commands
+below refuse there. No `owatch data` command opens a network connection.
+
+```bash
+# Install the datasets in a directory, such as one carried from another host
+owatch data import /media/usb/owatch-datasets
+
+# Delete a dataset, after a question; --yes skips it
+owatch data remove kev
+
+# Show what is held, in the results browser, as text, or saved
+owatch data status
+owatch data status --plain
+owatch data status -o json --report-file /path/to/reports
+```
+
+`owatch data status` lists each dataset that applies to the host, held or not,
+with the date of its data, when it was fetched, its size, and its state: current,
+out of sync more than 7 days after it was fetched, or stale more than 14 days
+after. A dataset whose last import failed, or whose install did not finish, says
+what needs attention. Datasets held that no longer apply to the host, or that this
+version does not know, are listed with their size. Its report is delivered as the
+other reports are, and `owatch browse` opens a saved one on its Datasets tab.
+
+Every dataset is checked whenever it is read, wherever it came from: its
+manifest is validated, its data is opened only as a regular file and never
+through a link, held to the size its manifest gives, and hashed against the
+checksum the manifest records, and its content must be what its source
+publishes. `import` refuses a dataset that fails any of these with the reason,
+skips one that does not apply to the host, and leaves the held copy when it was
+fetched no earlier. An install that fails because a file is in use is tried
+three times; one that fails for another reason is recorded and shown until the
+dataset is installed. The store keeps one copy of each dataset, and a dataset
+leaves it only through `owatch data remove`.
 
 ## Third-Party Notices
 

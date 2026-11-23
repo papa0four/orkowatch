@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"strings"
 
+	"github.com/papa0four/orkowatch/internal/account"
 	"github.com/papa0four/orkowatch/internal/security/finding"
 )
 
@@ -69,8 +70,8 @@ func (f ownedFile) excess(service localAccount) (read, write bool) {
 func (f ownedFile) evidence(expected string, facts ...finding.Fact) finding.Evidence {
 	return evidence(finding.KindFile, f.path, append([]finding.Fact{
 		fact(finding.FactMode, formatMode(f.mode)),
-		fact(finding.FactUID, formatUnixID(f.uid)),
-		fact(finding.FactGID, formatUnixID(f.gid)),
+		fact(finding.FactUID, account.FormatID(f.uid)),
+		fact(finding.FactGID, account.FormatID(f.gid)),
 		fact(finding.FactExpected, expected),
 	}, facts...)...)
 }
@@ -106,10 +107,10 @@ func localID(fsys fs.FS, file, name string) (uint32, bool) {
 	}
 	for _, line := range strings.Split(string(data), "\n") {
 		parts := strings.Split(line, ":")
-		if len(parts) <= unixIDField || parts[0] != name {
+		if len(parts) <= account.IDField || parts[0] != name {
 			continue
 		}
-		return parseUnixID(parts[unixIDField])
+		return account.ParseID(parts[account.IDField])
 	}
 	return 0, false
 }

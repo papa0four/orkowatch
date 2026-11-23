@@ -21,7 +21,7 @@ const (
 
 // How a client reaches the server a URI names.
 const (
-	ldapUnrecognised ldapReach = iota
+	ldapUnrecognized ldapReach = iota
 	ldapOverTLS
 	ldapOnHost
 	ldapInClear
@@ -202,7 +202,7 @@ func nslcdReach(server string) ldapReach {
 func ldapReachOf(uri string) ldapReach {
 	scheme, rest, ok := strings.Cut(uri, "://")
 	if !ok {
-		return ldapUnrecognised
+		return ldapUnrecognized
 	}
 	switch strings.ToLower(scheme) {
 	case "ldaps":
@@ -211,7 +211,7 @@ func ldapReachOf(uri string) ldapReach {
 		return ldapOnHost
 	case "ldap":
 	default:
-		return ldapUnrecognised
+		return ldapUnrecognized
 	}
 
 	host := rest

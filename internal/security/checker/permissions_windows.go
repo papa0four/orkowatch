@@ -117,7 +117,7 @@ func (p *WindowsPermissionChecker) Check(ctx context.Context) finding.AuditResul
 // effectiveRoot returns the operator's scan root when one was supplied and
 // otherwise the root of the volume Windows is installed on, which is the
 // Windows counterpart of scanning from / on Unix. A supplied root is resolved
-// to the path Windows records for it: the system folders are recognised by
+// to the path Windows records for it: the system folders are recognized by
 // their paths, so a root reached through a link, a short name or another
 // spelling would otherwise be judged as an ordinary folder.
 func (p *WindowsPermissionChecker) effectiveRoot() (string, error) {

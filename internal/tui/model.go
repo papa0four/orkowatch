@@ -331,8 +331,8 @@ func (m model) feedView() string {
 	return b.String()
 }
 
-// outcomeSummary returns the colour and the words for a finished task: its
-// findings when it has any, coloured by the worst of them, and its result
+// outcomeSummary returns the color and the words for a finished task: its
+// findings when it has any, colored by the worst of them, and its result
 // otherwise.
 func outcomeSummary(outcome Outcome) (color.Color, string) {
 	if count := len(outcome.Findings); count > 0 {

@@ -33,6 +33,7 @@ const (
 	octalBase   = 8
 	byteBits    = 8
 	deviceBits  = 32
+	decimalBase = 10
 )
 
 // nodevKinds judges the filesystem types that need no block device, which is
