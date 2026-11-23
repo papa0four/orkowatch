@@ -13,12 +13,12 @@ import (
 	"io/fs"
 	"net"
 	"os"
-	"os/user"
 	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
 
+	"github.com/papa0four/orkowatch/internal/account"
 	"github.com/papa0four/orkowatch/internal/elevation"
 )
 
@@ -494,8 +494,10 @@ func cachedAccountName() func(uid string) string {
 			return name
 		}
 		name := uid
-		if u, err := user.LookupId(uid); err == nil {
-			name = u.Username
+		if id, ok := account.ParseID(uid); ok {
+			if a, err := account.ByID(context.Background(), id); err == nil {
+				name = a.Name
+			}
 		}
 		names[uid] = name
 		return name

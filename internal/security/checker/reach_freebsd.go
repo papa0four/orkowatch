@@ -17,6 +17,8 @@ import (
 	"unsafe"
 
 	"golang.org/x/sys/unix"
+
+	"github.com/papa0four/orkowatch/internal/account"
 )
 
 // What pathconf(2) is asked and what __acl_get_file returns, from
@@ -223,7 +225,7 @@ func decodeACL(list []byte) ([]kernelACLEntry, error) {
 // answers with the first such group and no other, and FreeBSD's getent has
 // no initgroups database.
 func anyInRootGroup(ctx context.Context, names []string) (bool, error) {
-	output, err := exec.CommandContext(ctx, getentProgram, "group").Output()
+	output, err := exec.CommandContext(ctx, account.GetentProgram, "group").Output()
 	if err != nil {
 		return false, execError(err)
 	}
@@ -243,7 +245,7 @@ func listsRootGroupMember(listing []byte, names []string) bool {
 		if len(fields) <= groupFieldMembers {
 			continue
 		}
-		if gid, ok := parseUnixID(fields[unixIDField]); !ok || gid != rootGID {
+		if gid, ok := account.ParseID(fields[account.IDField]); !ok || gid != rootGID {
 			continue
 		}
 		for _, member := range strings.Split(fields[groupFieldMembers], ",") {
@@ -263,7 +265,7 @@ func accountSourcesEnumerable() bool {
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return false
 	}
-	return sourcesEnumerable(conf, unixPasswdFile, unixGroupFile)
+	return sourcesEnumerable(conf, account.PasswdFile, unixGroupFile)
 }
 
 // sourcesEnumerable judges the passwd and group lines of nsswitch.conf.

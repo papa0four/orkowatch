@@ -7,6 +7,8 @@ package checker
 import (
 	"context"
 	"strings"
+
+	"github.com/papa0four/orkowatch/internal/account"
 )
 
 const (
@@ -47,7 +49,7 @@ func regularUIDRange(conf []byte) uidRange {
 		if len(fields) < loginDefsFields {
 			continue
 		}
-		value, ok := parseUnixID(fields[1])
+		value, ok := account.ParseID(fields[1])
 		if !ok {
 			continue
 		}

@@ -18,10 +18,14 @@ import (
 	"strings"
 )
 
-// credentialMinFields is the fewest fields a usable line of a credential
-// store has: the account name and its password field, which lead a line of
-// shadow(5) and of master.passwd(5) alike.
-const credentialMinFields = 2
+// The fields that lead a line of a credential store, shadow(5) and
+// master.passwd(5) alike: the account name and its password field.
+// credentialMinFields is the fewest a usable line has.
+const (
+	credentialFieldName = iota
+	credentialFieldPassword
+	credentialMinFields
+)
 
 // uidRange is the inclusive range of identifiers assigned to regular
 // accounts.
@@ -100,7 +104,7 @@ func readCredentials(path string) (map[string]string, error) {
 	for scanner.Scan() {
 		line := strings.Split(scanner.Text(), ":")
 		if len(line) >= credentialMinFields {
-			fields[line[passwdFieldUsername]] = line[passwdFieldPassword]
+			fields[line[credentialFieldName]] = line[credentialFieldPassword]
 		}
 	}
 	if err := scanner.Err(); err != nil {

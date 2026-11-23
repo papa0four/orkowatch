@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/papa0four/orkowatch/internal/account"
 	"github.com/papa0four/orkowatch/internal/security/finding"
 	"github.com/papa0four/orkowatch/internal/security/registry"
 )
@@ -50,7 +51,7 @@ func (h *hostAccounts) applySUGate(ctx context.Context, file string, gate suGate
 		})
 		return
 	case !isSafeUsername(gate.group) || strings.HasPrefix(gate.group, "-"):
-		unknown(fmt.Sprintf("the group %q that %s names is not a name passed to %s", gate.group, file, getentProgram))
+		unknown(fmt.Sprintf("the group %q that %s names is not a name passed to %s", gate.group, file, account.GetentProgram))
 		return
 	}
 
