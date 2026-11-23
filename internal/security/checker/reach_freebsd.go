@@ -225,7 +225,7 @@ func decodeACL(list []byte) ([]kernelACLEntry, error) {
 // answers with the first such group and no other, and FreeBSD's getent has
 // no initgroups database.
 func anyInRootGroup(ctx context.Context, names []string) (bool, error) {
-	output, err := exec.CommandContext(ctx, account.GetentProgram, "group").Output()
+	output, err := exec.CommandContext(ctx, account.GetentProgram, "group").Output() // #nosec G204 -- the program is the fixed path account.GetentProgram and the argument a literal
 	if err != nil {
 		return false, execError(err)
 	}

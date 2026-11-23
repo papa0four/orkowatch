@@ -135,7 +135,7 @@ func (j *deniedJudge) rootGroupReach(ctx context.Context) reachability {
 // enumerated; otherwise an account this host cannot list might hold the
 // group, and the answer is undetermined.
 func rootGroupReach(ctx context.Context) reachability {
-	output, err := exec.CommandContext(ctx, account.GetentProgram, "passwd").Output()
+	output, err := exec.CommandContext(ctx, account.GetentProgram, "passwd").Output() // #nosec G204 -- the program is the fixed path account.GetentProgram and the argument a literal
 	if err != nil {
 		return reachUndetermined
 	}
