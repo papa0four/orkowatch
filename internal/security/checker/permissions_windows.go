@@ -17,6 +17,7 @@ import (
 
 	"golang.org/x/sys/windows"
 
+	"github.com/papa0four/orkowatch/internal/fspath"
 	"github.com/papa0four/orkowatch/internal/security/finding"
 	"github.com/papa0four/orkowatch/internal/security/registry"
 	"github.com/papa0four/orkowatch/internal/treewalk"
@@ -115,10 +116,17 @@ func (p *WindowsPermissionChecker) Check(ctx context.Context) finding.AuditResul
 
 // effectiveRoot returns the operator's scan root when one was supplied and
 // otherwise the root of the volume Windows is installed on, which is the
-// Windows counterpart of scanning from / on Unix.
+// Windows counterpart of scanning from / on Unix. A supplied root is resolved
+// to the path Windows records for it: the system folders are recognised by
+// their paths, so a root reached through a link, a short name or another
+// spelling would otherwise be judged as an ordinary folder.
 func (p *WindowsPermissionChecker) effectiveRoot() (string, error) {
 	if p.scanRoot != "" {
-		return filepath.Clean(p.scanRoot), nil
+		root, err := fspath.Real(p.scanRoot)
+		if err != nil {
+			return "", fmt.Errorf("resolve scan root %s: %w", p.scanRoot, err)
+		}
+		return root, nil
 	}
 	windowsDir, err := winfolder.Windows.Path()
 	if err != nil {
