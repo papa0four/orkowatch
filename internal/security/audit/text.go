@@ -269,8 +269,8 @@ func HostScoreLines(h *finding.HostScore) []string {
 	}
 	for _, m := range h.Modified {
 		lines = append(lines,
-			fmt.Sprintf("%s:%s from %s %s on %d of %d subjects: %s",
-				m.Metric, m.Value, m.Fact.Name, render.HostText(m.Fact.Value), m.Carried, m.Subjects, m.Because),
+			fmt.Sprintf("%s:%s from %s %s on %d of %s: %s",
+				m.Metric, m.Value, m.Fact.Name, render.HostText(m.Fact.Value), m.Carried, render.Count(m.Subjects, "subject", "subjects"), m.Because),
 			fmt.Sprintf("  Implementation Guide, %s: \"%s\"", m.Section, m.Quote))
 	}
 	for _, u := range h.Unmodified {

@@ -13,6 +13,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	v4 "github.com/papa0four/orkowatch/internal/cvss/v4"
+	"github.com/papa0four/orkowatch/internal/render"
 	"github.com/papa0four/orkowatch/internal/security/finding"
 )
 
@@ -400,27 +401,41 @@ func highest(baseline v4.Vector, yields []ruleYield) ([]string, v4.Vector) {
 
 // unmodifiedReason says why the rule left its metric at the baseline's value:
 // nothing of its kind was recorded, nothing recorded matches a case, or the
-// subjects that do are outscored by those that keep the baseline.
+// subjects that do are outscored by those that keep the baseline. Each count
+// is written so the sentence agrees with it, one subject or many.
 func (y ruleYield) unmodifiedReason(baseline v4.Vector) string {
 	base, _, _ := v4.ModifiedBase(y.rule.Metric)
 	kept := fmt.Sprintf("%s:%s", base, baseline.Value(base))
 	if y.subjects == 0 {
 		return fmt.Sprintf("no %s evidence was recorded, so %s stands", y.rule.Kind, kept)
 	}
+	subjects := render.Count(y.subjects, fmt.Sprintf("%s subject", y.rule.Kind), fmt.Sprintf("%s subjects", y.rule.Kind))
 	if len(y.derived) == 0 {
 		recorded := make([]string, 0, len(y.recorded))
 		for _, value := range y.recorded {
 			recorded = append(recorded, fmt.Sprintf("%s on %d", value, y.counts[value]))
 		}
-		return fmt.Sprintf("%s on the %d %s subjects is %s, which no case of the rule modifies, so %s stands",
-			y.rule.Fact, y.subjects, y.rule.Kind, strings.Join(recorded, ", "), kept)
+		return fmt.Sprintf("%s on the %s is %s, which no case of the rule modifies, so %s stands",
+			y.rule.Fact, subjects, listOf(recorded), kept)
 	}
-	supported := make([]string, 0, len(y.values))
+	supported := make([]string, 0, len(y.values)+1)
 	for _, value := range y.values {
 		if value != notDefined {
 			supported = append(supported, fmt.Sprintf("%s:%s on %d", y.rule.Metric, value, y.carried[value]))
 		}
 	}
-	return fmt.Sprintf("of the %d %s subjects, %s; the %d that keep %s score higher, so %s stands",
-		y.subjects, y.rule.Kind, strings.Join(supported, ", "), y.carried[notDefined], kept, kept)
+	supported = append(supported, fmt.Sprintf("%s on %d", kept, y.carried[notDefined]))
+	return fmt.Sprintf("of the %s, %s; %s scores higher, so it stands", subjects, listOf(supported), kept)
+}
+
+// listOf joins items as a sentence lists them: "a", "a and b", or "a, b, and
+// c", with the serial comma.
+func listOf(items []string) string {
+	switch len(items) {
+	case 0, 1:
+		return strings.Join(items, "")
+	case 2:
+		return items[0] + " and " + items[1]
+	}
+	return strings.Join(items[:len(items)-1], ", ") + ", and " + items[len(items)-1]
 }

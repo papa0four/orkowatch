@@ -156,7 +156,7 @@ func TestSearchFindsScores(t *testing.T) {
 	r.Items = []Item{
 		{Check: "ssh", Key: "ssh.moved", Result: "fail", Severity: "HIGH", Title: "moved",
 			CVSS:          "9.3 CRITICAL  CVSS-B v4.0, baseline for the condition",
-			HostCVSS:      "8.6 HIGH  CVSS-BE v4.0\nMAV:L from listening loopback-only on 1 of 1 subjects",
+			HostCVSS:      "8.6 HIGH  CVSS-BE v4.0\nMAV:L from listening loopback-only on 1 of 1 subject",
 			SeverityBasis: "the CVSS-BE severity on this host; the registry rates the rule CRITICAL"},
 		{Check: "ssh", Key: "ssh.kept", Result: "fail", Severity: "CRITICAL", Title: "kept",
 			CVSS:          "9.3 CRITICAL  CVSS-B v4.0, baseline for the condition",
@@ -183,7 +183,7 @@ func TestFindingDetailShowsBothScores(t *testing.T) {
 		SeverityBasis: "the CVSS-BE severity on this host; the registry rates the rule CRITICAL",
 		CVSS:          "9.3 CRITICAL  CVSS-B v4.0, baseline for the condition, not measured on this host  CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N\ncalculator: https://www.first.org/cvss/calculator/4.0#CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N",
 		HostCVSS: "8.6 HIGH  CVSS-BE v4.0, Modified Base metrics derived from evidence recorded on this host  CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N/MAV:L\n" +
-			"MAV:L from listening loopback-only on 1 of 1 subjects: sshd listens only on loopback addresses\n" +
+			"MAV:L from listening loopback-only on 1 of 1 subject: sshd listens only on loopback addresses\n" +
 			"  Implementation Guide, Modified Attack Vector (MAV): \"the service is exposed locally\""}}
 	for _, width := range []int{50, 160} {
 		b := sized(newBrowser(r), width, 60)
