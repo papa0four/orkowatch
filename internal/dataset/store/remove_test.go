@@ -18,7 +18,7 @@ func TestRemove(t *testing.T) {
 	s, _ := stores(t)
 	put(t, s, wanted, content, now.Add(-time.Hour), nil)
 	put(t, s, testDataset{Name: "other"}, content, now.Add(-time.Hour), nil)
-	if err := s.recordFailure("wanted", failure{Attempts: 1, Reason: "for the test", At: now}); err != nil {
+	if err := s.recordFailure("wanted", failure{Operation: opImport, Attempts: 1, Reason: "for the test", At: now}); err != nil {
 		t.Fatal(err)
 	}
 	unknown := filepath.Join(s.root, "Not_A_Name")

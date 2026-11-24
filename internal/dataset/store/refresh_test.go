@@ -7,6 +7,7 @@ import (
 	"errors"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -125,8 +126,31 @@ func TestRefreshRecordsAFailure(t *testing.T) {
 			if row.State != dataset.StateCurrent || row.DataDate != "2026-11-20" || !strings.Contains(row.Attention, "failed after") {
 				t.Errorf("row %+v, want the held copy current and the failure named", row)
 			}
+			wantFailureOf(t, row.Attention, opRefresh)
 		})
 	}
+}
+
+// An install that fails after the fetch succeeded is a failed refresh, and
+// status names the refresh and the command to run again.
+func TestRefreshRecordsAFailedInstall(t *testing.T) {
+	s, _ := stores(t)
+	put(t, s, served, content, now.Add(-48*time.Hour), nil)
+	newer := strings.Replace(content, "2026-11-20", "2026-11-21", 1)
+	blocker := dataFile(s, served, newer)
+	if err := os.MkdirAll(filepath.Join(blocker, "inside"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	fetch, _ := serving(newer)
+
+	if got := refresh(t, s, fetch); got.Result != Failed {
+		t.Fatalf("outcome %+v, want the install failed", got)
+	}
+	row := rowOf(t, s, []dataset.Dataset{served}, "wanted")
+	if row.DataDate != "2026-11-20" {
+		t.Errorf("row %+v, want the held copy unchanged", row)
+	}
+	wantFailureOf(t, row.Attention, opRefresh)
 }
 
 // Data that is not what the source publishes, and data past the dataset's
@@ -149,6 +173,7 @@ func TestRefreshRefusesBadData(t *testing.T) {
 			if row.State != dataset.StateCurrent || row.DataDate != "2026-11-20" || row.Attention == "" {
 				t.Errorf("row %+v, want the held copy current and the failure named", row)
 			}
+			wantFailureOf(t, row.Attention, opRefresh)
 		})
 	}
 }

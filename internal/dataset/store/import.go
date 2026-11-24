@@ -97,12 +97,13 @@ func (s Store) Import(ctx context.Context, from string, known []dataset.Dataset,
 		return nil, err
 	}
 	defer func() { err = errors.Join(err, release()) }()
-	return s.importEntries(ctx, from, entries, known, host, now), nil
+	return s.importEntries(ctx, opImport, from, entries, known, host, now), nil
 }
 
 // importEntries imports the entries of the directory from, under the store's
-// lock, which the caller holds.
-func (s Store) importEntries(ctx context.Context, from string, entries []os.DirEntry, known []dataset.Dataset, host *osfingerprint.OSInfo, now time.Time) []Outcome {
+// lock, which the caller holds. op is the operation an install that fails is
+// recorded under, since a refresh installs by this path too.
+func (s Store) importEntries(ctx context.Context, op operation, from string, entries []os.DirEntry, known []dataset.Dataset, host *osfingerprint.OSInfo, now time.Time) []Outcome {
 	var outcomes []Outcome
 	byID := make(map[string]dataset.Dataset, len(known))
 	for _, d := range known {
@@ -113,13 +114,14 @@ func (s Store) importEntries(ctx context.Context, from string, entries []os.DirE
 		if strings.HasPrefix(e.Name(), ".") {
 			continue
 		}
-		outcomes = append(outcomes, s.importOne(ctx, src, e, byID, host, now))
+		outcomes = append(outcomes, s.importOne(ctx, op, src, e, byID, host, now))
 	}
 	return outcomes
 }
 
-// importOne imports one entry of the directory src.
-func (s Store) importOne(ctx context.Context, src Store, e os.DirEntry, byID map[string]dataset.Dataset, host *osfingerprint.OSInfo, now time.Time) Outcome {
+// importOne imports one entry of the directory src, recording an install
+// that fails under op.
+func (s Store) importOne(ctx context.Context, op operation, src Store, e os.DirEntry, byID map[string]dataset.Dataset, host *osfingerprint.OSInfo, now time.Time) Outcome {
 	id := e.Name()
 	d, known := byID[id]
 	refuse := func(reason string) Outcome { return Outcome{ID: id, Result: Refused, Reason: reason} }
@@ -145,17 +147,17 @@ func (s Store) importOne(ctx context.Context, src Store, e os.DirEntry, byID map
 
 	attempts, err := retry(ctx, func() error { return s.install(src, d, m) })
 	if err != nil {
-		return s.failed(id, attempts, err, now)
+		return s.failed(id, op, attempts, err, now)
 	}
 	return Outcome{ID: id, Result: Installed, Attempts: attempts}
 }
 
-// failed is the outcome of a dataset that could not be brought into the
-// store, recorded beside the copy held so status shows it until an install
-// of the dataset succeeds.
-func (s Store) failed(id string, attempts int, err error, now time.Time) Outcome {
+// failed is the outcome of a dataset op could not bring into the store,
+// recorded beside the copy held so status shows it, and the command to run
+// again, until an install of the dataset succeeds.
+func (s Store) failed(id string, op operation, attempts int, err error, now time.Time) Outcome {
 	reason := err.Error()
-	if rerr := s.recordFailure(id, failure{Attempts: attempts, Reason: reason, At: now}); rerr != nil {
+	if rerr := s.recordFailure(id, failure{Operation: op, Attempts: attempts, Reason: reason, At: now}); rerr != nil {
 		reason += "; the failure could not be recorded: " + rerr.Error()
 	}
 	return Outcome{ID: id, Result: Failed, Reason: reason, Attempts: attempts}
