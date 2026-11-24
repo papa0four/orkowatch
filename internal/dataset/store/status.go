@@ -24,6 +24,9 @@ import (
 // says what needs attention: an import that failed, or an install that did
 // not finish.
 func (s Store) Status(known []dataset.Dataset, host *osfingerprint.OSInfo, now time.Time) (dataset.View, error) {
+	if err := s.judged(); err != nil {
+		return dataset.View{}, err
+	}
 	view := dataset.View{Store: s.root, Datasets: []dataset.Row{}}
 	named := make(map[string]bool, len(known))
 

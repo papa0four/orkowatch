@@ -6,9 +6,11 @@
 // a file on disk is untrusted however it got there.
 //
 // A store lives in the account of the process that uses it, at a fixed path
-// under the home the system records for that account. An elevated process has
-// no store: one in an ordinary account's home is a directory that account can
-// change, and a privileged run must not trust it.
+// under the home the system records for that account. An elevated process
+// uses another, the protected store in the system's data directory, which
+// only the system and its administrators may change: a store in an ordinary
+// account's home is a directory that account can change, and a privileged run
+// must not trust it.
 package store
 
 import (
@@ -41,25 +43,26 @@ const (
 	maxEntries = 256
 )
 
-var (
-	// ErrElevated means the process is elevated, for which no store exists.
-	ErrElevated = errors.New("an elevated run has no dataset store yet; run owatch data as the account that holds the datasets")
+// ErrUnusable means a held dataset failed a check and is not read. The error
+// that carries it says why.
+var ErrUnusable = errors.New("dataset unusable")
 
-	// ErrUnusable means a held dataset failed a check and is not read. The
-	// error that carries it says why.
-	ErrUnusable = errors.New("dataset unusable")
-)
-
-// Store is a directory of datasets.
+// Store is a directory of datasets. A protected one is made and judged as
+// protect says; any other is the account's own, or a directory to carry.
 type Store struct {
-	root string
+	root    string
+	protect *protection
 }
 
-// ForProcess returns the store of the account running the process, or
-// ErrElevated when the process is elevated.
+// ForProcess returns the store the process uses: the protected store when it
+// is elevated, and otherwise the store of the account running it.
 func ForProcess(ctx context.Context) (Store, error) {
 	if elevation.Elevated() {
-		return Store{}, ErrElevated
+		s, err := protectedStore()
+		if err != nil {
+			return Store{}, fmt.Errorf("locate the protected dataset store: %w", err)
+		}
+		return s, nil
 	}
 	root, err := accountRoot(ctx)
 	if err != nil {
@@ -91,8 +94,13 @@ func (s Store) dir(id string) string {
 // read is read too, so the checksum covers every byte. Nothing consume
 // learned may be used unless read returns nil: a file that is truncated, that
 // is longer than its manifest says, or whose checksum disagrees is refused
-// after consume has seen it.
+// after consume has seen it. In a protected store the dataset's directory is
+// judged first, with the store's own, so nothing is read from a directory
+// someone who is not an administrator can change.
 func (s Store) read(d dataset.Dataset, now time.Time, consume func(io.Reader) error) (dataset.Manifest, error) {
+	if err := s.judged(s.dir(d.ID())); err != nil {
+		return dataset.Manifest{}, unusable(err)
+	}
 	m, err := readManifest(filepath.Join(s.dir(d.ID()), manifestName))
 	if err != nil {
 		return dataset.Manifest{}, unusable(err)

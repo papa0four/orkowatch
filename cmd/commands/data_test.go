@@ -111,13 +111,14 @@ func TestDataRemove(t *testing.T) {
 	}
 }
 
-// An elevated run has no store, and import and remove say so.
-func TestDataElevated(t *testing.T) {
+// A store that cannot be used, as a protected one open to others cannot, is
+// refused by import and remove with the reason.
+func TestDataRefusesAnOpenStore(t *testing.T) {
 	d, _ := testData(t, false, "")
-	d.open = func(context.Context) (store.Store, error) { return store.Store{}, store.ErrElevated }
+	d.open = func(context.Context) (store.Store, error) { return store.Store{}, store.ErrOpen }
 	for _, args := range [][]string{{"import", t.TempDir()}, {"remove", "--yes", "wanted"}} {
-		if _, err := run(d, args...); !errors.Is(err, store.ErrElevated) {
-			t.Errorf("%v gave %v, want ErrElevated", args, err)
+		if _, err := run(d, args...); !errors.Is(err, store.ErrOpen) {
+			t.Errorf("%v gave %v, want ErrOpen", args, err)
 		}
 	}
 }
@@ -163,12 +164,12 @@ func TestDataStatusReport(t *testing.T) {
 	}
 }
 
-// An elevated run has no store, and status says so.
-func TestDataStatusElevated(t *testing.T) {
+// A store that cannot be used is refused by status with the reason.
+func TestDataStatusRefusesAnOpenStore(t *testing.T) {
 	d, _ := testData(t, false, "")
-	d.open = func(context.Context) (store.Store, error) { return store.Store{}, store.ErrElevated }
-	if _, err := run(d, "status", "--plain"); err == nil || !strings.Contains(err.Error(), store.ErrElevated.Error()) {
-		t.Errorf("status gave %v, want the elevated refusal", err)
+	d.open = func(context.Context) (store.Store, error) { return store.Store{}, store.ErrOpen }
+	if _, err := run(d, "status", "--plain"); err == nil || !strings.Contains(err.Error(), store.ErrOpen.Error()) {
+		t.Errorf("status gave %v, want the refusal of an open store", err)
 	}
 }
 

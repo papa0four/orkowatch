@@ -32,14 +32,20 @@ var ErrBusy = errors.New("another owatch data command is changing the dataset st
 // the process and releases when the process ends, however it ends, so a
 // process that is killed leaves nothing to clear by hand. Another process
 // holding it is waited for until wait has passed, and then ErrBusy is
-// returned.
+// returned. Everything that changes the store does so under the lock, so a
+// protected store's begin runs here, before anything is made, and its end
+// when the lock is released: whatever is made in between is the store's.
 func (s Store) lock(ctx context.Context, wait time.Duration) (func() error, error) {
-	if err := os.MkdirAll(s.root, dirMode); err != nil {
-		return nil, fmt.Errorf("create the dataset store: %w", err)
+	end := func() error { return nil }
+	if s.protect != nil {
+		var err error
+		if end, err = s.protect.begin(); err != nil {
+			return nil, fmt.Errorf("prepare the protected dataset store: %w", err)
+		}
 	}
-	f, err := openLockFile(filepath.Join(s.root, lockName))
+	f, err := s.openLock()
 	if err != nil {
-		return nil, fmt.Errorf("open the store's lock: %w", err)
+		return nil, errors.Join(err, end())
 	}
 
 	deadline := time.Now().Add(wait)
@@ -47,16 +53,28 @@ func (s Store) lock(ctx context.Context, wait time.Duration) (func() error, erro
 		held, err := tryLock(f)
 		switch {
 		case err != nil:
-			return nil, errors.Join(fmt.Errorf("lock the dataset store: %w", err), f.Close())
+			return nil, errors.Join(fmt.Errorf("lock the dataset store: %w", err), f.Close(), end())
 		case held:
-			return func() error { return errors.Join(unlock(f), f.Close()) }, nil
+			return func() error { return errors.Join(unlock(f), f.Close(), end()) }, nil
 		case !time.Now().Before(deadline):
-			return nil, errors.Join(ErrBusy, f.Close())
+			return nil, errors.Join(ErrBusy, f.Close(), end())
 		}
 		select {
 		case <-ctx.Done():
-			return nil, errors.Join(ctx.Err(), f.Close())
+			return nil, errors.Join(ctx.Err(), f.Close(), end())
 		case <-time.After(lockPoll):
 		}
 	}
+}
+
+// openLock makes the store when it does not exist and opens its lock file.
+func (s Store) openLock() (*os.File, error) {
+	if err := s.ensure(); err != nil {
+		return nil, fmt.Errorf("create the dataset store: %w", err)
+	}
+	f, err := openLockFile(filepath.Join(s.root, lockName))
+	if err != nil {
+		return nil, fmt.Errorf("open the store's lock: %w", err)
+	}
+	return f, nil
 }
