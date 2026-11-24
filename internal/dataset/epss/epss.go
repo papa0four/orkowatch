@@ -96,8 +96,9 @@ func (Scores) Origin() dataset.Origin {
 // the model version and the score date, the header, and at least one row,
 // every row a CVE identifier with a score and a percentile from 0 to 1. A
 // file cut short fails gzip's own length and checksum. It gives the score
-// date as the data's date and the model version as its version.
-func (Scores) Check(data io.Reader) (dataset.Facts, error) {
+// date as the data's date and the model version as its version. The scores
+// are the same for every host, so the host is not consulted.
+func (Scores) Check(data io.Reader, _ *osfingerprint.OSInfo) (dataset.Facts, error) {
 	return check(data, maxExpanded)
 }
 

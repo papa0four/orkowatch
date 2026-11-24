@@ -20,7 +20,8 @@ func (testDataset) ID() string                           { return "test-data" }
 func (testDataset) AppliesTo(*osfingerprint.OSInfo) bool { return true }
 func (testDataset) MaxBytes() int64                      { return 1 << 10 }
 func (testDataset) Origin() Origin                       { return Origin{} }
-func (testDataset) Check(io.Reader) (Facts, error)       { return Facts{}, nil }
+
+func (testDataset) Check(io.Reader, *osfingerprint.OSInfo) (Facts, error) { return Facts{}, nil }
 
 var now = time.Date(2026, 11, 22, 12, 0, 0, 0, time.UTC)
 

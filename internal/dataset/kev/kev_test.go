@@ -64,7 +64,7 @@ func changed(t *testing.T, data []byte, from, to string) []byte {
 // released, and is within what the dataset may hold.
 func TestCheckAcceptsTheRecordedCatalog(t *testing.T) {
 	data := recorded(t)
-	facts, err := Catalog{}.Check(bytes.NewReader(data))
+	facts, err := Catalog{}.Check(bytes.NewReader(data), nil)
 	if err != nil {
 		t.Fatalf("the recorded catalog was refused: %v", err)
 	}
@@ -84,7 +84,7 @@ func TestCheckAcceptsTheRecordedCatalog(t *testing.T) {
 func TestCheckAllowsAnUnlistedField(t *testing.T) {
 	data := changed(t, recorded(t), recordedCount, recordedCount+` "added": {"later": true},`)
 	data = changed(t, data, recordedFirst, recordedFirst+`, "added": ["later"]`)
-	if _, err := (Catalog{}).Check(bytes.NewReader(data)); err != nil {
+	if _, err := (Catalog{}).Check(bytes.NewReader(data), nil); err != nil {
 		t.Errorf("a catalog with a field the schema does not list was refused: %v", err)
 	}
 }
@@ -115,7 +115,7 @@ func TestCheckRefuses(t *testing.T) {
 		"an empty catalog":            {[]byte(`{"catalogVersion": "2026.11.23", "dateReleased": "2026-11-23T12:54:37Z", "count": 0, "vulnerabilities": []}`), "holds no entries"},
 		"nothing":                     {nil, "not the catalog's JSON"},
 	} {
-		_, err := Catalog{}.Check(bytes.NewReader(c.data))
+		_, err := Catalog{}.Check(bytes.NewReader(c.data), nil)
 		if err == nil || !strings.Contains(err.Error(), c.want) {
 			t.Errorf("%s: Check gave %v, want a refusal saying %q", name, err, c.want)
 		}
