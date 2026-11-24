@@ -202,7 +202,8 @@ func TestFindingDetailShowsBothScores(t *testing.T) {
 			"  Implementation Guide, Modified Attack Vector (MAV): \"the service is exposed locally\""}}
 	for _, width := range []int{50, 160} {
 		b := sized(newBrowser(r), width, 60)
-		detail := plain(b.detailText(r.Items[0]))
+		text, _ := b.detailText(r.Items[0])
+		detail := plain(text)
 		for _, want := range []string{"CVSS baseline", "9.3 CRITICAL", "CVSS on this host", "8.6 HIGH", "CVSS-BE", "MAV:L from listening",
 			"severity  HIGH, the CVSS-BE severity on this host; the registry rates the rule CRITICAL"} {
 			if !strings.Contains(strings.Join(strings.Fields(detail), " "), strings.Join(strings.Fields(want), " ")) {
@@ -261,27 +262,68 @@ func TestEscClearsAKeptSearch(t *testing.T) {
 	}
 }
 
-// A finding with more evidence than the detail pane loads says how many
-// lines it left out and names the key that loads them, which is the key that
-// does: pressing it shows every line and the notice is gone.
-func TestEvidenceNoticeNamesTheKeyThatLoadsTheRest(t *testing.T) {
+// A finding with more evidence than the detail pane loads says under the
+// evidence heading how much is shown and what x shows instead. Each press of x
+// switches between the two, moves the pane to the heading so the change is in
+// view, and changes the notice and the footer's hint.
+func TestEvidenceToggleShowsWhatChanged(t *testing.T) {
 	const extra = 3
+	total := evidencePreview + extra
 	r := sidebarReport(0)
 	item := Item{Check: "permissions", Key: "permissions.world_writable_file", Result: "fail", Severity: "HIGH", Title: "a finding"}
-	for i := 0; i < evidencePreview+extra; i++ {
+	for i := 0; i < total; i++ {
 		item.Evidence = append(item.Evidence, fmt.Sprintf("- /tmp/file%d", i))
 	}
 	r.Items = []Item{item}
+	last := fmt.Sprintf("- /tmp/file%d", total-1)
+	preview := fmt.Sprintf("showing the first %d; press x to show all %d", evidencePreview, total)
+	all := fmt.Sprintf("showing all %d; press x to show the first %d", total, evidencePreview)
 
-	b := sized(newBrowser(r), 120, 40)
-	notice := fmt.Sprintf("%d more; press x to load all", extra)
-	if detail := plain(b.detailText(item)); !strings.Contains(detail, notice) {
-		t.Errorf("the detail does not say %q", notice)
+	// The window is wide enough for the footer to keep the findings' toggles,
+	// which a narrow one drops first.
+	b := sized(newBrowser(r), 240, 40)
+	state := func(b browser) (content, top, footer string) {
+		text, _ := b.detailText(item)
+		view := strings.Split(plain(b.detail.View()), "\n")
+		return plain(text), strings.TrimSpace(view[0]) + "\n" + strings.TrimSpace(view[1]), plain(b.helpView())
+	}
+
+	content, _, footer := state(b)
+	if !strings.Contains(content, preview) || strings.Contains(content, last) || !strings.Contains(footer, "(x) all evidence") {
+		t.Fatalf("before x: notice %v, last line %v, footer %q", strings.Contains(content, preview), strings.Contains(content, last), footer)
 	}
 
 	b = press(b, "x")
-	detail := plain(b.detailText(item))
-	if strings.Contains(detail, "more; press") || !strings.Contains(detail, fmt.Sprintf("- /tmp/file%d", evidencePreview+extra-1)) {
-		t.Error("pressing the key the notice names did not load the rest of the evidence")
+	content, top, footer := state(b)
+	if !strings.Contains(content, all) || !strings.Contains(content, last) || !strings.Contains(footer, "(x) less evidence") {
+		t.Errorf("after x: notice %v, last line %v, footer %q", strings.Contains(content, all), strings.Contains(content, last), footer)
+	}
+	if want := fmt.Sprintf("evidence (%d)\n%s", total, all); top != want {
+		t.Errorf("after x the pane begins %q, want %q", top, want)
+	}
+
+	b = press(b, "x")
+	content, top, footer = state(b)
+	if !strings.Contains(content, preview) || strings.Contains(content, last) || !strings.Contains(footer, "(x) all evidence") {
+		t.Errorf("after a second x: notice %v, last line %v, footer %q", strings.Contains(content, preview), strings.Contains(content, last), footer)
+	}
+	if want := fmt.Sprintf("evidence (%d)\n%s", total, preview); top != want {
+		t.Errorf("after a second x the pane begins %q, want %q", top, want)
+	}
+}
+
+// On a finding with no more evidence than the preview, x changes nothing and
+// the footer does not offer it.
+func TestEvidenceToggleNeedsMoreThanThePreview(t *testing.T) {
+	r := sidebarReport(0)
+	item := Item{Check: "permissions", Key: "permissions.world_writable_file", Result: "fail", Severity: "HIGH", Title: "a finding",
+		Evidence: []string{"- /tmp/a", "- /tmp/b"}}
+	r.Items = []Item{item}
+	b := sized(newBrowser(r), 120, 40)
+	before, _ := b.detailText(item)
+	b = press(b, "x")
+	after, _ := b.detailText(item)
+	if b.fullEvidence || after != before || strings.Contains(plain(b.helpView()), "(x)") {
+		t.Errorf("x on two lines of evidence: full %v, changed %v, footer %q", b.fullEvidence, after != before, plain(b.helpView()))
 	}
 }
