@@ -88,6 +88,22 @@ func (s Store) dir(id string) string {
 	return filepath.Join(s.root, id)
 }
 
+// Read gives the data of the dataset d, as held, to consume, for a run that
+// uses what the data holds. It reads as every read of the store does, so the
+// data is checked as it is given: nothing consume learned may be used unless
+// Read returns nil. A dataset the store does not hold is ErrNotHeld, and one
+// held that cannot be used is ErrUnusable with the reason.
+func (s Store) Read(d dataset.Dataset, now time.Time, consume func(io.Reader) error) (dataset.Manifest, error) {
+	held, err := s.held(d.ID())
+	switch {
+	case err != nil:
+		return dataset.Manifest{}, err
+	case !held:
+		return dataset.Manifest{}, fmt.Errorf("%w: %q", ErrNotHeld, d.ID())
+	}
+	return s.read(d, now, consume)
+}
+
 // read checks the dataset d held in the store and passes its data to consume.
 // The manifest is read and validated first; the data file it names is then
 // read through consume and hashed as it is read, and whatever consume does not

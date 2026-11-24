@@ -243,6 +243,15 @@ func readEntry(f *zip.File, room int64) (record, int64, error) {
 // counts what came before it. It gives the newest time a record was modified
 // as the data's date, and the release as its version.
 func (d Dump) Check(data io.Reader, host *osfingerprint.OSInfo) (dataset.Facts, error) {
+	return d.Records(data, host, nil)
+}
+
+// Records is Check that gives each record to each as it is judged, so the
+// records are read once and never held together. The records are sound only
+// when Records returns no error: one that fails after some were given, as a
+// trailer that does not count them, means none of them may be used. An error
+// each returns ends the read.
+func (d Dump) Records(data io.Reader, host *osfingerprint.OSInfo, each func(Record) error) (dataset.Facts, error) {
 	rel, err := d.releaseOf(host)
 	if err != nil {
 		return dataset.Facts{}, err
@@ -279,7 +288,12 @@ func (d Dump) Check(data io.Reader, host *osfingerprint.OSInfo) (dataset.Facts, 
 		if err := line.valid(rel); err != nil {
 			return dataset.Facts{}, fmt.Errorf("record %s: %w", printable(line.ID), err)
 		}
-		got.add(line.kept)
+		got.add(line.Record)
+		if each != nil {
+			if err := each(line.Record); err != nil {
+				return dataset.Facts{}, err
+			}
+		}
 	}
 }
 
@@ -325,7 +339,7 @@ type trailer struct {
 }
 
 // add counts r.
-func (t *trailer) add(r kept) {
+func (t *trailer) add(r Record) {
 	t.Records++
 	if r.Modified > t.Modified {
 		t.Modified = r.Modified
@@ -335,7 +349,7 @@ func (t *trailer) add(r kept) {
 // keptLine is any line after the header: a record, or the trailer, which
 // alone has a count.
 type keptLine struct {
-	kept
+	Record
 	Records *int `json:"records,omitempty"`
 }
 

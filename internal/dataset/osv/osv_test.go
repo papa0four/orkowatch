@@ -9,6 +9,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"os"
 	"slices"
 	"strings"
@@ -498,5 +499,42 @@ func TestCheckRefuses(t *testing.T) {
 		if _, err := d.Check(bytes.NewReader(data), alpine); err == nil || !strings.Contains(err.Error(), tt.reason) {
 			t.Errorf("%s: gave %v, want it refused naming %q", name, err, tt.reason)
 		}
+	}
+}
+
+// Records gives every kept record, in order, as Check judges it; an error the
+// consumer returns ends the read with that error, and records given before a
+// trailer that does not count them end in an error, so none may be used.
+func TestRecords(t *testing.T) {
+	r := recordings[0]
+	host := r.host
+	d := dump(t, r.id)
+	kept, err := keep(t, d, recorded(t, r.file, r.sum), &host)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ids []string
+	facts, err := d.Records(bytes.NewReader(kept), &host, func(rec Record) error {
+		ids = append(ids, rec.ID)
+		return nil
+	})
+	if err != nil || !slices.Equal(ids, keptIDs(t, kept)) || facts.Version != r.release {
+		t.Errorf("records %q, %+v, %v; want %q", ids, facts, err, keptIDs(t, kept))
+	}
+
+	stop := errors.New("enough")
+	if _, err := d.Records(bytes.NewReader(kept), &host, func(Record) error { return stop }); !errors.Is(err, stop) {
+		t.Errorf("a consumer's error gave %v", err)
+	}
+
+	alpine := &osfingerprint.OSInfo{OS: "linux", Platform: "alpine", PlatformVersion: "3.20.10"}
+	head := `{"format":1,"release":"Alpine:v3.20"}`
+	line := `{"id":"A-1","cves":[],"modified":"2026-11-23T10:00:00Z","affected":[{"package":"openssl","ecosystem":"Alpine:v3.20","ranges":[[{"introduced":"0"}]]}]}`
+	given := 0
+	if _, err := d.Records(bytes.NewReader(keptData(t, head, line, `{"records":2,"modified":"2026-11-23T10:00:00Z"}`)), alpine, func(Record) error {
+		given++
+		return nil
+	}); err == nil || given != 1 {
+		t.Errorf("a miscounted trailer gave %v after %d records", err, given)
 	}
 }
