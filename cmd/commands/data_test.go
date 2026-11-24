@@ -231,8 +231,9 @@ func TestDataStatusRefusesAnOpenStore(t *testing.T) {
 // Every dataset owatch knows can be held and fetched: a name the store can
 // hold that no other dataset has, an origin a fetch can start from, a limit
 // on what it may hold, and a license its manifest records. They are listed in
-// name order. CISA's catalog and FIRST's scores are among them, and a store
-// without them lists each as not held.
+// name order. CISA's catalog, FIRST's scores, and OSV's data for five
+// distributions are among them, and a store without them lists each that
+// applies to the host as not held.
 func TestKnownDatasets(t *testing.T) {
 	seen := map[string]bool{}
 	var ids []string
@@ -250,8 +251,13 @@ func TestKnownDatasets(t *testing.T) {
 			t.Errorf("%s: may hold %d bytes under the license %q", id, k.MaxBytes(), k.Origin().License)
 		}
 	}
-	if !seen["kev"] || !seen["epss"] || !slices.IsSorted(ids) {
-		t.Errorf("the known datasets are %v, want epss and kev among them, in name order", ids)
+	for _, id := range []string{"epss", "kev", "osv-almalinux", "osv-alpine", "osv-redhat", "osv-rocky", "osv-ubuntu"} {
+		if !seen[id] {
+			t.Errorf("the known datasets are %v, want %s among them", ids, id)
+		}
+	}
+	if !slices.IsSorted(ids) {
+		t.Errorf("the known datasets are %v, want them in name order", ids)
 	}
 
 	d, _ := testData(t, false, "")
