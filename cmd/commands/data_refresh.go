@@ -184,9 +184,9 @@ func (d *dataCmd) choose(ctx context.Context, out, prompt io.Writer, f fetcher, 
 		size, stated, sizeErr := f.Size(ctx, w)
 		described := dataset.Size(size)
 		if sizeErr != nil || !stated {
-			// The server did not say, so the most the dataset may hold is
+			// The server did not say, so the most its file may hold is
 			// what a fetch could read.
-			size, described = w.MaxBytes(), "up to "+dataset.Size(w.MaxBytes())
+			size, described = dataset.FetchLimit(w), "up to "+dataset.Size(dataset.FetchLimit(w))
 		}
 		ew.Printf("%s\n", render.HostText(fmt.Sprintf("%s: %s from %s", w.ID(), described, w.Origin().URL)))
 

@@ -7,6 +7,7 @@ import (
 	"context"
 	"crypto/x509"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -20,6 +21,7 @@ import (
 	"github.com/papa0four/orkowatch/internal/dataset"
 	"github.com/papa0four/orkowatch/internal/dataset/datasettest"
 	"github.com/papa0four/orkowatch/internal/elevation"
+	"github.com/papa0four/orkowatch/internal/osfingerprint"
 )
 
 // origin is a TLS server standing in for the source of a dataset, with the
@@ -188,7 +190,31 @@ func TestRedirectWithin(t *testing.T) {
 	}
 }
 
-// A body over what the dataset may hold is refused, whether the server states
+// keeping is a dataset that keeps less than its origin serves, whose origin
+// may serve twice what it keeps.
+type keeping struct{ datasettest.Dataset }
+
+func (keeping) FetchMaxBytes() int64 { return 2 * datasettest.MaxBytes }
+
+func (keeping) Keep(io.ReaderAt, int64, *osfingerprint.OSInfo, io.Writer) error { return nil }
+
+// A dataset that keeps less than its origin serves is fetched up to the
+// origin's limit, not its own, and past it is refused.
+func TestFetchLimitOfAKeepingDataset(t *testing.T) {
+	within := strings.Repeat("x", datasettest.MaxBytes+1)
+	past := strings.Repeat("x", 2*datasettest.MaxBytes+1)
+	o := serve(t, map[string]http.HandlerFunc{"/within": send(t, within, true), "/past": send(t, past, false)})
+
+	var got bytes.Buffer
+	if err := o.client.Fetch(context.Background(), keeping{o.at("/within").(datasettest.Dataset)}, &got); err != nil || got.String() != within {
+		t.Errorf("a file within the origin's limit gave %v and %d bytes", err, got.Len())
+	}
+	if err := o.client.Fetch(context.Background(), keeping{o.at("/past").(datasettest.Dataset)}, &got); !refused(err, "the dataset's origin may serve") {
+		t.Errorf("a file past the origin's limit gave %v, want it refused for good", err)
+	}
+}
+
+// A body over what the dataset's origin may serve is refused, whether the server states
 // its length or not, and a download past the time limit is refused. Neither
 // is tried again.
 func TestLimits(t *testing.T) {
@@ -206,7 +232,7 @@ func TestLimits(t *testing.T) {
 
 	var got bytes.Buffer
 	for _, path := range []string{"/stated", "/unstated"} {
-		if err := o.client.Fetch(context.Background(), o.at(path), &got); !refused(err, "the dataset may hold") {
+		if err := o.client.Fetch(context.Background(), o.at(path), &got); !refused(err, "the dataset's origin may serve") {
 			t.Errorf("%s gave %v, want it refused for good", path, err)
 		}
 	}

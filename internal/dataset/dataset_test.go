@@ -154,6 +154,53 @@ func TestValidateRefuses(t *testing.T) {
 	}
 }
 
+// testKeeper is testDataset keeping less than its origin serves, which may
+// serve 4 KiB.
+type testKeeper struct{ testDataset }
+
+func (testKeeper) FetchMaxBytes() int64 { return 4 << 10 }
+
+func (testKeeper) Keep(io.ReaderAt, int64, *osfingerprint.OSInfo, io.Writer) error { return nil }
+
+// A dataset's fetch limit is its own limit unless it keeps less than its
+// origin serves, and then the limit it states for the origin's file.
+func TestFetchLimit(t *testing.T) {
+	if got := FetchLimit(testDataset{}); got != 1<<10 {
+		t.Errorf("a dataset kept whole may fetch %d bytes, want 1024", got)
+	}
+	if got := FetchLimit(testKeeper{}); got != 4<<10 {
+		t.Errorf("a dataset that keeps less may fetch %d bytes, want 4096", got)
+	}
+}
+
+// A manifest records the fetched file of a dataset that keeps less, and that
+// record is refused when it could not describe a file the origin serves.
+func TestValidateTheFetchedFile(t *testing.T) {
+	recorded := func(m *Manifest) { m.OriginSHA256, m.OriginSize = strings.Repeat("cd", 32), 4<<10 }
+	m := goodManifest()
+	recorded(&m)
+	if err := m.Validate(testKeeper{}, now); err != nil {
+		t.Errorf("a manifest recording the fetched file was refused: %v", err)
+	}
+	if err := goodManifest().Validate(testKeeper{}, now); err != nil {
+		t.Errorf("a manifest recording no fetched file was refused: %v", err)
+	}
+	for name, change := range map[string]func(*Manifest){
+		"a checksum that is not one":  func(m *Manifest) { m.OriginSHA256 = "abcd" },
+		"a checksum without a size":   func(m *Manifest) { m.OriginSize = 0 },
+		"a size without a checksum":   func(m *Manifest) { m.OriginSHA256 = "" },
+		"a size over the fetch limit": func(m *Manifest) { m.OriginSize = 4<<10 + 1 },
+		"a negative size":             func(m *Manifest) { m.OriginSize = -1 },
+	} {
+		m := goodManifest()
+		recorded(&m)
+		change(&m)
+		if err := m.Validate(testKeeper{}, now); !errors.Is(err, ErrManifest) {
+			t.Errorf("%s: gave %v, want ErrManifest", name, err)
+		}
+	}
+}
+
 // A dataset is current for seven days after it is fetched, out of sync for
 // the seven after that, and stale from then on. The days are written out
 // rather than taken from the constants, so a change to either is a change

@@ -4,7 +4,7 @@
 // only part of owatch that opens a network connection, and it is held to what
 // each dataset states of itself: the address its data is at, and the hosts a
 // redirect from that address may lead to. It sends nothing about the host it
-// runs on, reads no more than the dataset may hold, and gives up after a fixed
+// runs on, reads no more than the dataset's origin may serve, and gives up after a fixed
 // time. It never runs elevated: a privileged process that reads what a server
 // sends puts that server's input in front of everything the process can do.
 package fetch
@@ -139,7 +139,7 @@ func (c *Client) Size(ctx context.Context, d dataset.Dataset) (int64, bool, erro
 }
 
 // Fetch writes the data of d to w as its origin serves it. It reads at most
-// what d may hold, and the whole download is bounded in time.
+// what d's origin may serve, and the whole download is bounded in time.
 func (c *Client) Fetch(ctx context.Context, d dataset.Dataset, w io.Writer) (err error) {
 	ctx, cancel := context.WithTimeout(ctx, c.timeout)
 	defer cancel()
@@ -149,16 +149,16 @@ func (c *Client) Fetch(ctx context.Context, d dataset.Dataset, w io.Writer) (err
 	}
 	defer func() { err = errors.Join(err, resp.Body.Close()) }()
 
-	limit := d.MaxBytes()
+	limit := dataset.FetchLimit(d)
 	if resp.ContentLength > limit {
-		return lasting("%s is %d bytes, more than the %d the dataset may hold", d.Origin().URL, resp.ContentLength, limit)
+		return lasting("%s is %d bytes, more than the %d the dataset's origin may serve", d.Origin().URL, resp.ContentLength, limit)
 	}
 	n, err := io.Copy(w, io.LimitReader(resp.Body, limit+1))
 	switch {
 	case err != nil:
 		return failure(ctx, fmt.Errorf("read %s: %w", d.Origin().URL, err))
 	case n > limit:
-		return lasting("%s sent more than the %d bytes the dataset may hold", d.Origin().URL, limit)
+		return lasting("%s sent more than the %d bytes the dataset's origin may serve", d.Origin().URL, limit)
 	}
 	return nil
 }

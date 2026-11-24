@@ -39,16 +39,20 @@ var ErrManifest = errors.New("manifest refused")
 
 // Manifest is what is recorded about a dataset when it is fetched: where it
 // came from, when, what its data must hash to, and the license and
-// attribution its source asks for.
+// attribution its source asks for. For a dataset that keeps less than its
+// origin serves, OriginSHA256 and OriginSize record the file that was
+// fetched, which is not held, so what was kept can be traced to it.
 type Manifest struct {
-	Format      int       `json:"format"`
-	ID          string    `json:"id"`
-	Source      string    `json:"source"`
-	Fetched     time.Time `json:"fetched"`
-	SHA256      string    `json:"sha256"`
-	Size        int64     `json:"size"`
-	License     string    `json:"license"`
-	Attribution string    `json:"attribution"`
+	Format       int       `json:"format"`
+	ID           string    `json:"id"`
+	Source       string    `json:"source"`
+	Fetched      time.Time `json:"fetched"`
+	SHA256       string    `json:"sha256"`
+	Size         int64     `json:"size"`
+	OriginSHA256 string    `json:"origin_sha256,omitempty"`
+	OriginSize   int64     `json:"origin_size,omitempty"`
+	License      string    `json:"license"`
+	Attribution  string    `json:"attribution"`
 }
 
 // DecodeManifest reads a manifest from r. It reads no more than a manifest
@@ -104,6 +108,9 @@ func (m Manifest) Validate(d Dataset, now time.Time) error {
 	case m.Size > d.MaxBytes():
 		return refuse("it gives the size %d bytes, more than %s may hold, %d", m.Size, d.ID(), d.MaxBytes())
 	}
+	if err := m.validOrigin(d); err != nil {
+		return err
+	}
 	if err := validSource(m.Source); err != nil {
 		return err
 	}
@@ -111,6 +118,21 @@ func (m Manifest) Validate(d Dataset, now time.Time) error {
 		if err := validText(name, text); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+// validOrigin refuses a record of the fetched file that could not describe
+// one: a checksum that is not one, a size outside what the origin may serve,
+// or one of the two without the other. A dataset kept whole records neither.
+func (m Manifest) validOrigin(d Dataset) error {
+	switch {
+	case m.OriginSHA256 == "" && m.OriginSize == 0:
+		return nil
+	case !validChecksum(m.OriginSHA256):
+		return refuse("%q is not a SHA-256 checksum of the fetched file in lower-case hexadecimal", m.OriginSHA256)
+	case m.OriginSize <= 0 || m.OriginSize > FetchLimit(d):
+		return refuse("it gives the fetched file's size as %d bytes, where %s's origin may serve 1 to %d", m.OriginSize, d.ID(), FetchLimit(d))
 	}
 	return nil
 }
