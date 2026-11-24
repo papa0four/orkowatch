@@ -47,6 +47,31 @@ old         no longer applies, 512 B
 	}
 }
 
+// An elevated run's report says, under the store, what it installed from the
+// operator's store, what it left alone there and why, and the advice; a run
+// with no one behind it is given the advice alone.
+func TestWriteTextSaysWhatWasInstalled(t *testing.T) {
+	for name, tt := range map[string]struct {
+		operator *Operator
+		want     string
+	}{
+		"installed": {&Operator{Store: "/home/a/store", Installed: []string{"epss", "kev"}},
+			"Store: /store\nInstalled from /home/a/store: epss and kev\n\nkev  not held\n"},
+		"refused": {&Operator{Store: "/home/a/store", Refused: []Refusal{{ID: "kev", Reason: "it is a link"}}, Advice: "run import"},
+			"Store: /store\nNot installed from /home/a/store: kev: it is a link\nrun import\n\nkev  not held\n"},
+		"no operator":  {&Operator{Advice: "fetch elsewhere"}, "Store: /store\nfetch elsewhere\n\nkev  not held\n"},
+		"not elevated": {nil, "Store: /store\n\nkev  not held\n"},
+	} {
+		var b strings.Builder
+		if err := WriteText(&b, View{Store: "/store", Operator: tt.operator, Datasets: []Row{{ID: "kev", State: StateNotHeld}}}); err != nil {
+			t.Fatal(err)
+		}
+		if b.String() != tt.want {
+			t.Errorf("%s: got\n%s\nwant\n%s", name, b.String(), tt.want)
+		}
+	}
+}
+
 func TestSize(t *testing.T) {
 	for n, want := range map[int64]string{0: "0 B", 1023: "1023 B", 1024: "1.0 KiB", 1536: "1.5 KiB", 5 << 30: "5.0 GiB"} {
 		if got := Size(n); got != want {

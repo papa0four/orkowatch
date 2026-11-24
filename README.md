@@ -389,9 +389,26 @@ system records for the account, which no environment variable moves:
 | macOS | `~/Library/Application Support/owatch/datasets` |
 | Windows | `<profile>\AppData\Local\owatch\datasets` |
 
-A run as root or from an elevated terminal has no store yet, and the commands
-below refuse there. `owatch data refresh` is the only owatch command that opens
-a network connection.
+A run as root or from an elevated terminal does not read an account's store,
+which that account can change. It uses the protected store, which only the
+system and its administrators can change:
+
+| Platform | Protected store |
+|---|---|
+| Linux | `/var/lib/owatch/datasets` |
+| FreeBSD, OpenBSD, NetBSD | `/var/db/owatch/datasets` |
+| macOS | `/Library/Application Support/owatch/datasets` |
+| Windows | `owatch\datasets` in the ProgramData folder |
+
+`owatch data refresh` is the only owatch command that opens a network
+connection, and it never runs elevated. An elevated `owatch data status`
+installs into the protected store what the account behind the run holds newer:
+the user who ran `sudo` or `doas`, or on Windows the account the terminal is
+elevated for. Each file is read as untrusted and must be a regular file that
+account owns, not a link, and within its size limit. One that is not is left
+alone and reported with the reason, and `owatch data import` installs it
+deliberately. A root login with no account behind it installs with
+`owatch data import`.
 
 The datasets this version knows, each fetched from the address its publisher
 gives for it:

@@ -31,10 +31,47 @@ const (
 )
 
 // View is the serializable projection of a store: where it is and what it
-// holds, one row per dataset.
+// holds, one row per dataset, and, for an elevated run, what it installed
+// from the operator's store before reading its own.
 type View struct {
-	Store    string `json:"store" yaml:"store"`
-	Datasets []Row  `json:"datasets" yaml:"datasets"`
+	Store    string    `json:"store" yaml:"store"`
+	Operator *Operator `json:"operator,omitempty" yaml:"operator,omitempty"`
+	Datasets []Row     `json:"datasets" yaml:"datasets"`
+}
+
+// Operator is what an elevated run did with the datasets of the operator
+// behind it. Store is the operator's store, and is empty when no one is
+// behind the run, as with a direct root login; Advice then says how datasets
+// reach this host. Installed names the datasets installed from Store, and
+// Refused those left alone, each with the reason.
+type Operator struct {
+	Store     string    `json:"store,omitempty" yaml:"store,omitempty"`
+	Installed []string  `json:"installed,omitempty" yaml:"installed,omitempty"`
+	Refused   []Refusal `json:"refused,omitempty" yaml:"refused,omitempty"`
+	Advice    string    `json:"advice,omitempty" yaml:"advice,omitempty"`
+}
+
+// Refusal is a dataset in the operator's store that was not installed.
+type Refusal struct {
+	ID     string `json:"id" yaml:"id"`
+	Reason string `json:"reason" yaml:"reason"`
+}
+
+// Lines are what a report says of the operator's datasets, one sentence a
+// line: what was installed, what was refused and why, and the advice. They
+// are the same in the text report and the results browser.
+func (o Operator) Lines() []string {
+	var lines []string
+	if len(o.Installed) > 0 {
+		lines = append(lines, fmt.Sprintf("Installed from %s: %s", o.Store, render.List(o.Installed)))
+	}
+	for _, r := range o.Refused {
+		lines = append(lines, fmt.Sprintf("Not installed from %s: %s: %s", o.Store, r.ID, r.Reason))
+	}
+	if o.Advice != "" {
+		lines = append(lines, o.Advice)
+	}
+	return lines
 }
 
 // Row is one dataset as status shows it. A held dataset carries what its
@@ -70,14 +107,20 @@ const (
 	floatBits   = 64
 )
 
-// WriteText writes v as status prints it: the store, then one line per
-// dataset with its state and what bears on it, and under it, for a held
-// dataset, the source, license, and attribution, and what needs attention.
-// This is the one text renderer
-// of a store, used by status and by a saved status report alike.
+// WriteText writes v as status prints it: the store, what an elevated run
+// installed from the operator's, then one line per dataset with its state and
+// what bears on it, and under it, for a held dataset, the source, license,
+// and attribution, and what needs attention. This is the one text renderer of
+// a store, used by status and by a saved status report alike.
 func WriteText(w io.Writer, v View) error {
 	ew := render.NewErrWriter(w)
-	ew.Printf("Store: %s\n\n", render.HostText(v.Store))
+	ew.Printf("Store: %s\n", render.HostText(v.Store))
+	if v.Operator != nil {
+		for _, line := range v.Operator.Lines() {
+			ew.Printf("%s\n", render.HostText(line))
+		}
+	}
+	ew.Printf("\n")
 	if len(v.Datasets) == 0 {
 		ew.Printf("No dataset applies to this host, and the store holds none.\n")
 		return ew.Err()

@@ -40,7 +40,8 @@ func newFetcher() (fetcher, error) {
 // errRefreshElevated is the refusal of an elevated refresh, with what to do
 // instead.
 var errRefreshElevated = errors.New("owatch data refresh does not run as root or from an elevated terminal: " +
-	"run it as an ordinary account, or run it on another host with --to and bring the directory here for owatch data import")
+	"run it as an ordinary account, and an elevated owatch data status then installs what it fetched; " +
+	"or run it on another host with --to and bring the directory here for owatch data import")
 
 // refreshCmd returns owatch data refresh.
 func (d *dataCmd) refreshCmd() *cobra.Command {
@@ -75,7 +76,8 @@ osinfo prints there, os/platform/version, copied as it is printed. Quote it
 when it holds a space, as Windows does.
 
 refresh never runs as root or from an elevated terminal, and no flag changes
-that.`,
+that. An elevated owatch data status installs what an ordinary account
+refreshed.`,
 		Example: `  # Fetch the datasets this host needs
   owatch data refresh
 

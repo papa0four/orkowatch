@@ -24,12 +24,14 @@ import (
 )
 
 // dataCmd is what the owatch data commands read from the host, held apart so
-// a test can give each its own: the datasets owatch knows, the store, the
-// host's identity, the time, whether a person is at the terminal to ask,
-// whether the process is elevated, and what fetches a dataset.
+// a test can give each its own: the datasets owatch knows, the store to
+// change and the store made ready to read, the host's identity, the time,
+// whether a person is at the terminal to ask, whether the process is
+// elevated, and what fetches a dataset.
 type dataCmd struct {
 	known       []dataset.Dataset
 	open        func(context.Context) (store.Store, error)
+	read        func(context.Context, []dataset.Dataset, *osfingerprint.OSInfo, time.Time) (store.Store, store.Adoption, error)
 	host        func() (*osfingerprint.OSInfo, error)
 	now         func() time.Time
 	interactive func() bool
@@ -52,6 +54,7 @@ func newDataCmd() *cobra.Command {
 	return dataCommand(&dataCmd{
 		known:       knownDatasets(),
 		open:        store.ForProcess,
+		read:        store.ForReading,
 		host:        osfingerprint.GetOSFingerprint,
 		now:         time.Now,
 		interactive: func() bool { return render.StdinIsTerminal() && render.StdoutIsTerminal() },
@@ -68,8 +71,10 @@ func dataCommand(d *dataCmd) *cobra.Command {
 		Short: "Manage the vulnerability datasets held on this host",
 		Long: `Manage the vulnerability datasets owatch holds on this host, which it reads
 with no network. Each account has its own store, at a fixed place under the
-account's home. A run as root or from an elevated terminal has no store yet.
-Only owatch data refresh opens a network connection.`,
+account's home. A run as root or from an elevated terminal uses another, the
+protected store in the system's data directory, which only the system and its
+administrators can change. Only owatch data refresh opens a network
+connection, and it never runs elevated.`,
 		Args: cliargs.None,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if err := cmd.Help(); err != nil {
@@ -96,6 +101,14 @@ unusable with the reason. A dataset whose last import failed, or whose install
 did not finish, says what needs attention. Datasets held that no longer apply to
 this host, or that this version does not know, are listed with their size;
 owatch data remove deletes one.
+
+Run as root or from an elevated terminal, status shows the protected store.
+It first installs there what the account behind the run holds newer: the user
+who ran sudo or doas, or on Windows the account the terminal is elevated for.
+Each file is read as untrusted and must be a regular file that account owns,
+not a link, and within its size limit; one that is not is left alone and
+named with the reason. A root login with no account behind it is told how
+datasets reach the host.
 
 The report opens in the results browser on a terminal, with the same layout as an
 audit.`,
@@ -128,17 +141,54 @@ func (d *dataCmd) collectStatus(ctx context.Context, result *ScanResult) {
 	result.Modules = append(result.Modules, inventoryModule(selection.NameDatasets))
 }
 
-// status reads what the process's store holds of the known datasets.
+// status reads what the process's store holds of the known datasets, with
+// what an elevated run installed from the operator's store on the way.
 func (d *dataCmd) status(ctx context.Context) (dataset.View, error) {
-	s, err := d.open(ctx)
-	if err != nil {
-		return dataset.View{}, err
-	}
 	host, err := d.host()
 	if err != nil {
 		return dataset.View{}, fmt.Errorf("identify the host: %w", err)
 	}
-	return s.Status(d.known, host, d.now())
+	s, adoption, err := d.read(ctx, d.known, host, d.now())
+	if err != nil {
+		return dataset.View{}, err
+	}
+	view, err := s.Status(d.known, host, d.now())
+	if err != nil {
+		return dataset.View{}, err
+	}
+	view.Operator = operatorView(adoption)
+	return view, nil
+}
+
+// noOperatorAdvice is what an elevated run with no one behind it is told,
+// since it has no account's store to install from and never fetches itself.
+const noOperatorAdvice = "No account is behind this elevated run, so no dataset was installed from one. " +
+	"Fetch as an ordinary account with owatch data refresh --to <directory>, then run owatch data import <directory> here."
+
+// operatorView says what an elevated run did with the operator's datasets:
+// which it installed, which it left alone and why, and the command that
+// installs one of those deliberately. It is nil when there is nothing to
+// say, as for a run that is not elevated or one that found nothing newer.
+func operatorView(a store.Adoption) *dataset.Operator {
+	if a.NoOperator {
+		return &dataset.Operator{Advice: noOperatorAdvice}
+	}
+	o := dataset.Operator{Store: a.From}
+	for _, outcome := range a.Outcomes {
+		switch {
+		case outcome.Result == store.Installed:
+			o.Installed = append(o.Installed, outcome.ID)
+		case outcome.NeedsAttention():
+			o.Refused = append(o.Refused, dataset.Refusal{ID: outcome.ID, Reason: outcome.Reason})
+		}
+	}
+	switch {
+	case len(o.Refused) > 0:
+		o.Advice = "To install what was not installed, as a deliberate act, run owatch data import " + a.From
+	case len(o.Installed) == 0:
+		return nil
+	}
+	return &o
 }
 
 // importCmd returns owatch data import.
@@ -156,7 +206,10 @@ skipped, and one older than the copy held is left, and neither is an error.
 An install that fails because a file is in use is tried again; one that fails
 for another reason is recorded, and owatch data status shows it until the
 dataset is installed. The command exits with an error when any dataset was
-refused or failed.`,
+refused or failed.
+
+Run as root or from an elevated terminal, import installs into the protected
+store.`,
 		Example: `  # Install the datasets in a directory
   owatch data import /media/usb/owatch-datasets`,
 		RunE: func(cmd *cobra.Command, args []string) error {

@@ -168,6 +168,28 @@ func TestAdoptRefusesALink(t *testing.T) {
 	}
 }
 
+// A store made ready to read by an elevated process holds what the operator
+// held newer and says where it came from; with no operator nothing is read
+// and it says so.
+func TestAdoptFrom(t *testing.T) {
+	s, from := stores(t)
+	put(t, from, wanted, content, now.Add(-time.Hour), nil)
+	host := &osfingerprint.OSInfo{}
+
+	none, err := s.adoptFrom(context.Background(), ownerOf{}, false, from.root, known, host, now)
+	if err != nil || !none.NoOperator || none.From != "" || len(none.Outcomes) != 0 {
+		t.Errorf("with no operator: %+v, %v", none, err)
+	}
+	if held, err := s.held("wanted"); err != nil || held {
+		t.Errorf("with no operator the dataset was installed: %v, %v", held, err)
+	}
+
+	got, err := s.adoptFrom(context.Background(), ownerOf{}, true, from.root, known, host, now)
+	if err != nil || got.NoOperator || got.From != from.root || len(got.Outcomes) != 1 || got.Outcomes[0].Result != Installed {
+		t.Errorf("with an operator: %+v, %v", got, err)
+	}
+}
+
 // grow appends n bytes to the file at path.
 func grow(t *testing.T, path string, n int) {
 	t.Helper()
