@@ -29,9 +29,12 @@ and open an issue against this doc.
   and find nothing on a localized Windows; and files owned by a SID that no
   longer resolves go undetected. Tracked as a single fix (#111). Linux/Unix
   audit checks are not affected.
-- **No CVE matching yet.** Installed software and the operating system are
-  not matched to CVEs, and findings carry no CVE data. There is no `--enrich`
-  flag; passing it fails as an unknown flag.
+- **CVE matching covers five distributions' packages.** `owatch software` and
+  `owatch all` match installed packages on AlmaLinux, Alpine, Red Hat
+  Enterprise Linux, Rocky Linux, and Ubuntu against the OSV dataset held for
+  the host; the results browser does not show the matches yet. The operating
+  system and kernel as such are not matched, and findings carry no CVE data.
+  There is no `--enrich` flag; passing it fails as an unknown flag.
 - **There is no `--mitre` flag.** MITRE ATT&CK® mapping is registry data shown
   by default; see MITRE ATT&CK below. Passing `--mitre` fails as an unknown flag.
 - **macOS and BSD are implemented but not yet fully verified.** The Unix
@@ -154,6 +157,31 @@ on Linux, every one the host has, and pkg on FreeBSD. A package dpkg has removed
 still remembers, and the signing keys rpm keeps in its package database, are not
 software and are left out. On Windows and macOS an entry is an application's name and
 version.
+
+`owatch software`, and `owatch all` when its software module runs, then match the
+packages against the vulnerability dataset of the host's distribution (see
+Vulnerability Datasets below) and add a Vulnerabilities section to the report. A
+package is found by the name the distribution's records use: the source package and
+its version on Ubuntu and Alpine, the binary package and its version, with its epoch,
+on AlmaLinux, Rocky Linux, and Red Hat. Each record's ranges are evaluated as the OSV
+schema states, in the distribution's own version order. For each CVE and package:
+
+| Result | Meaning |
+|---|---|
+| Fix available | The installed version is below the lowest version any record gives as fixing it |
+| Unfixed | The installed version is in an affected range and no record gives a fixed version |
+| Not matched | The versions cannot be compared, or the package is a module build and the records give fixes for several module streams without saying which is its |
+| Not covered | No record names the package; this is not a statement that it is clean |
+
+A package at or above any record's fixed version is not affected: a host on an
+earlier minor release's update is not told it lacks a later release's build of the
+same fix. The text report gives the counts, every vulnerability with a fix available,
+and the unfixed counted by package, since a release can carry thousands; the JSON and
+YAML reports hold every match with the records that name it and their scores. With
+no dataset held, or one that cannot be used, the section says matching was not done,
+why, and what to run. Fixes published only in Ubuntu Pro or Red Hat's
+extended-support streams are not read, so a host on those streams can be shown a fix
+it already has. `owatch audit` does not match.
 
 `owatch listeners` reads every socket the host reports, in every state, from the
 host's own tables, and connects to nothing. On Linux it lists TCP, UDP, raw,
@@ -446,7 +474,8 @@ does not authorize use of the CISA Logo or DHS Seal and is not an endorsement by
 CISA or DHS.
 
 owatch holds those that apply to the host and reports their state, with the date
-and version of each; no report reads their entries yet.
+and version of each. `owatch software` and `owatch all` match installed packages
+against the OSV dataset; no report reads KEV's or EPSS's entries yet.
 
 ```bash
 # Fetch the datasets this host needs, over HTTPS

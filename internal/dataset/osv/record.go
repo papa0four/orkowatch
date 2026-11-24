@@ -27,7 +27,7 @@ type record struct {
 	Withdrawn  string      `json:"withdrawn"`
 	Aliases    []string    `json:"aliases"`
 	Upstream   []string    `json:"upstream"`
-	Severity   []severity  `json:"severity"`
+	Severity   []Severity  `json:"severity"`
 	Affected   []affected  `json:"affected"`
 	References []reference `json:"references"`
 }
@@ -40,16 +40,17 @@ type affected struct {
 	} `json:"package"`
 	Ranges []struct {
 		Type   string  `json:"type"`
-		Events []event `json:"events"`
+		Events []Event `json:"events"`
 	} `json:"ranges"`
 }
 
-// event is one event of a range: one of introduced, fixed, last_affected, or
+// Event is one event of a range: one of introduced, fixed, last_affected, or
 // limit, and the version it is at.
-type event map[string]string
+type Event map[string]string
 
-// severity is a score a record carries, of the type it names.
-type severity struct {
+// Severity is a score a record carries, of the type it names, as CVSS_V3 or
+// Ubuntu.
+type Severity struct {
 	Type  string `json:"type"`
 	Score string `json:"score"`
 }
@@ -60,25 +61,25 @@ type reference struct {
 	URL  string `json:"url"`
 }
 
-// kept is a record as owatch keeps it: its identifier, the CVEs it names,
+// Record is a record as owatch keeps it: its identifier, the CVEs it names,
 // when it was published and last modified, its advisory's address, its
 // scores, and the packages of the release it affects with their ranges.
-type kept struct {
-	ID        string         `json:"id"`
-	CVEs      []string       `json:"cves"`
-	Published string         `json:"published,omitempty"`
-	Modified  string         `json:"modified"`
-	Advisory  string         `json:"advisory,omitempty"`
-	Severity  []severity     `json:"severity,omitempty"`
-	Affected  []keptAffected `json:"affected"`
+type Record struct {
+	ID        string     `json:"id"`
+	CVEs      []string   `json:"cves"`
+	Published string     `json:"published,omitempty"`
+	Modified  string     `json:"modified"`
+	Advisory  string     `json:"advisory,omitempty"`
+	Severity  []Severity `json:"severity,omitempty"`
+	Affected  []Affected `json:"affected"`
 }
 
-// keptAffected is a package of the release a kept record affects, and the
+// Affected is a package of the release a kept record affects, and the
 // ranges of its versions that are affected.
-type keptAffected struct {
+type Affected struct {
 	Package   string    `json:"package"`
 	Ecosystem string    `json:"ecosystem"`
-	Ranges    [][]event `json:"ranges"`
+	Ranges    [][]Event `json:"ranges"`
 }
 
 // keptFor returns what is kept of r for rel, and nil when r affects nothing
@@ -86,12 +87,12 @@ type keptAffected struct {
 // with no type, or no score, is left out: it cannot be shown as its source's,
 // and one Ubuntu record of 2026-11-24 carried one beside a CVSS score. What
 // is kept is held to the form valid judges.
-func (r record) keptFor(rel release, seen map[string]bool) (*kept, error) {
+func (r record) keptFor(rel release, seen map[string]bool) (*Record, error) {
 	affected, err := r.affectedIn(rel, seen)
 	if err != nil || len(affected) == 0 {
 		return nil, err
 	}
-	k := kept{ID: r.ID, CVEs: r.cves(), Published: r.Published, Modified: r.Modified, Advisory: r.advisory(), Affected: affected}
+	k := Record{ID: r.ID, CVEs: r.cves(), Published: r.Published, Modified: r.Modified, Advisory: r.advisory(), Affected: affected}
 	for _, s := range r.Severity {
 		if s.Type != "" && s.Score != "" {
 			k.Severity = append(k.Severity, s)
@@ -106,8 +107,8 @@ func (r record) keptFor(rel release, seen map[string]bool) (*kept, error) {
 // affectedIn returns the packages r affects in rel, noting in seen, up to a
 // bound, every ecosystem r names. A range of rel's that is not in the
 // distribution's own order refuses r.
-func (r record) affectedIn(rel release, seen map[string]bool) ([]keptAffected, error) {
-	var affected []keptAffected
+func (r record) affectedIn(rel release, seen map[string]bool) ([]Affected, error) {
+	var affected []Affected
 	for _, a := range r.Affected {
 		eco := a.Package.Ecosystem
 		if len(seen) < maxEcosystemsSeen {
@@ -116,7 +117,7 @@ func (r record) affectedIn(rel release, seen map[string]bool) ([]keptAffected, e
 		if !rel.accepts(eco) {
 			continue
 		}
-		ka := keptAffected{Package: a.Package.Name, Ecosystem: eco}
+		ka := Affected{Package: a.Package.Name, Ecosystem: eco}
 		for _, rg := range a.Ranges {
 			if rg.Type != rangeEcosystem {
 				return nil, fmt.Errorf("a range of %s is of type %q, not %s", printable(a.Package.Name), printable(rg.Type), rangeEcosystem)
@@ -160,7 +161,7 @@ func (r record) advisory() string {
 // as CVEs are, an HTTPS advisory, scores of text, and at least one package of
 // rel, each with ranges that open with an introduced event and do not hold
 // both a fixed and a last affected event.
-func (k kept) valid(rel release) error {
+func (k Record) valid(rel release) error {
 	switch {
 	case !identifier.MatchString(k.ID):
 		return fmt.Errorf("%q is not a record's identifier", printable(k.ID))
@@ -199,7 +200,7 @@ func (k kept) valid(rel release) error {
 
 // valid refuses a package that is not named, is not of rel, or has a range
 // that is not in the schema's form.
-func (a keptAffected) valid(rel release) error {
+func (a Affected) valid(rel release) error {
 	if err := text("a package's name", a.Package); err != nil {
 		return err
 	}
@@ -220,7 +221,7 @@ func (a keptAffected) valid(rel release) error {
 // validRange refuses a range that is not in the schema's form: every event
 // one of those it names with a version, at least one introduced event, and
 // not both a fixed and a last affected event.
-func validRange(events []event) error {
+func validRange(events []Event) error {
 	count := map[string]int{}
 	for _, e := range events {
 		if len(e) != 1 {
