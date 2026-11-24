@@ -30,6 +30,7 @@ import (
 
 	"github.com/papa0four/orkowatch/internal/dataset"
 	"github.com/papa0four/orkowatch/internal/osfingerprint"
+	"github.com/papa0four/orkowatch/internal/softwarelist"
 )
 
 const (
@@ -88,6 +89,7 @@ type Dump struct {
 	id        string
 	directory string
 	platform  string
+	manager   string
 	license   string
 	fetchMax  int64
 	keptMax   int64
@@ -98,21 +100,26 @@ type Dump struct {
 // order.
 func Datasets() []dataset.Dataset {
 	return []dataset.Dataset{
-		Dump{id: "osv-almalinux", directory: "AlmaLinux", platform: "almalinux", license: "MIT",
+		Dump{id: "osv-almalinux", directory: "AlmaLinux", platform: "almalinux", manager: softwarelist.ManagerRPM, license: "MIT",
 			fetchMax: 256 << 20, keptMax: 32 << 20, release: major("AlmaLinux")},
-		Dump{id: "osv-alpine", directory: "Alpine", platform: "alpine", license: "CC-BY-SA 4.0",
+		Dump{id: "osv-alpine", directory: "Alpine", platform: "alpine", manager: softwarelist.ManagerAPK, license: "CC-BY-SA 4.0",
 			fetchMax: 256 << 20, keptMax: 32 << 20, release: alpine},
-		Dump{id: "osv-redhat", directory: "Red Hat", platform: "redhat", license: "CC-BY 4.0",
+		Dump{id: "osv-redhat", directory: "Red Hat", platform: "redhat", manager: softwarelist.ManagerRPM, license: "CC-BY 4.0",
 			fetchMax: 512 << 20, keptMax: 32 << 20, release: redHat},
-		Dump{id: "osv-rocky", directory: "Rocky Linux", platform: "rocky", license: "BSD",
+		Dump{id: "osv-rocky", directory: "Rocky Linux", platform: "rocky", manager: softwarelist.ManagerRPM, license: "BSD",
 			fetchMax: 256 << 20, keptMax: 32 << 20, release: major("Rocky Linux")},
-		Dump{id: "osv-ubuntu", directory: "Ubuntu", platform: "ubuntu", license: "CC-BY-SA 4.0",
+		Dump{id: "osv-ubuntu", directory: "Ubuntu", platform: "ubuntu", manager: softwarelist.ManagerDpkg, license: "CC-BY-SA 4.0",
 			fetchMax: 4 << 30, keptMax: 64 << 20, release: ubuntu},
 	}
 }
 
 // ID names the dataset.
 func (d Dump) ID() string { return d.id }
+
+// Manager is the package manager whose packages the distribution's records
+// name, as the software inventory names it, and so whose version order the
+// records' ranges are in.
+func (d Dump) Manager() string { return d.manager }
 
 // AppliesTo reports whether host runs the distribution, as its fingerprint
 // names it.

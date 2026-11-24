@@ -128,6 +128,15 @@ func TestDatasets(t *testing.T) {
 	if want := []string{"osv-almalinux", "osv-alpine", "osv-redhat", "osv-rocky", "osv-ubuntu"}; !slices.Equal(ids, want) {
 		t.Errorf("datasets %q, want %q", ids, want)
 	}
+	// Each names the packages of its distribution's manager, as read on a
+	// host of each.
+	for id, want := range map[string]string{
+		"osv-almalinux": "rpm", "osv-alpine": "apk", "osv-redhat": "rpm", "osv-rocky": "rpm", "osv-ubuntu": "dpkg",
+	} {
+		if got := dump(t, id).Manager(); got != want {
+			t.Errorf("%s: manager %q, want %q", id, got, want)
+		}
+	}
 	for id, want := range map[string][2]string{
 		"osv-almalinux": {"https://storage.googleapis.com/osv-vulnerabilities/AlmaLinux/all.zip", "MIT"},
 		"osv-alpine":    {"https://storage.googleapis.com/osv-vulnerabilities/Alpine/all.zip", "CC-BY-SA 4.0"},
