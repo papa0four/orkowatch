@@ -9,6 +9,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/papa0four/orkowatch/cmd/commands/cliargs"
 	"github.com/papa0four/orkowatch/cmd/commands/delivery"
 	"github.com/papa0four/orkowatch/internal/security/finding"
 )
@@ -47,7 +48,7 @@ func newModuleCmd(m standaloneModule, module inventory, name string) *cobra.Comm
 	var out *delivery.Flags
 	cmd := &cobra.Command{
 		Use:     m.use,
-		Args:    cobra.NoArgs,
+		Args:    cliargs.None,
 		Short:   m.short,
 		Long:    m.long,
 		Example: m.example,

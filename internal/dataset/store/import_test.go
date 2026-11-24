@@ -194,6 +194,7 @@ func TestImportRecordsAFailure(t *testing.T) {
 	if !strings.Contains(row.Attention, "failed after 1 attempt:") || !strings.Contains(row.Attention, "2026-11-22T12:00:00Z") {
 		t.Errorf("attention %q, want the failure with its time and attempts", row.Attention)
 	}
+	wantFailureOf(t, row.Attention, opImport)
 
 	if err := os.RemoveAll(blocker); err != nil {
 		t.Fatal(err)
@@ -203,6 +204,45 @@ func TestImportRecordsAFailure(t *testing.T) {
 	}
 	if row := rowOf(t, s, known, "wanted"); row.Attention != "" || row.DataDate != "2026-11-21" {
 		t.Errorf("row %+v, want the failure cleared", row)
+	}
+}
+
+// wantFailureOf checks that attention names a failure of op and the command
+// that runs op again.
+func wantFailureOf(t *testing.T, attention string, op operation) {
+	t.Helper()
+	if !strings.HasPrefix(attention, "the "+string(op)+" at ") || !strings.HasSuffix(attention, "run owatch data "+string(op)+" again") {
+		t.Errorf("attention %q, want the %s that failed and the command to run it again", attention, op)
+	}
+}
+
+// A reason that ends in a period, as Windows writes its errors, is shown
+// without it where the sentence goes on.
+func TestFailureReasonEndingInAPeriod(t *testing.T) {
+	s, _ := stores(t)
+	put(t, s, wanted, content, now.Add(-48*time.Hour), nil)
+	record := `{"operation":"refresh","attempts":3,"reason":"the target machine actively refused it.","at":"2026-11-22T12:00:00Z"}`
+	if err := os.WriteFile(filepath.Join(s.dir("wanted"), failureName), []byte(record), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if row := rowOf(t, s, known, "wanted"); !strings.Contains(row.Attention, "actively refused it; resolve the cause") {
+		t.Errorf("attention %q, want the reason's period dropped before the advice", row.Attention)
+	}
+}
+
+// A record that names an operation owatch does not know is refused as any
+// unreadable record is, and status says to run either command.
+func TestFailureRecordWithAnUnknownOperation(t *testing.T) {
+	s, _ := stores(t)
+	put(t, s, wanted, content, now.Add(-48*time.Hour), nil)
+	record := `{"operation":"fetch","attempts":1,"reason":"for the test","at":"2026-11-22T12:00:00Z"}`
+	if err := os.WriteFile(filepath.Join(s.dir("wanted"), failureName), []byte(record), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	row := rowOf(t, s, known, "wanted")
+	if !strings.Contains(row.Attention, `cannot be read (it names the operation "fetch", which is neither import nor refresh)`) ||
+		!strings.HasSuffix(row.Attention, "run owatch data refresh or owatch data import again") {
+		t.Errorf("attention %q, want the record refused and both commands named", row.Attention)
 	}
 }
 

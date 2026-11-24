@@ -13,6 +13,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/papa0four/orkowatch/cmd/commands/cliargs"
 	"github.com/papa0four/orkowatch/internal/dataset"
 	"github.com/papa0four/orkowatch/internal/dataset/fetch"
 	"github.com/papa0four/orkowatch/internal/dataset/store"
@@ -50,7 +51,7 @@ func (d *dataCmd) refreshCmd() *cobra.Command {
 	)
 	cmd := &cobra.Command{
 		Use:   "refresh",
-		Args:  cobra.NoArgs,
+		Args:  cliargs.None,
 		Short: "Fetch the datasets this host needs, over HTTPS",
 		Long: `Fetch the datasets that apply to this host into the account's store, each
 from the address its source publishes it at. This is the only owatch command

@@ -226,12 +226,14 @@ func EnabledChecks(mask CheckMask) []string {
 // firewall), so an analyst can skip a check by the same token used to enable
 // it; error messages and help text advertise canonical names only. The valid
 // name set is derived dynamically from the registry so the error message
-// stays accurate as new entries are added. It returns an error naming the
-// first unrecognized entry alongside the full valid set for that category.
+// stays accurate as new entries are added. A name is read without the spaces
+// around it, since a list quoted as "firewall, ssh" is one an operator means
+// as two names. It returns an error naming the first unrecognized entry
+// alongside the full valid set for that category.
 func MaskFromNames(names []string, category CheckCategory) (CheckMask, error) {
 	var mask CheckMask
 	for _, name := range names {
-		lower := strings.ToLower(name)
+		lower := strings.ToLower(strings.TrimSpace(name))
 		e, ok := checksByName[lower]
 		if !ok || e.category != category {
 			return 0, fmt.Errorf("invalid name %q for category %s (valid: %s)",

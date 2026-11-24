@@ -359,7 +359,7 @@ func (b browser) recordBody(p *recordPane) string {
 	if noun == "" {
 		noun = strings.ToLower(p.tab.Name)
 	}
-	status := fmt.Sprintf("%d of %d %s", len(p.visible), len(p.tab.Records), noun)
+	status := fmt.Sprintf("%s: %d of %d", noun, len(p.visible), len(p.tab.Records))
 	main := lipgloss.JoinVertical(lipgloss.Left,
 		b.queryLine(status),
 		p.listView(b.listHeight(), b.mainWidth(), true),

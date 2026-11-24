@@ -170,11 +170,15 @@ func TestEnvironmentalFollowsTheEvidence(t *testing.T) {
 	}{
 		"one file reachable by others": {
 			[]finding.Evidence{fileSubject("/a", finding.ReachRootOnly), {Kind: finding.KindFile, Subject: "/b"}},
-			[]string{"of the 2 file subjects, MPR:H on 1; the 1 that keep PR:L score higher, so PR:L stands"},
+			[]string{"of the 2 file subjects, MPR:H on 1 and PR:L on 1; PR:L scores higher, so it stands"},
 		},
 		"reach not determined": {
 			[]finding.Evidence{fileSubject("/a", finding.ReachUndetermined), fileSubject("/b", finding.ReachUndetermined), {Kind: finding.KindFile, Subject: "/c"}},
-			[]string{"reach on the 3 file subjects is undetermined on 2, not recorded on 1, which no case of the rule modifies, so PR:L stands"},
+			[]string{"reach on the 3 file subjects is undetermined on 2 and not recorded on 1, which no case of the rule modifies, so PR:L stands"},
+		},
+		"one file, reach not determined": {
+			[]finding.Evidence{fileSubject("/a", finding.ReachUndetermined)},
+			[]string{"reach on the 1 file subject is undetermined on 1, which no case of the rule modifies, so PR:L stands"},
 		},
 		"no file": {nil, []string{"no file evidence was recorded, so PR:L stands"}},
 	} {

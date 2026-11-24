@@ -17,3 +17,17 @@ func TestDatasetsModule(t *testing.T) {
 		t.Errorf("all's modules and two checks are coded %q, want m.nos-c.fs", got)
 	}
 }
+
+// A name is read without the spaces around it, as a list quoted with a space
+// after each comma gives it, and a name of only spaces is still refused.
+func TestMaskFromNamesTrimsSpaces(t *testing.T) {
+	if mask, err := MaskFromNames([]string{"firewall", " permissions"}, CategoryCheck); err != nil || mask != CheckFirewall|CheckPerms {
+		t.Errorf("firewall and \" permissions\" resolve to %b, %v", mask, err)
+	}
+	if mask, err := MaskFromNames([]string{" audit ", "software"}, CategoryModule); err != nil || mask != ModuleAudit|ModuleSoftware {
+		t.Errorf("\" audit \" and software resolve to %b, %v", mask, err)
+	}
+	if _, err := MaskFromNames([]string{"firewall", "  "}, CategoryCheck); err == nil {
+		t.Error("a name of only spaces was accepted")
+	}
+}

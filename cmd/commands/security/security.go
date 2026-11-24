@@ -17,6 +17,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/papa0four/orkowatch/cmd/commands/cliargs"
 	"github.com/papa0four/orkowatch/cmd/commands/delivery"
 	"github.com/papa0four/orkowatch/internal/osfingerprint"
 	"github.com/papa0four/orkowatch/internal/render"
@@ -247,13 +248,15 @@ func (c *auditCmd) selectFilePerms(value string) error {
 }
 
 // validateArgs admits the one argument the command takes, the path that
-// follows a bare --fperms, and keeps it as the scan root.
+// follows a bare --fperms, and keeps it as the scan root. Any other argument
+// is refused with where a path goes, since a path is the one the command can
+// take.
 func (c *auditCmd) validateArgs(cmd *cobra.Command, args []string) error {
 	switch {
 	case len(args) == 0:
 		return nil
 	case !c.checkFilePerms:
-		return cobra.NoArgs(cmd, args)
+		return fmt.Errorf("%w; a path to scan is given after --fperms", cliargs.None(cmd, args))
 	case c.scanRoot != "":
 		return fmt.Errorf("--fperms: one path is taken, and %q follows %q", args[0], c.scanRoot)
 	case len(args) > 1:

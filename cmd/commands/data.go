@@ -12,6 +12,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/papa0four/orkowatch/cmd/commands/cliargs"
 	"github.com/papa0four/orkowatch/internal/dataset"
 	"github.com/papa0four/orkowatch/internal/dataset/kev"
 	"github.com/papa0four/orkowatch/internal/dataset/store"
@@ -67,7 +68,7 @@ func dataCommand(d *dataCmd) *cobra.Command {
 with no network. Each account has its own store, at a fixed place under the
 account's home. A run as root or from an elevated terminal has no store yet.
 Only owatch data refresh opens a network connection.`,
-		Args: cobra.NoArgs,
+		Args: cliargs.None,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if err := cmd.Help(); err != nil {
 				return fmt.Errorf("displaying help: %w", err)

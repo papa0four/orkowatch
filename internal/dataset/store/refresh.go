@@ -89,7 +89,7 @@ func (s Store) stageAll(ctx context.Context, fetch Fetch, datasets []dataset.Dat
 		if err := os.RemoveAll(dir); err != nil {
 			return nil, err
 		}
-		failed = append(failed, s.failed(d.ID(), attempts, ferr, now))
+		failed = append(failed, s.failed(d.ID(), opRefresh, attempts, ferr, now))
 	}
 	return failed, nil
 }
@@ -102,12 +102,12 @@ func (s Store) installStaged(ctx context.Context, staging string, datasets []dat
 		return nil, err
 	}
 	var outcomes []Outcome
-	for _, o := range s.importEntries(ctx, staging, entries, datasets, host, now) {
+	for _, o := range s.importEntries(ctx, opRefresh, staging, entries, datasets, host, now) {
 		// What was fetched and then refused is a failed refresh of that
 		// dataset, to be shown until one succeeds, where a refused entry
 		// of an import is only a file the operator offered.
 		if o.Result == Refused {
-			o = s.failed(o.ID, 1, errors.New(o.Reason), now)
+			o = s.failed(o.ID, opRefresh, 1, errors.New(o.Reason), now)
 		}
 		outcomes = append(outcomes, o)
 	}

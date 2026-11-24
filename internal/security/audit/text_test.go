@@ -50,7 +50,7 @@ func TestTextShowsBothScores(t *testing.T) {
 		"    calculator: https://www.first.org/cvss/calculator/4.0#baseline",
 		"  CVSS on this host: 8.6 HIGH  CVSS-BE v4.0, Modified Base metrics derived from evidence recorded on this host  CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N/MAV:L",
 		"    calculator: https://www.first.org/cvss/calculator/4.0#host",
-		"    MAV:L from listening loopback-only on 1 of 1 subjects: sshd listens only on loopback addresses",
+		"    MAV:L from listening loopback-only on 1 of 1 subject: sshd listens only on loopback addresses",
 		"      Implementation Guide, Modified Attack Vector (MAV): \"the service is exposed locally\"",
 		"    MPR not modified: no file evidence was recorded, so PR:N stands",
 	} {

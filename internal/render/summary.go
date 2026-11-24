@@ -14,8 +14,8 @@ func SuppressionNotice(w io.Writer, suppressed, total int, minSeverity string) e
 	if suppressed <= 0 {
 		return nil
 	}
-	_, err := fmt.Fprintf(w, "%d of %d findings suppressed by --min-severity %s. "+
+	_, err := fmt.Fprintf(w, "%d of %s suppressed by --min-severity %s. "+
 		"Rerun with a lower threshold or without --min-severity to see all findings.\n\n",
-		suppressed, total, strings.ToUpper(minSeverity))
+		suppressed, Count(total, "finding", "findings"), strings.ToUpper(minSeverity))
 	return err
 }

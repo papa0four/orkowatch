@@ -933,7 +933,8 @@ func (b browser) help() []hint {
 
 // searchView is the line above the list: the search text when there is any,
 // how many items are shown of how many the scope admits, and the filters
-// narrowing them. A severity filter shows only findings, since no other rule
+// narrowing them. The scope is named before the counts, so it reads the same
+// whatever they are, one included. A severity filter shows only findings, since no other rule
 // has a severity, and the line says so.
 func (b browser) searchView() string {
 	scope := "findings and errors"
@@ -943,7 +944,7 @@ func (b browser) searchView() string {
 	case !b.findingsOnly:
 		scope = "rules"
 	}
-	status := fmt.Sprintf("%d of %d %s", len(b.visible), b.total(), scope)
+	status := fmt.Sprintf("%s: %d of %d", scope, len(b.visible), b.total())
 	if b.severity > 0 {
 		status += "  severity " + strings.ToLower(b.severities[b.severity])
 	}

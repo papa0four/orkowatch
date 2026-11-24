@@ -43,6 +43,22 @@ func TestSourcesAreAColumn(t *testing.T) {
 	}
 }
 
+// The line above a list names what it counts before the counts, so one
+// finding reads as it should, and a record tab's line has the same form.
+func TestCountLinesNameTheirNounFirst(t *testing.T) {
+	r := sidebarReport(1)
+	two := []Record{{Title: "a"}, {Title: "b"}}
+	r.Tabs = append(r.Tabs, Tab{ID: TabSockets, Name: "Sockets", Records: two})
+	b := sized(newBrowser(r), 120, 30)
+	if frame := plain(b.render()); !strings.Contains(frame, "findings and errors: 1 of 1") {
+		t.Errorf("the findings list's line lacks its count:\n%s", frame)
+	}
+	b = press(b, "l")
+	if frame := plain(b.render()); !strings.Contains(frame, "sockets: 2 of 2") {
+		t.Errorf("the sockets tab's line lacks its count:\n%s", frame)
+	}
+}
+
 // The footer states navigation and not the key of each source, which the left
 // pane lists, so it does not grow with the sources.
 func TestFooterDoesNotNameSourceKeys(t *testing.T) {
