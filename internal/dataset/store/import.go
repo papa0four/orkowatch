@@ -136,11 +136,11 @@ func (s Store) importOne(ctx context.Context, op operation, src Store, e os.DirE
 		return Outcome{ID: id, Result: Skipped, Reason: "it does not apply to this host"}
 	}
 
-	m, err := src.read(d, now, checkWith(d))
+	m, err := src.read(d, now, checkWith(d, host))
 	if err != nil {
 		return refuse(err.Error())
 	}
-	if held, err := s.read(d, now, checkWith(d)); err == nil && !m.Fetched.After(held.Fetched) {
+	if held, err := s.read(d, now, checkWith(d, host)); err == nil && !m.Fetched.After(held.Fetched) {
 		return Outcome{ID: id, Result: Kept, Reason: fmt.Sprintf("the copy held was fetched at %s, no earlier than this one, fetched at %s",
 			held.Fetched.UTC().Format(time.RFC3339), m.Fetched.UTC().Format(time.RFC3339))}
 	}
@@ -163,10 +163,11 @@ func (s Store) failed(id string, op operation, attempts int, err error, now time
 	return Outcome{ID: id, Result: Failed, Reason: reason, Attempts: attempts}
 }
 
-// checkWith is the read of a dataset that runs its own check of the content.
-func checkWith(d dataset.Dataset) func(io.Reader) error {
+// checkWith is the read of a dataset that runs its own check of the content,
+// for host.
+func checkWith(d dataset.Dataset, host *osfingerprint.OSInfo) func(io.Reader) error {
 	return func(data io.Reader) error {
-		_, err := d.Check(data)
+		_, err := d.Check(data, host)
 		return err
 	}
 }

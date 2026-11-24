@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/papa0four/orkowatch/internal/dataset"
 	"github.com/papa0four/orkowatch/internal/dataset/datasettest"
@@ -30,6 +31,9 @@ func (s *served) Size(_ context.Context, d dataset.Dataset) (int64, bool, error)
 	size, stated := s.sizes[d.ID()]
 	return size, stated, nil
 }
+
+// TimeLimit allows every download ten minutes.
+func (*served) TimeLimit(int64) time.Duration { return 10 * time.Minute }
 
 func (s *served) Fetch(_ context.Context, d dataset.Dataset, w io.Writer) error {
 	s.fetched = append(s.fetched, d.ID())
@@ -75,7 +79,7 @@ func holds(root, id string) bool {
 func TestDataRefresh(t *testing.T) {
 	d, s, origins := refreshing(t, false, "")
 	out, err := run(d, "refresh")
-	if err != nil || out != "wanted: 39 B from https://data.example/wanted\nwanted: installed\n" {
+	if err != nil || out != "wanted: 39 B from https://data.example/wanted, allowed 10m0s\nwanted: installed\n" {
 		t.Errorf("refresh printed %q, %v", out, err)
 	}
 	if !slices.Equal(origins.fetched, []string{"wanted"}) || !holds(s.Root(), "wanted") || holds(s.Root(), "debian-data") {

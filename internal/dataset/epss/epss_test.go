@@ -85,7 +85,7 @@ func TestCheckAcceptsTheRecordedExcerpt(t *testing.T) {
 		t.Fatalf("the recorded excerpt holds %d rows, want %d", rows, recordedRows)
 	}
 	for name, data := range map[string][]byte{"as held": compressed, "packed again": packed(t, text)} {
-		facts, err := Scores{}.Check(bytes.NewReader(data))
+		facts, err := Scores{}.Check(bytes.NewReader(data), nil)
 		if err != nil {
 			t.Fatalf("%s: the recorded excerpt was refused: %v", name, err)
 		}
@@ -100,7 +100,7 @@ func TestCheckAcceptsTheRecordedExcerpt(t *testing.T) {
 func TestCheckAcceptsEveryFormOfScore(t *testing.T) {
 	_, text := recorded(t)
 	for _, row := range []string{"CVE-1999-0001,1e-05,0.00021\n", "CVE-1999-0001,0,1\n", "CVE-1999-0001,1.0,0.0\n", "CVE-1999-0001,9.5e-06,0.5\n"} {
-		if _, err := (Scores{}).Check(bytes.NewReader(packed(t, changed(t, text, recordedFirst, row)))); err != nil {
+		if _, err := (Scores{}).Check(bytes.NewReader(packed(t, changed(t, text, recordedFirst, row))), nil); err != nil {
 			t.Errorf("the row %q was refused: %v", row, err)
 		}
 	}
@@ -148,7 +148,7 @@ func TestCheckRefuses(t *testing.T) {
 		{"a carriage return", row("CVE-1999-0001,0.04753,0.921\r\n"), "row 1 gives the percentile"},
 		{"a line too long", row("CVE-1999-0001,0.04753,0." + strings.Repeat("9", maxLine) + "\n"), "a line holds more than"},
 	} {
-		if _, err := (Scores{}).Check(bytes.NewReader(tt.data)); err == nil || !strings.Contains(err.Error(), tt.reason) {
+		if _, err := (Scores{}).Check(bytes.NewReader(tt.data), nil); err == nil || !strings.Contains(err.Error(), tt.reason) {
 			t.Errorf("%s: gave %v, want it refused for a reason naming %q", tt.name, err, tt.reason)
 		}
 	}

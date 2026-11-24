@@ -27,8 +27,10 @@ const (
 	stagingPrefix = ".staging-"
 
 	// downloadName is the file a fetch is written to before its checksum,
-	// which names it, is known.
+	// which names it, is known, and keptName the file a dataset that keeps
+	// less than it fetches writes what it keeps to.
 	downloadName = "download" + partialSuffix
+	keptName     = "kept" + partialSuffix
 )
 
 // Fetch writes the data of d, as its origin serves it, to w. The store does
@@ -61,7 +63,7 @@ func (s Store) Refresh(ctx context.Context, fetch Fetch, datasets []dataset.Data
 	}
 	defer func() { err = errors.Join(err, os.RemoveAll(staging)) }()
 
-	outcomes, err = s.stageAll(ctx, fetch, datasets, staging, now)
+	outcomes, err = s.stageAll(ctx, fetch, datasets, staging, host, now)
 	if err != nil {
 		return nil, err
 	}
@@ -77,12 +79,13 @@ func (s Store) Refresh(ctx context.Context, fetch Fetch, datasets []dataset.Data
 // stageAll fetches each of datasets into staging, trying again a fetch that
 // fails for a reason that passes, and returns the outcome of each that could
 // not be fetched. What a failed fetch staged is removed, so only whole
-// datasets are left to install.
-func (s Store) stageAll(ctx context.Context, fetch Fetch, datasets []dataset.Dataset, staging string, now time.Time) ([]Outcome, error) {
+// datasets are left to install. A dataset that keeps less than it fetches
+// keeps what host needs.
+func (s Store) stageAll(ctx context.Context, fetch Fetch, datasets []dataset.Dataset, staging string, host *osfingerprint.OSInfo, now time.Time) ([]Outcome, error) {
 	var failed []Outcome
 	for _, d := range datasets {
 		dir := filepath.Join(staging, d.ID())
-		attempts, ferr := retry(ctx, func() error { return stage(ctx, fetch, d, dir, now) })
+		attempts, ferr := retry(ctx, func() error { return stage(ctx, fetch, d, dir, host, now) })
 		if ferr == nil {
 			continue
 		}
@@ -132,10 +135,13 @@ func (s Store) clearStaging() error {
 }
 
 // stage fetches d into dir as a dataset in the store's layout. Whatever an
-// earlier attempt left in dir is removed first. The data is counted and
-// hashed as it is written, and refused past the dataset's limit whatever the
-// fetch itself allows, since the limit is the store's to keep.
-func stage(ctx context.Context, fetch Fetch, d dataset.Dataset, dir string, now time.Time) error {
+// earlier attempt left in dir is removed first. The download is counted and
+// hashed as it is written, and refused past what d's origin may serve
+// whatever the fetch itself allows, since the limit is the store's to keep.
+// A dataset that keeps less than it fetches has what it keeps for host
+// written from the download, which is then deleted, and the manifest records
+// the download beside what was kept.
+func stage(ctx context.Context, fetch Fetch, d dataset.Dataset, dir string, host *osfingerprint.OSInfo, now time.Time) error {
 	if err := os.RemoveAll(dir); err != nil {
 		return err
 	}
@@ -143,13 +149,11 @@ func stage(ctx context.Context, fetch Fetch, d dataset.Dataset, dir string, now 
 		return err
 	}
 
-	hash := sha256.New()
-	limited := &limitedWriter{limit: d.MaxBytes()}
 	download := filepath.Join(dir, downloadName)
-	if err := writeNew(download, func(out io.Writer) error {
-		limited.w = io.MultiWriter(out, hash)
-		return fetch(ctx, d, limited)
-	}); err != nil {
+	sum, size, err := writeCounted(download, dataset.FetchLimit(d), func(out io.Writer) error {
+		return fetch(ctx, d, out)
+	})
+	if err != nil {
 		return err
 	}
 
@@ -159,12 +163,23 @@ func stage(ctx context.Context, fetch Fetch, d dataset.Dataset, dir string, now 
 		ID:          d.ID(),
 		Source:      origin.URL,
 		Fetched:     now,
-		SHA256:      hex.EncodeToString(hash.Sum(nil)),
-		Size:        limited.n,
+		SHA256:      sum,
+		Size:        size,
 		License:     origin.License,
 		Attribution: origin.Attribution,
 	}
-	if err := os.Rename(download, filepath.Join(dir, m.SHA256+dataSuffix)); err != nil {
+	data := download
+	if k, ok := d.(dataset.Keeper); ok {
+		m.OriginSHA256, m.OriginSize = sum, size
+		data = filepath.Join(dir, keptName)
+		if m.SHA256, m.Size, err = keep(k, download, data, host); err != nil {
+			return err
+		}
+		if err := os.Remove(download); err != nil {
+			return err
+		}
+	}
+	if err := os.Rename(data, filepath.Join(dir, m.SHA256+dataSuffix)); err != nil {
 		return err
 	}
 	var manifest bytes.Buffer
@@ -172,6 +187,39 @@ func stage(ctx context.Context, fetch Fetch, d dataset.Dataset, dir string, now 
 		return err
 	}
 	return writeReplacing(filepath.Join(dir, manifestName), manifest.Bytes())
+}
+
+// writeCounted creates the file at path, which must not exist, and writes it
+// with write, refusing the write that would pass limit. It returns the
+// checksum of what was written, in lower-case hexadecimal, and its size.
+func writeCounted(path string, limit int64, write func(io.Writer) error) (string, int64, error) {
+	hash := sha256.New()
+	limited := &limitedWriter{limit: limit}
+	if err := writeNew(path, func(out io.Writer) error {
+		limited.w = io.MultiWriter(out, hash)
+		return write(limited)
+	}); err != nil {
+		return "", 0, err
+	}
+	return hex.EncodeToString(hash.Sum(nil)), limited.n, nil
+}
+
+// keep writes to the file at to what k keeps for host from the fetched file
+// at from, held to what k may keep. It returns the checksum and size of what
+// was kept.
+func keep(k dataset.Keeper, from, to string, host *osfingerprint.OSInfo) (sum string, size int64, err error) {
+	fetched, err := fspath.OpenRegular(from)
+	if err != nil {
+		return "", 0, err
+	}
+	defer func() { err = errors.Join(err, fetched.Close()) }()
+	info, err := fetched.Stat()
+	if err != nil {
+		return "", 0, err
+	}
+	return writeCounted(to, k.MaxBytes(), func(out io.Writer) error {
+		return k.Keep(fetched, info.Size(), host, out)
+	})
 }
 
 // writeNew creates the file at path, which must not exist, and writes it

@@ -80,8 +80,8 @@ func TestStatusOfAHeldDataset(t *testing.T) {
 // unversioned is the test dataset with a check that states no version.
 type unversioned struct{ testDataset }
 
-func (u unversioned) Check(data io.Reader) (dataset.Facts, error) {
-	facts, err := u.testDataset.Check(data)
+func (u unversioned) Check(data io.Reader, host *osfingerprint.OSInfo) (dataset.Facts, error) {
+	facts, err := u.testDataset.Check(data, host)
 	facts.Version = ""
 	return facts, err
 }

@@ -4,8 +4,8 @@
 // only part of owatch that opens a network connection, and it is held to what
 // each dataset states of itself: the address its data is at, and the hosts a
 // redirect from that address may lead to. It sends nothing about the host it
-// runs on, reads no more than the dataset may hold, and gives up after a fixed
-// time. It never runs elevated: a privileged process that reads what a server
+// runs on, reads no more than the dataset's origin may serve, and gives up
+// when a download runs past the time its size allows or stalls. It never runs elevated: a privileged process that reads what a server
 // sends puts that server's input in front of everything the process can do.
 package fetch
 
@@ -33,10 +33,18 @@ const (
 	// host and in every version, so a request says only that it is owatch's.
 	userAgent = "owatch"
 
-	// downloadTimeout bounds the whole of one download, and sizeTimeout the
-	// question of how large one is.
+	// downloadTimeout is the least time one download is allowed, and
+	// floorRate the slowest a link may carry it at before a large one runs
+	// out of time: a download is allowed its size at floorRate, never less
+	// than downloadTimeout. sizeTimeout bounds the question of how large one
+	// is.
 	downloadTimeout = 10 * time.Minute
+	floorRate       = 256 << 10
 	sizeTimeout     = 30 * time.Second
+
+	// stallTimeout is how long a download may receive nothing before it is
+	// given up as stalled, which may clear when it is tried again.
+	stallTimeout = 60 * time.Second
 
 	// connectTimeout bounds reaching a server and agreeing on TLS with it,
 	// and headerTimeout the wait for its answer to begin.
@@ -80,6 +88,21 @@ func lasting(format string, args ...any) *Error {
 type Client struct {
 	transport http.RoundTripper
 	timeout   time.Duration
+	stall     time.Duration
+}
+
+// errTimeLimit and errStalled are why a download was ended before it
+// finished: it ran past the time its size allows, or it received nothing for
+// too long.
+var (
+	errTimeLimit = errors.New("the time limit passed")
+	errStalled   = errors.New("the download stalled")
+)
+
+// TimeLimit is how long a download of size bytes is allowed: its size at the
+// floor rate, and never less than the floor time.
+func (c *Client) TimeLimit(size int64) time.Duration {
+	return max(c.timeout, time.Duration((size+floorRate-1)/floorRate)*time.Second)
 }
 
 // New returns the client owatch fetches with: the system's certificate roots
@@ -96,6 +119,7 @@ func New() (*Client, error) {
 func newClient(roots *x509.CertPool, proxy func(*http.Request) (*url.URL, error)) *Client {
 	return &Client{
 		timeout: downloadTimeout,
+		stall:   stallTimeout,
 		transport: &http.Transport{
 			Proxy:                 proxy,
 			DialContext:           (&net.Dialer{Timeout: connectTimeout}).DialContext,
@@ -139,28 +163,58 @@ func (c *Client) Size(ctx context.Context, d dataset.Dataset) (int64, bool, erro
 }
 
 // Fetch writes the data of d to w as its origin serves it. It reads at most
-// what d may hold, and the whole download is bounded in time.
+// what d's origin may serve. The download is allowed the time its stated
+// size needs, or the most it may serve when the server does not say, and is
+// ended when it receives nothing for the stall time.
 func (c *Client) Fetch(ctx context.Context, d dataset.Dataset, w io.Writer) (err error) {
-	ctx, cancel := context.WithTimeout(ctx, c.timeout)
-	defer cancel()
+	ctx, cancel := context.WithCancelCause(ctx)
+	defer cancel(nil)
 	resp, err := c.do(ctx, http.MethodGet, d)
 	if err != nil {
 		return err
 	}
 	defer func() { err = errors.Join(err, resp.Body.Close()) }()
 
-	limit := d.MaxBytes()
+	limit := dataset.FetchLimit(d)
 	if resp.ContentLength > limit {
-		return lasting("%s is %d bytes, more than the %d the dataset may hold", d.Origin().URL, resp.ContentLength, limit)
+		return lasting("%s is %d bytes, more than the %d the dataset's origin may serve", d.Origin().URL, resp.ContentLength, limit)
 	}
-	n, err := io.Copy(w, io.LimitReader(resp.Body, limit+1))
+	size := resp.ContentLength
+	if size < 0 {
+		size = limit
+	}
+	allowed := c.TimeLimit(size)
+	whole := time.AfterFunc(allowed, func() { cancel(fmt.Errorf("%w: %s", errTimeLimit, allowed)) })
+	defer whole.Stop()
+	body := &watched{r: resp.Body, every: c.stall, timer: time.AfterFunc(c.stall, func() {
+		cancel(fmt.Errorf("%w: nothing was received for %s", errStalled, c.stall))
+	})}
+	defer body.timer.Stop()
+
+	n, err := io.Copy(w, io.LimitReader(body, limit+1))
 	switch {
 	case err != nil:
 		return failure(ctx, fmt.Errorf("read %s: %w", d.Origin().URL, err))
 	case n > limit:
-		return lasting("%s sent more than the %d bytes the dataset may hold", d.Origin().URL, limit)
+		return lasting("%s sent more than the %d bytes the dataset's origin may serve", d.Origin().URL, limit)
 	}
 	return nil
+}
+
+// watched reads r and restarts timer, which ends a stalled download, each
+// time something is received.
+type watched struct {
+	r     io.Reader
+	every time.Duration
+	timer *time.Timer
+}
+
+func (w *watched) Read(p []byte) (int, error) {
+	n, err := w.r.Read(p)
+	if n > 0 {
+		w.timer.Reset(w.every)
+	}
+	return n, err
 }
 
 // do sends one request for d and returns the answer when it is 200. Every
@@ -219,9 +273,10 @@ func redirectWithin(hosts []string) func(*http.Request, []*http.Request) error {
 	}
 }
 
-// failure says whether a request that did not complete may clear. The time
-// limit, a refused redirect, a certificate that does not verify, and a run
-// that was canceled will not; anything else on the way to a server may.
+// failure says whether a request that did not complete may clear. A download
+// that stalled may; the time limit, a refused redirect, a certificate that
+// does not verify, and a run that was canceled will not; anything else on the
+// way to a server may.
 func failure(ctx context.Context, err error) *Error {
 	var (
 		unknownAuthority x509.UnknownAuthorityError
@@ -229,7 +284,12 @@ func failure(ctx context.Context, err error) *Error {
 		invalid          x509.CertificateInvalidError
 		verification     *tls.CertificateVerificationError
 	)
+	cause := context.Cause(ctx)
 	switch {
+	case errors.Is(cause, errStalled):
+		return &Error{err: fmt.Errorf("%w: %w", cause, err), passing: true}
+	case errors.Is(cause, errTimeLimit):
+		return &Error{err: fmt.Errorf("%w: %w", cause, err)}
 	case errors.Is(ctx.Err(), context.DeadlineExceeded):
 		return &Error{err: fmt.Errorf("the time limit passed: %w", err)}
 	case errors.Is(err, context.Canceled), errors.Is(err, errRedirect), errors.Is(err, errProxy):
