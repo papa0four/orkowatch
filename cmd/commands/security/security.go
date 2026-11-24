@@ -288,14 +288,17 @@ func (c *auditCmd) buildMask() (selection.CheckMask, error) {
 		if c.checkFilePerms {
 			mask |= selection.CheckPerms
 		}
-		if outside := c.audit.SkipMask() &^ mask; outside != 0 {
-			flags := selection.CheckFlags(mask)
-			for i, flag := range flags {
-				flags[i] = "--" + flag
-			}
-			return 0, fmt.Errorf("--skip-checks names %s, not among the checks selected by %s",
-				render.List(selection.EnabledChecks(outside)), render.List(flags))
+	}
+
+	// With no selection flag every check is selected, so only a selection
+	// can leave a skipped check outside it.
+	if outside := c.audit.SkipMask() &^ mask; outside != 0 {
+		flags := selection.CheckFlags(mask)
+		for i, flag := range flags {
+			flags[i] = "--" + flag
 		}
+		return 0, fmt.Errorf("--skip-checks names %s, not among the checks selected by %s",
+			render.List(selection.EnabledChecks(outside)), render.List(flags))
 	}
 
 	mask &^= c.audit.SkipMask()
