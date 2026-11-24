@@ -26,5 +26,11 @@ func accountRoot(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(append([]string{a.Home}, underHome...)...), nil
+	return RootOf(a.Home), nil
+}
+
+// RootOf is the store of the account whose home is home, as the system
+// records it for the account.
+func RootOf(home string) string {
+	return filepath.Join(append([]string{home}, underHome...)...)
 }
