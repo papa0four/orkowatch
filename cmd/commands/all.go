@@ -13,6 +13,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/papa0four/orkowatch/cmd/commands/cliargs"
 	"github.com/papa0four/orkowatch/cmd/commands/delivery"
 	"github.com/papa0four/orkowatch/cmd/commands/security"
 	"github.com/papa0four/orkowatch/internal/dataset"
@@ -101,7 +102,7 @@ func newAllCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "all",
-		Args:  cobra.NoArgs,
+		Args:  cliargs.None,
 		Short: "Run all available scans",
 		RunE:  c.runAllScans,
 		Long: `The all command performs a comprehensive system scan including:

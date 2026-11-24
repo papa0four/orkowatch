@@ -7,6 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/papa0four/orkowatch/cmd/commands/cliargs"
 	"github.com/papa0four/orkowatch/internal/notices"
 )
 
@@ -15,7 +16,7 @@ import (
 func newNoticesCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "notices",
-		Args:  cobra.NoArgs,
+		Args:  cliargs.None,
 		Short: "Print the third-party notices for data bundled in owatch",
 		Long: `Print the license notices that MITRE's terms require for the MITRE ATT&CK® and
 CWE™ content owatch carries. The same text is embedded in the binary, so every
