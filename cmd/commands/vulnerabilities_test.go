@@ -77,10 +77,10 @@ func TestMatchingHeld(t *testing.T) {
 	if v.NotDone != "" || v.Dataset != "records" || v.Release != "Debian:12" || v.DataDate != "2026-11-20" || v.State != string(dataset.StateOutOfSync) || v.Source == "" {
 		t.Fatalf("view %+v", v)
 	}
-	if len(v.Matches) != 1 || v.Matches[0].ID != "CVE-2026-1" || v.Matches[0].Fixed != "3.0.15-1" {
-		t.Errorf("matches %+v", v.Matches)
+	if len(v.Packages) != 1 || len(v.Packages[0].Vulnerabilities) != 1 || v.Packages[0].Vulnerabilities[0].ID != "CVE-2026-1" || v.Packages[0].Vulnerabilities[0].Fixed != "3.0.15-1" {
+		t.Errorf("packages %+v", v.Packages)
 	}
-	if v := m.run(context.Background(), debian, installed("3.0.15-1")); v.NotDone != "" || len(v.Matches) != 0 {
+	if v := m.run(context.Background(), debian, installed("3.0.15-1")); v.NotDone != "" || len(v.Packages) != 0 {
 		t.Errorf("the fixed version gave %+v", v)
 	}
 }
@@ -113,7 +113,7 @@ func TestMatchingNotDone(t *testing.T) {
 			tt.change(&m, s)
 		}
 		v := m.run(context.Background(), tt.host, installed("3.0.11-1"))
-		if !strings.Contains(v.NotDone, tt.reason) || len(v.Matches) != 0 || v.Matches == nil {
+		if !strings.Contains(v.NotDone, tt.reason) || len(v.Packages) != 0 || v.Packages == nil {
 			t.Errorf("%s: %+v, want not done naming %q", name, v, tt.reason)
 		}
 	}
