@@ -79,9 +79,9 @@ type (
 func BindAudit(cmd *cobra.Command) *AuditFlags {
 	a := &AuditFlags{}
 
-	cmd.Flags().StringSliceVar(&a.skipChecks, "skip-checks", []string{},
-		fmt.Sprintf("Audit checks to skip (comma-separated: %s)",
-			selection.ValidNamesFor(selection.CategoryCheck)))
+	cliargs.NameList(cmd, &a.skipChecks, "skip-checks",
+		fmt.Sprintf("Audit checks to skip (comma-separated: %s)", selection.ValidNamesFor(selection.CategoryCheck)),
+		selection.AcceptedNames(selection.CategoryCheck))
 	cmd.Flags().StringVar(&a.minSeverity, "min-severity", finding.SeverityNone,
 		fmt.Sprintf("Minimum severity level to report, judged on the severity on this host (%s)", finding.SeverityNames()))
 	cmd.Flags().BoolVarP(&a.yes, "yes", "y", false,
@@ -268,7 +268,9 @@ func (c *auditCmd) validateArgs(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// buildMask composes a CheckMask from the active flag values
+// buildMask composes a CheckMask from the active flag values. A check named in
+// --skip-checks that the selection flags left out is refused, since skipping
+// it cannot change the run and the operator meant something else.
 func (c *auditCmd) buildMask() (selection.CheckMask, error) {
 	mask := EveryCheck
 
@@ -286,6 +288,17 @@ func (c *auditCmd) buildMask() (selection.CheckMask, error) {
 		if c.checkFilePerms {
 			mask |= selection.CheckPerms
 		}
+	}
+
+	// With no selection flag every check is selected, so only a selection
+	// can leave a skipped check outside it.
+	if outside := c.audit.SkipMask() &^ mask; outside != 0 {
+		flags := selection.CheckFlags(mask)
+		for i, flag := range flags {
+			flags[i] = "--" + flag
+		}
+		return 0, fmt.Errorf("--skip-checks names %s, not among the checks selected by %s",
+			render.List(selection.EnabledChecks(outside)), render.List(flags))
 	}
 
 	mask &^= c.audit.SkipMask()

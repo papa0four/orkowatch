@@ -2,7 +2,10 @@
 
 package selection
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // The datasets module is named and coded as a status report file needs, and
 // a mask of the modules all runs is coded as it always was.
@@ -15,6 +18,21 @@ func TestDatasetsModule(t *testing.T) {
 	}
 	if got := Codes(ModuleOS | ModuleSoftware | ModuleListeners | CheckFirewall | CheckSSH); got != "m.nos-c.fs" {
 		t.Errorf("all's modules and two checks are coded %q, want m.nos-c.fs", got)
+	}
+}
+
+// The names a category accepts are its canonical names and the flag names
+// that differ, and every one resolves.
+func TestAcceptedNames(t *testing.T) {
+	want := []string{"firewall", "fwall", "permissions", "fperms", "ssh", "users"}
+	got := AcceptedNames(CategoryCheck)
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Errorf("AcceptedNames(CategoryCheck) = %v, want %v", got, want)
+	}
+	for _, category := range []CheckCategory{CategoryCheck, CategoryModule} {
+		if _, err := MaskFromNames(AcceptedNames(category), category); err != nil {
+			t.Errorf("%s: %v", category, err)
+		}
 	}
 }
 

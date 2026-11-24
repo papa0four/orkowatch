@@ -137,9 +137,9 @@ Results can be output in various formats and saved to a file.`,
 
 	cmd.Flags().BoolVarP(&c.verbose, "verbose", "v", false,
 		"Enable verbose output for all scans")
-	cmd.Flags().StringSliceVar(&c.skipModules, "skip-modules", []string{},
-		fmt.Sprintf("Modules to skip (comma-separated: %s)",
-			selection.ValidNamesFor(selection.CategoryModule)))
+	cliargs.NameList(cmd, &c.skipModules, "skip-modules",
+		fmt.Sprintf("Modules to skip (comma-separated: %s)", selection.ValidNamesFor(selection.CategoryModule)),
+		selection.AcceptedNames(selection.CategoryModule))
 	cmd.Flags().DurationVar(&c.timeout, "timeout", 30*time.Minute,
 		"Maximum time to run all scans")
 

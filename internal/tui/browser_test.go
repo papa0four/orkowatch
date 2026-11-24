@@ -39,6 +39,21 @@ func press(b browser, key string) browser {
 	return m.(browser)
 }
 
+// pressCode presses a key that types nothing, such as esc or enter.
+func pressCode(b browser, code rune) browser {
+	m, _ := b.onKey(tea.KeyPressMsg{Code: code})
+	return m.(browser)
+}
+
+// keep types query into the search and keeps it with enter.
+func keep(b browser, query string) browser {
+	b = press(b, "/")
+	for _, r := range query {
+		b = press(b, string(r))
+	}
+	return pressCode(b, tea.KeyEnter)
+}
+
 func sized(b browser, width, height int) browser {
 	b.width, b.height = width, height
 	b.layout()
@@ -187,7 +202,8 @@ func TestFindingDetailShowsBothScores(t *testing.T) {
 			"  Implementation Guide, Modified Attack Vector (MAV): \"the service is exposed locally\""}}
 	for _, width := range []int{50, 160} {
 		b := sized(newBrowser(r), width, 60)
-		detail := plain(b.detailText(r.Items[0]))
+		text, _ := b.detailText(r.Items[0])
+		detail := plain(text)
 		for _, want := range []string{"CVSS baseline", "9.3 CRITICAL", "CVSS on this host", "8.6 HIGH", "CVSS-BE", "MAV:L from listening",
 			"severity  HIGH, the CVSS-BE severity on this host; the registry rates the rule CRITICAL"} {
 			if !strings.Contains(strings.Join(strings.Fields(detail), " "), strings.Join(strings.Fields(want), " ")) {
@@ -202,27 +218,112 @@ func TestFindingDetailShowsBothScores(t *testing.T) {
 	}
 }
 
-// A finding with more evidence than the detail pane loads says how many
-// lines it left out and names the key that loads them, which is the key that
-// does: pressing it shows every line and the notice is gone.
-func TestEvidenceNoticeNamesTheKeyThatLoadsTheRest(t *testing.T) {
+// A kept search is cleared by esc on the list and on the left pane, on the
+// findings tab and on a record tab. From the detail pane the first esc goes
+// back to the list and the second clears. The footer names the key only while
+// esc would clear a search.
+func TestEscClearsAKeptSearch(t *testing.T) {
+	r := sidebarReport(3)
+	r.Tabs = append(r.Tabs, Tab{ID: TabSockets, Name: "Sockets", Records: []Record{{Title: "alpha"}, {Title: "beta"}, {Title: "gamma"}}})
+	b := sized(newBrowser(r), 160, 40)
+	offers := func(b browser) bool { return strings.Contains(plain(b.helpView()), "(esc) clear search") }
+
+	if b = keep(b, "check1"); len(b.visible) != 1 || !offers(b) {
+		t.Fatalf("a kept search lists %d and offers esc %v", len(b.visible), offers(b))
+	}
+	if b = pressCode(b, tea.KeyEscape); b.query != "" || len(b.visible) != 3 || offers(b) {
+		t.Errorf("esc on the list left %q, %d listed, esc offered %v", b.query, len(b.visible), offers(b))
+	}
+
+	b = keep(b, "check1")
+	b.focus = focusFilters
+	if b = pressCode(b, tea.KeyEscape); b.query != "" || len(b.visible) != 3 {
+		t.Errorf("esc on the left pane left %q and %d listed", b.query, len(b.visible))
+	}
+
+	b.focus = focusList
+	b = pressCode(keep(b, "check1"), tea.KeyEnter)
+	if b.focus != focusDetail || offers(b) {
+		t.Fatalf("in the detail pane, focus %d and esc offered %v", b.focus, offers(b))
+	}
+	if b = pressCode(b, tea.KeyEscape); b.focus != focusList || b.query != "check1" {
+		t.Errorf("the first esc in the detail pane gave focus %d and search %q", b.focus, b.query)
+	}
+	if b = pressCode(b, tea.KeyEscape); b.query != "" || len(b.visible) != 3 {
+		t.Errorf("the second esc left %q and %d listed", b.query, len(b.visible))
+	}
+
+	b = keep(press(b, "l"), "beta")
+	if p := b.activePane(); len(p.visible) != 1 || !offers(b) {
+		t.Fatalf("a kept search on the sockets tab lists %d and offers esc %v", len(p.visible), offers(b))
+	}
+	if b = pressCode(b, tea.KeyEscape); b.query != "" || len(b.activePane().visible) != 3 {
+		t.Errorf("esc on the sockets tab left %q and %d listed", b.query, len(b.activePane().visible))
+	}
+}
+
+// A finding with more evidence than the detail pane loads says under the
+// evidence heading how much is shown and what x shows instead. Each press of x
+// switches between the two, moves the pane to the heading so the change is in
+// view, and changes the notice and the footer's hint.
+func TestEvidenceToggleShowsWhatChanged(t *testing.T) {
 	const extra = 3
+	total := evidencePreview + extra
 	r := sidebarReport(0)
 	item := Item{Check: "permissions", Key: "permissions.world_writable_file", Result: "fail", Severity: "HIGH", Title: "a finding"}
-	for i := 0; i < evidencePreview+extra; i++ {
+	for i := 0; i < total; i++ {
 		item.Evidence = append(item.Evidence, fmt.Sprintf("- /tmp/file%d", i))
 	}
 	r.Items = []Item{item}
+	last := fmt.Sprintf("- /tmp/file%d", total-1)
+	preview := fmt.Sprintf("showing the first %d; press x to show all %d", evidencePreview, total)
+	all := fmt.Sprintf("showing all %d; press x to show the first %d", total, evidencePreview)
 
-	b := sized(newBrowser(r), 120, 40)
-	notice := fmt.Sprintf("%d more; press x to load all", extra)
-	if detail := plain(b.detailText(item)); !strings.Contains(detail, notice) {
-		t.Errorf("the detail does not say %q", notice)
+	// The window is wide enough for the footer to keep the findings' toggles,
+	// which a narrow one drops first.
+	b := sized(newBrowser(r), 240, 40)
+	state := func(b browser) (content, top, footer string) {
+		text, _ := b.detailText(item)
+		view := strings.Split(plain(b.detail.View()), "\n")
+		return plain(text), strings.TrimSpace(view[0]) + "\n" + strings.TrimSpace(view[1]), plain(b.helpView())
+	}
+
+	content, _, footer := state(b)
+	if !strings.Contains(content, preview) || strings.Contains(content, last) || !strings.Contains(footer, "(x) all evidence") {
+		t.Fatalf("before x: notice %v, last line %v, footer %q", strings.Contains(content, preview), strings.Contains(content, last), footer)
 	}
 
 	b = press(b, "x")
-	detail := plain(b.detailText(item))
-	if strings.Contains(detail, "more; press") || !strings.Contains(detail, fmt.Sprintf("- /tmp/file%d", evidencePreview+extra-1)) {
-		t.Error("pressing the key the notice names did not load the rest of the evidence")
+	content, top, footer := state(b)
+	if !strings.Contains(content, all) || !strings.Contains(content, last) || !strings.Contains(footer, "(x) less evidence") {
+		t.Errorf("after x: notice %v, last line %v, footer %q", strings.Contains(content, all), strings.Contains(content, last), footer)
+	}
+	if want := fmt.Sprintf("evidence (%d)\n%s", total, all); top != want {
+		t.Errorf("after x the pane begins %q, want %q", top, want)
+	}
+
+	b = press(b, "x")
+	content, top, footer = state(b)
+	if !strings.Contains(content, preview) || strings.Contains(content, last) || !strings.Contains(footer, "(x) all evidence") {
+		t.Errorf("after a second x: notice %v, last line %v, footer %q", strings.Contains(content, preview), strings.Contains(content, last), footer)
+	}
+	if want := fmt.Sprintf("evidence (%d)\n%s", total, preview); top != want {
+		t.Errorf("after a second x the pane begins %q, want %q", top, want)
+	}
+}
+
+// On a finding with no more evidence than the preview, x changes nothing and
+// the footer does not offer it.
+func TestEvidenceToggleNeedsMoreThanThePreview(t *testing.T) {
+	r := sidebarReport(0)
+	item := Item{Check: "permissions", Key: "permissions.world_writable_file", Result: "fail", Severity: "HIGH", Title: "a finding",
+		Evidence: []string{"- /tmp/a", "- /tmp/b"}}
+	r.Items = []Item{item}
+	b := sized(newBrowser(r), 120, 40)
+	before, _ := b.detailText(item)
+	b = press(b, "x")
+	after, _ := b.detailText(item)
+	if b.fullEvidence || after != before || strings.Contains(plain(b.helpView()), "(x)") {
+		t.Errorf("x on two lines of evidence: full %v, changed %v, footer %q", b.fullEvidence, after != before, plain(b.helpView()))
 	}
 }
