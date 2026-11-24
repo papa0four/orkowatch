@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
+
+	"github.com/papa0four/orkowatch/internal/account"
 )
 
 const (
@@ -106,7 +108,7 @@ func readAccount(ctx context.Context, username string) (userAccount, error) {
 		return userAccount{}, execError(err)
 	}
 
-	account := userAccount{username: username}
+	entry := userAccount{username: username}
 	for _, line := range strings.Split(string(output), "\n") {
 		fields := strings.Fields(line)
 		if len(fields) < dsclFields {
@@ -115,20 +117,20 @@ func readAccount(ctx context.Context, username string) (userAccount, error) {
 
 		switch fields[0] {
 		case "UniqueID:":
-			if uid, ok := parseUnixID(fields[1]); ok {
-				account.uid = uid
+			if uid, ok := account.ParseID(fields[1]); ok {
+				entry.uid = uid
 			}
 		case "PrimaryGroupID:":
-			if gid, ok := parseUnixID(fields[1]); ok {
-				account.gid = gid
+			if gid, ok := account.ParseID(fields[1]); ok {
+				entry.gid = gid
 			}
 		case "NFSHomeDirectory:":
-			account.homeDir = fields[1]
+			entry.homeDir = fields[1]
 		case "UserShell:":
-			account.shell = fields[1]
+			entry.shell = fields[1]
 		}
 	}
-	return account, nil
+	return entry, nil
 }
 
 // readAccountState reports whether the account's directory record allows it

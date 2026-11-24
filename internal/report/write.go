@@ -11,6 +11,9 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/papa0four/orkowatch/internal/elevation"
+	"github.com/papa0four/orkowatch/internal/fspath"
 )
 
 type (
@@ -29,6 +32,10 @@ const (
 	// user's. Windows has no effective/invoking split, but the same bound
 	// covers its cwd-plus-home allowlist roots.
 	maxOperatorHomes = 2
+
+	// reportFileMode keeps a report, which describes what is weak on the
+	// host, to the account that wrote it.
+	reportFileMode = 0600
 
 	// maxHostnameLen is the longest a single DNS label can be (RFC 1035
 	// section 2.3.4), which is the most os.Hostname can return.
@@ -57,8 +64,13 @@ func Write(path string, data []byte, opts Options) error {
 	// Resolve the parent against the real filesystem so a symlinked
 	// directory is judged by where it leads
 	parent := filepath.Dir(abs)
-	realParent, err := canonicalParent(parent)
-	if err != nil {
+	realParent, err := fspath.Real(parent)
+	switch {
+	case errors.Is(err, fspath.ErrDevicePath):
+		return fmt.Errorf("%w: %w", ErrRefusedLocation, err)
+	case errors.Is(err, fspath.ErrMissing):
+		return fmt.Errorf("%w: %s", ErrParentMissing, parent)
+	case err != nil:
 		return err
 	}
 
@@ -73,11 +85,7 @@ func Write(path string, data []byte, opts Options) error {
 		return fmt.Errorf("%w: %s", ErrRefusedLocation, reason)
 	}
 
-	elevated, err := isElevated()
-	if err != nil {
-		return fmt.Errorf("determine privilege: %w", err)
-	}
-	if elevated {
+	if elevation.Elevated() {
 		if err := guardElevatedWrite(target, realParent, opts); err != nil {
 			return err
 		}
@@ -97,7 +105,7 @@ func guardElevatedWrite(target, realParent string, opts Options) error {
 		return nil
 	}
 
-	reason, err := exposure(realParent)
+	reason, err := elevation.Exposure(realParent)
 	if err != nil {
 		return fmt.Errorf("inspect destination directory: %w", err)
 	}
@@ -105,12 +113,59 @@ func guardElevatedWrite(target, realParent string, opts Options) error {
 		return fmt.Errorf("%w: %s is %s", ErrElevatedExposedDir, realParent, reason)
 	}
 
-	allowed, err := withinAllowlist(target)
-	if err != nil {
-		return err
-	}
-	if !allowed {
+	if !withinAllowlist(target) {
 		return ErrElevatedWriteDenied
+	}
+	return nil
+}
+
+// withinAllowlist permits an elevated write only under roots the operator
+// clearly owns, so a privileged run cannot silently write elsewhere. A root
+// that cannot be resolved admits nothing.
+func withinAllowlist(target string) bool {
+	for _, root := range allowlistRoots() {
+		real, err := fspath.Real(root)
+		if err != nil {
+			continue
+		}
+		if fspath.Within(target, real) {
+			return true
+		}
+	}
+	return false
+}
+
+// allowlistRoots are the working directory and the operator's home: on Unix
+// that of the user behind sudo, on Windows the profile of the account running
+// the process.
+func allowlistRoots() []string {
+	roots := make([]string, 0, maxOperatorHomes)
+	if cwd, err := os.Getwd(); err == nil {
+		roots = append(roots, cwd)
+	}
+	if invoker, ok := elevation.InvokingOperator(); ok {
+		roots = append(roots, invoker.Home)
+	}
+	return roots
+}
+
+// openAndWrite creates target and writes data to it. The name is generated
+// per run, so nothing legitimate is ever there already, and the file is
+// created only where nothing is: a link or FIFO planted to redirect a
+// privileged write is refused.
+func openAndWrite(target string, data []byte) (err error) {
+	f, err := fspath.CreateNew(target, reportFileMode)
+	if err != nil {
+		return fmt.Errorf("create destination: %w", err)
+	}
+	defer func() {
+		if cerr := f.Close(); cerr != nil && err == nil {
+			err = cerr
+		}
+	}()
+
+	if _, werr := f.Write(data); werr != nil {
+		return fmt.Errorf("write report: %w", werr)
 	}
 	return nil
 }
@@ -184,16 +239,4 @@ func ResolveHostname() string {
 	}
 
 	return "unknown"
-}
-
-// pathWithin compares on path boundaries so a sibling is not mistaken for a child
-func pathWithin(target, base string) bool {
-	if target == base {
-		return true
-	}
-	rel, err := filepath.Rel(base, target)
-	if err != nil {
-		return false
-	}
-	return rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }

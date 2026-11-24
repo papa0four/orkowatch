@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/papa0four/orkowatch/internal/account"
 	"github.com/papa0four/orkowatch/internal/security/finding"
 	"github.com/papa0four/orkowatch/internal/security/registry"
 )
@@ -20,10 +21,10 @@ import (
 func TestLookupGroup(t *testing.T) {
 	ctx := context.Background()
 
-	if entry, err := lookupGroup(ctx, getentProgram, "daemon"); err != nil || !strings.HasPrefix(string(entry), "daemon:") {
+	if entry, err := lookupGroup(ctx, account.GetentProgram, "daemon"); err != nil || !strings.HasPrefix(string(entry), "daemon:") {
 		t.Errorf("daemon: entry %q, err %v; want its entry", entry, err)
 	}
-	if entry, err := lookupGroup(ctx, getentProgram, "owatch-no-such-group"); err != nil || entry != nil {
+	if entry, err := lookupGroup(ctx, account.GetentProgram, "owatch-no-such-group"); err != nil || entry != nil {
 		t.Errorf("a group that does not exist: entry %q, err %v; want neither", entry, err)
 	}
 	// false exits 1, which is not the status for a key that is not found.
@@ -60,7 +61,7 @@ func TestPrivilegedGroupsGroupOf(t *testing.T) {
 // privilegeHost is a host as the reader sees it: who runs the audit, the
 // programs installed, what sudo answers and the administrative groups.
 type privilegeHost struct {
-	euid     int
+	elevated bool
 	programs []string
 	sudo     map[string]sudoReply
 	groups   string
@@ -74,7 +75,7 @@ func (h privilegeHost) judge(accounts []userAccount) (map[registry.FindingKey]fi
 
 	var asked []string
 	src := privilegeSources{
-		euid:      h.euid,
+		elevated:  h.elevated,
 		installed: func(program string) bool { return slices.Contains(h.programs, program) },
 		sudo:      scriptedSudo(h.sudo, &asked),
 		groups: func(context.Context) (privilegedGroups, error) {
@@ -187,7 +188,7 @@ func TestReadPrivilegeAsRoot(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got, details, _ := privilegeHost{euid: rootUID, programs: []string{"sudo"}, sudo: tc.sudo}.judge(privilegeAccounts)
+			got, details, _ := privilegeHost{elevated: true, programs: []string{"sudo"}, sudo: tc.sudo}.judge(privilegeAccounts)
 
 			if result, text := outcome(got[ruleAdminAccount]); result != tc.admin || text != tc.adminText {
 				t.Errorf("%s = %s %q, want %s %q", ruleAdminAccount, result, text, tc.admin, tc.adminText)
@@ -211,7 +212,7 @@ func TestReadPrivilegeAsRoot(t *testing.T) {
 func TestReadPrivilegeNotRoot(t *testing.T) {
 	const reason = "sudo answers who it admits only to root"
 
-	host := privilegeHost{euid: 1000, programs: []string{"sudo", "doas"}, groups: "sudo:x:27:alice,backup\nwheel:x:1001:\n"}
+	host := privilegeHost{programs: []string{"sudo", "doas"}, groups: "sudo:x:27:alice,backup\nwheel:x:1001:\n"}
 	got, details, asked := host.judge(privilegeAccounts)
 
 	if len(asked) != 0 {
@@ -250,23 +251,23 @@ func TestReadPrivilegeNotRoot(t *testing.T) {
 func TestReadPrivilegeWithoutSudo(t *testing.T) {
 	const absent = "sudo is not installed"
 
-	for _, euid := range []int{rootUID, 1000} {
-		got, _, asked := privilegeHost{euid: euid, groups: "wheel:x:10:alice\n"}.judge(privilegeAccounts)
+	for _, elevated := range []bool{true, false} {
+		got, _, asked := privilegeHost{elevated: elevated, groups: "wheel:x:10:alice\n"}.judge(privilegeAccounts)
 		for _, key := range sudoRules {
 			if c := got[key]; c.Result != finding.ResultNotApplicable || c.Reason != absent {
-				t.Errorf("euid %d: %s = %s %q, want notapplicable %q", euid, key, c.Result, c.Reason, absent)
+				t.Errorf("elevated %v: %s = %s %q, want notapplicable %q", elevated, key, c.Result, c.Reason, absent)
 			}
 		}
 		if len(asked) != 0 {
-			t.Errorf("euid %d: sudo was asked %q on a host without it", euid, asked)
+			t.Errorf("elevated %v: sudo was asked %q on a host without it", elevated, asked)
 		}
 
-		got, _, _ = privilegeHost{euid: euid, programs: []string{"doas"}}.judge(privilegeAccounts)
+		got, _, _ = privilegeHost{elevated: elevated, programs: []string{"doas"}}.judge(privilegeAccounts)
 		if c := got[ruleAdminAccount]; c.Result != finding.ResultUnknown || c.Reason != absent+" and doas is, and the rules of doas are not read" {
-			t.Errorf("euid %d, doas: %s = %s %q, want unknown", euid, ruleAdminAccount, c.Result, c.Reason)
+			t.Errorf("elevated %v, doas: %s = %s %q, want unknown", elevated, ruleAdminAccount, c.Result, c.Reason)
 		}
 		if c := got[ruleSudoUnprompted]; c.Result != finding.ResultNotApplicable || c.Reason != absent {
-			t.Errorf("euid %d, doas: %s = %s %q, want notapplicable %q", euid, ruleSudoUnprompted, c.Result, c.Reason, absent)
+			t.Errorf("elevated %v, doas: %s = %s %q, want notapplicable %q", elevated, ruleSudoUnprompted, c.Result, c.Reason, absent)
 		}
 	}
 }
@@ -275,7 +276,7 @@ func TestReadPrivilegeWithoutSudo(t *testing.T) {
 // report says the account was not asked about.
 func TestReadPrivilegeUnsafeName(t *testing.T) {
 	accounts := []userAccount{{username: "al ice", uid: 1000, gid: 1000, shell: "/bin/bash"}}
-	_, details, asked := privilegeHost{euid: rootUID, programs: []string{"sudo"}, sudo: map[string]sudoReply{}}.judge(accounts)
+	_, details, asked := privilegeHost{elevated: true, programs: []string{"sudo"}, sudo: map[string]sudoReply{}}.judge(accounts)
 
 	if len(asked) != 0 {
 		t.Errorf("sudo was asked %q", asked)

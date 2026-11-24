@@ -159,7 +159,7 @@ func TestEnvironmentalFollowsTheEvidence(t *testing.T) {
 	case all.CVSS.Vector != modified.String() || all.CVSS.Score != modified.Score() || all.CVSS.Severity != v4.Severity(modified.Score()):
 		t.Errorf("score %+v, want %s at %.1f", all.CVSS, modified, modified.Score())
 	case all.CVSS.Nomenclature != "CVSS-BE" || all.CVSS.Source != "host evidence" || all.CVSS.CalculatorURL != v4.CalculatorURL(modified.String()):
-		t.Errorf("score labelled %+v", all.CVSS)
+		t.Errorf("score labeled %+v", all.CVSS)
 	case all.Modified[0].Metric != "MPR" || all.Modified[0].Value != "H" || all.Modified[0].Carried != 2 || all.Modified[0].Subjects != 2 || all.Modified[0].Fact.Value != finding.ReachRootOnly:
 		t.Errorf("modified %+v", all.Modified[0])
 	}
@@ -170,11 +170,15 @@ func TestEnvironmentalFollowsTheEvidence(t *testing.T) {
 	}{
 		"one file reachable by others": {
 			[]finding.Evidence{fileSubject("/a", finding.ReachRootOnly), {Kind: finding.KindFile, Subject: "/b"}},
-			[]string{"of the 2 file subjects, MPR:H on 1; the 1 that keep PR:L score higher, so PR:L stands"},
+			[]string{"of the 2 file subjects, MPR:H on 1 and PR:L on 1; PR:L scores higher, so it stands"},
 		},
 		"reach not determined": {
 			[]finding.Evidence{fileSubject("/a", finding.ReachUndetermined), fileSubject("/b", finding.ReachUndetermined), {Kind: finding.KindFile, Subject: "/c"}},
-			[]string{"reach on the 3 file subjects is undetermined on 2, not recorded on 1, which no case of the rule modifies, so PR:L stands"},
+			[]string{"reach on the 3 file subjects is undetermined on 2 and not recorded on 1, which no case of the rule modifies, so PR:L stands"},
+		},
+		"one file, reach not determined": {
+			[]finding.Evidence{fileSubject("/a", finding.ReachUndetermined)},
+			[]string{"reach on the 1 file subject is undetermined on 1, which no case of the rule modifies, so PR:L stands"},
 		},
 		"no file": {nil, []string{"no file evidence was recorded, so PR:L stands"}},
 	} {
@@ -200,7 +204,7 @@ func TestEnvironmentalFollowsTheEvidence(t *testing.T) {
 // the metric, and subjects that disagree score no lower than either value alone
 // would: the score never falls below what one subject supports. At least one
 // shipped rule moves a finding to another severity, so the host score is not a
-// relabelled baseline.
+// relabeled baseline.
 func TestShippedRulesScoreTheHost(t *testing.T) {
 	var cases, moved int
 	for label, d := range allDefinitions() {

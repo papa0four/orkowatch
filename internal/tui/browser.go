@@ -99,7 +99,7 @@ type (
 		Text  string
 	}
 
-	// SummaryLine is one labelled figure in the browser's summary.
+	// SummaryLine is one labeled figure in the browser's summary.
 	SummaryLine struct {
 		Label string
 		Value string
@@ -121,7 +121,7 @@ type (
 		// Weakness is the CWE entry the finding maps to, with MITRE's
 		// description of it, or the reason none fits. CVSS is the registry's
 		// baseline and HostCVSS the score on this host with what it rests on,
-		// each labelled with what it is a statement about. SeverityBasis says
+		// each labeled with what it is a statement about. SeverityBasis says
 		// which of them Severity is.
 		Weakness      string
 		WeaknessAbout string
@@ -174,9 +174,12 @@ type (
 		// shown is the item the detail pane holds, or -1, so the pane keeps
 		// its scroll position when it is redrawn for the same item.
 		// fullEvidence is whether the operator asked for all of that item's
-		// evidence rather than the first evidencePreview lines.
+		// evidence rather than the first evidencePreview lines. evidenceTop
+		// is the line of the pane its evidence heading is on, where x moves
+		// the pane, or -1 when it has none.
 		shown        int
 		fullEvidence bool
+		evidenceTop  int
 
 		// index holds each item's searchable text, parallel to
 		// report.Items. evidence is the shown item's evidence lines that
@@ -325,7 +328,9 @@ func (b browser) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 // onKey routes a key press: to the search box while it is open, to the full
-// report while it is shown, and otherwise to the focused pane.
+// report while it is shown, and otherwise to the focused pane. Esc on the list
+// or the left pane clears a kept search, on whichever tab shows it; the detail
+// pane keeps esc for going back to the list.
 func (b browser) onKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
 	switch {
@@ -339,6 +344,10 @@ func (b browser) onKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return b, tea.Quit
 	case b.showText:
 		return b.onTextKey(msg)
+	case key == "esc" && b.clearsSearch():
+		b.query = ""
+		b.refilter()
+		return b, nil
 	}
 
 	if next, ok := b.onTabKey(key); ok {
@@ -367,6 +376,12 @@ func (b browser) onKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return b.onRecordKey(msg)
 	}
 	return b.onFindingKey(msg)
+}
+
+// clearsSearch reports whether esc clears the search: one is kept, and the
+// keyboard is on the list or the left pane.
+func (b browser) clearsSearch() bool {
+	return b.query != "" && b.focus != focusDetail
 }
 
 // onTabKey switches tabs on a tab's letter, a digit, or a bracket, reporting
@@ -399,9 +414,10 @@ func (b browser) onFindingKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		b.refilter()
 		return b, nil
 	case "x":
-		if b.evidenceCut() > 0 {
-			b.fullEvidence = true
+		if b.evidenceFolds() {
+			b.fullEvidence = !b.fullEvidence
 			b.showSelected()
+			b.detail.SetYOffset(b.evidenceTop)
 		}
 		return b, nil
 	}
@@ -637,18 +653,17 @@ func (b *browser) showFinding() {
 	if index != b.shown {
 		b.evidence = b.evidenceFor(index)
 	}
-	b.detail.SetContent(b.detailText(b.report.Items[index]))
+	text, top := b.detailText(b.report.Items[index])
+	b.detail.SetContent(text)
 	b.detail.SetYOffset(offset)
 	b.shown = index
+	b.evidenceTop = top
 }
 
-// evidenceCut returns how many evidence lines of the selected item the
-// detail pane is leaving out.
-func (b browser) evidenceCut() int {
-	if b.fullEvidence || b.shown < 0 {
-		return 0
-	}
-	return max(len(b.evidence)-evidencePreview, 0)
+// evidenceFolds reports whether the selected item has more evidence lines than
+// the preview, so x switches between the preview and all of them.
+func (b browser) evidenceFolds() bool {
+	return b.shown >= 0 && len(b.evidence) > evidencePreview
 }
 
 // layout sizes the panes to the window. A focused filter pane that no longer
@@ -835,7 +850,7 @@ func label(text string) hint { return hint{action: text} }
 // width is the columns the hint takes when drawn.
 func (h hint) width() int { return lipgloss.Width(h.render()) }
 
-// render draws the keys in parentheses, in the text colour so they stand out
+// render draws the keys in parentheses, in the text color so they stand out
 // from the muted action beside them.
 func (h hint) render() string {
 	parts := make([]string, 0, len(h.keys))
@@ -855,7 +870,7 @@ func (h hint) render() string {
 // helpView draws the footer: the keys that do something in the focused pane,
 // each in parentheses so it reads apart from the words describing it. When the
 // window is too narrow for all of them the ones before the last are dropped
-// from the end backwards, search and pane first, so the way out always stays.
+// from the end backward, search and pane first, so the way out always stays.
 func (b browser) helpView() string {
 	hints := b.help()
 	const gap = 3
@@ -891,18 +906,25 @@ func (b browser) help() []hint {
 		tabs = []hint{keyHint("prev/next source", "[ ]")}
 	}
 	// common lists the hints of a pane in the order they are dropped from the end
-	// when the window is narrow: movement first and kept longest, then the way to
-	// the full report, the sources and the panes, and last the toggles that only
-	// the findings have, then search.
+	// when the window is narrow: movement first and kept longest, then clearing a
+	// kept search, the way to the full report, the sources and the panes, and
+	// last the toggles that only the findings have, then search.
 	common := func(before []hint, toggles ...hint) []hint {
-		out := append(before, report)
+		out := before
+		if b.clearsSearch() {
+			out = append(out, keyHint("clear search", "esc"))
+		}
+		out = append(out, report)
 		out = append(out, tabs...)
 		out = append(out, pane)
 		out = append(out, toggles...)
 		return append(out, search, quit)
 	}
 	findings := []hint{keyHint("all rules", "a")}
-	if b.evidenceCut() > 0 {
+	switch {
+	case b.evidenceFolds() && b.fullEvidence:
+		findings = append(findings, keyHint("less evidence", "x"))
+	case b.evidenceFolds():
 		findings = append(findings, keyHint("all evidence", "x"))
 	}
 
@@ -933,7 +955,8 @@ func (b browser) help() []hint {
 
 // searchView is the line above the list: the search text when there is any,
 // how many items are shown of how many the scope admits, and the filters
-// narrowing them. A severity filter shows only findings, since no other rule
+// narrowing them. The scope is named before the counts, so it reads the same
+// whatever they are, one included. A severity filter shows only findings, since no other rule
 // has a severity, and the line says so.
 func (b browser) searchView() string {
 	scope := "findings and errors"
@@ -943,7 +966,7 @@ func (b browser) searchView() string {
 	case !b.findingsOnly:
 		scope = "rules"
 	}
-	status := fmt.Sprintf("%d of %d %s", len(b.visible), b.total(), scope)
+	status := fmt.Sprintf("%s: %d of %d", scope, len(b.visible), b.total())
 	if b.severity > 0 {
 		status += "  severity " + strings.ToLower(b.severities[b.severity])
 	}
@@ -1179,8 +1202,11 @@ func triggerText(item Item) string {
 	return strings.Join(lines, "\n")
 }
 
-// detailText renders everything known about one item for the detail pane.
-func (b browser) detailText(item Item) string {
+// detailText renders everything known about one item for the detail pane, and
+// returns the line its evidence heading is on, or -1 when it has no evidence.
+// Evidence longer than the preview says under its heading how much is shown
+// and what x shows instead, so the line x moves the pane to says what changed.
+func (b browser) detailText(item Item) (string, int) {
 	wrap := lipgloss.NewStyle().Width(max(b.mainWidth()-1, minWidth))
 	var out strings.Builder
 
@@ -1216,20 +1242,25 @@ func (b browser) detailText(item Item) string {
 	section("MITRE ATT&CK, made available by this finding", strings.Join(item.Techniques, "\n"))
 	section("mitigations", strings.Join(item.Mitigations, "\n"))
 
-	if len(item.Evidence) > 0 {
-		heading := fmt.Sprintf("evidence (%d)", len(item.Evidence))
-		if len(b.evidence) != len(item.Evidence) {
-			heading = fmt.Sprintf("evidence (%d of %d match the search)", len(b.evidence), len(item.Evidence))
-		}
-		out.WriteString("\n" + styleMuted.Render(heading) + "\n")
-		lines := b.evidence
-		if !b.fullEvidence && len(lines) > evidencePreview {
-			lines = lines[:evidencePreview]
-		}
-		out.WriteString(strings.Join(lines, "\n") + "\n")
-		if cut := len(b.evidence) - len(lines); cut > 0 {
-			out.WriteString(styleNotice.Render(fmt.Sprintf("%d more; press x to load all", cut)) + "\n")
-		}
+	if len(item.Evidence) == 0 {
+		return out.String(), -1
 	}
-	return out.String()
+	title := fmt.Sprintf("evidence (%d)", len(item.Evidence))
+	if len(b.evidence) != len(item.Evidence) {
+		title = fmt.Sprintf("evidence (%d of %d match the search)", len(b.evidence), len(item.Evidence))
+	}
+	out.WriteString("\n")
+	top := strings.Count(out.String(), "\n")
+	out.WriteString(styleMuted.Render(title) + "\n")
+	lines := b.evidence
+	switch {
+	case len(lines) <= evidencePreview:
+	case b.fullEvidence:
+		out.WriteString(styleNotice.Render(fmt.Sprintf("showing all %d; press x to show the first %d", len(lines), evidencePreview)) + "\n")
+	default:
+		out.WriteString(styleNotice.Render(fmt.Sprintf("showing the first %d; press x to show all %d", evidencePreview, len(lines))) + "\n")
+		lines = lines[:evidencePreview]
+	}
+	out.WriteString(strings.Join(lines, "\n") + "\n")
+	return out.String(), top
 }

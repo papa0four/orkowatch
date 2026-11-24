@@ -76,3 +76,16 @@ func TestAllRefusesWhenEveryModuleIsSkipped(t *testing.T) {
 		t.Errorf("every module skipped: %v", err)
 	}
 }
+
+// all attaches the audit's flags, and takes no flag asking for CVE data
+// either. The flags are looked up and the command is not run: a run that
+// accepted the flag would be a whole scan of the host.
+func TestAllHasNoEnrichFlag(t *testing.T) {
+	flags := newAllCmd().Flags()
+	if flag := flags.Lookup("enrich"); flag != nil {
+		t.Errorf("all has --%s", flag.Name)
+	}
+	if flag := flags.ShorthandLookup("e"); flag != nil {
+		t.Errorf("all has -e, for --%s", flag.Name)
+	}
+}

@@ -17,6 +17,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/papa0four/orkowatch/cmd/commands/cliargs"
 	"github.com/papa0four/orkowatch/cmd/commands/delivery"
 	"github.com/papa0four/orkowatch/internal/osfingerprint"
 	"github.com/papa0four/orkowatch/internal/render"
@@ -33,7 +34,6 @@ type (
 	AuditFlags struct {
 		skipChecks  []string
 		minSeverity string
-		enrich      bool
 		yes         bool
 
 		// skipMask is the resolved exclusion set, computed once in Resolve
@@ -79,13 +79,11 @@ type (
 func BindAudit(cmd *cobra.Command) *AuditFlags {
 	a := &AuditFlags{}
 
-	cmd.Flags().StringSliceVar(&a.skipChecks, "skip-checks", []string{},
-		fmt.Sprintf("Audit checks to skip (comma-separated: %s)",
-			selection.ValidNamesFor(selection.CategoryCheck)))
+	cliargs.NameList(cmd, &a.skipChecks, "skip-checks",
+		fmt.Sprintf("Audit checks to skip (comma-separated: %s)", selection.ValidNamesFor(selection.CategoryCheck)),
+		selection.AcceptedNames(selection.CategoryCheck))
 	cmd.Flags().StringVar(&a.minSeverity, "min-severity", finding.SeverityNone,
 		fmt.Sprintf("Minimum severity level to report, judged on the severity on this host (%s)", finding.SeverityNames()))
-	cmd.Flags().BoolVarP(&a.enrich, "enrich", "e", false,
-		"Query external sources to annotate findings with CVEs mapped to referenced CWEs")
 	cmd.Flags().BoolVarP(&a.yes, "yes", "y", false,
 		"Do not ask before a permissions check that scans the entire filesystem")
 	return a
@@ -118,11 +116,6 @@ func (a *AuditFlags) Resolve() error {
 // MinSeverity returns the canonical severity floor Resolve settled on.
 func (a *AuditFlags) MinSeverity() string {
 	return a.minSeverity
-}
-
-// Enrich reports whether findings are annotated from external sources.
-func (a *AuditFlags) Enrich() bool {
-	return a.enrich
 }
 
 // SkipMask returns the checks excluded by --skip-checks. Callers clear these
@@ -255,13 +248,15 @@ func (c *auditCmd) selectFilePerms(value string) error {
 }
 
 // validateArgs admits the one argument the command takes, the path that
-// follows a bare --fperms, and keeps it as the scan root.
+// follows a bare --fperms, and keeps it as the scan root. Any other argument
+// is refused with where a path goes, since a path is the one the command can
+// take.
 func (c *auditCmd) validateArgs(cmd *cobra.Command, args []string) error {
 	switch {
 	case len(args) == 0:
 		return nil
 	case !c.checkFilePerms:
-		return cobra.NoArgs(cmd, args)
+		return fmt.Errorf("%w; a path to scan is given after --fperms", cliargs.None(cmd, args))
 	case c.scanRoot != "":
 		return fmt.Errorf("--fperms: one path is taken, and %q follows %q", args[0], c.scanRoot)
 	case len(args) > 1:
@@ -273,7 +268,9 @@ func (c *auditCmd) validateArgs(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// buildMask composes a CheckMask from the active flag values
+// buildMask composes a CheckMask from the active flag values. A check named in
+// --skip-checks that the selection flags left out is refused, since skipping
+// it cannot change the run and the operator meant something else.
 func (c *auditCmd) buildMask() (selection.CheckMask, error) {
 	mask := EveryCheck
 
@@ -291,6 +288,17 @@ func (c *auditCmd) buildMask() (selection.CheckMask, error) {
 		if c.checkFilePerms {
 			mask |= selection.CheckPerms
 		}
+	}
+
+	// With no selection flag every check is selected, so only a selection
+	// can leave a skipped check outside it.
+	if outside := c.audit.SkipMask() &^ mask; outside != 0 {
+		flags := selection.CheckFlags(mask)
+		for i, flag := range flags {
+			flags[i] = "--" + flag
+		}
+		return 0, fmt.Errorf("--skip-checks names %s, not among the checks selected by %s",
+			render.List(selection.EnabledChecks(outside)), render.List(flags))
 	}
 
 	mask &^= c.audit.SkipMask()
@@ -329,7 +337,7 @@ func (c *auditCmd) runE(cmd *cobra.Command, _ []string) error {
 	interactive := render.StdoutIsTerminal() && render.StdinIsTerminal()
 	switch err := c.audit.ConfirmFullScan(mask, c.scanRoot, interactive, os.Stdin, os.Stderr); {
 	case errors.Is(err, ErrScanDeclined):
-		fmt.Fprintln(os.Stderr, "Scan cancelled.")
+		fmt.Fprintln(os.Stderr, "Scan canceled.")
 		return nil
 	case err != nil:
 		return err
@@ -393,7 +401,6 @@ func (c *auditCmd) runAuditWithTimeout(cmd *cobra.Command, mask selection.CheckM
 			MinSeverity:   c.audit.MinSeverity(),
 			Checks:        selection.EnabledChecks(mask),
 			Unselected:    c.audit.Unselected(mask),
-			Enrich:        c.audit.Enrich(),
 		})
 		var err error
 		result, err = auditor.RunAudit(ctx)

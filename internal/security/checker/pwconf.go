@@ -4,7 +4,11 @@
 
 package checker
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/papa0four/orkowatch/internal/account"
+)
 
 const (
 	// pwConfFile configures the range pw(8) assigns to new accounts on
@@ -27,7 +31,7 @@ func pwUIDRange(conf []byte) uidRange {
 		if !found {
 			continue
 		}
-		value, ok := parseUnixID(strings.TrimSpace(data))
+		value, ok := account.ParseID(strings.TrimSpace(data))
 		if !ok {
 			continue
 		}

@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
+
+	"github.com/papa0four/orkowatch/internal/elevation"
 )
 
 func skipBigEndian(t *testing.T) {
@@ -224,7 +226,7 @@ func TestAttribution(t *testing.T) {
 		t.Errorf("a socket no process holds, on a root run refused nothing: %+v", s)
 	}
 
-	if os.Geteuid() == 0 {
+	if elevation.Elevated() {
 		t.Skip("root reads every directory; the refusal case needs a user who may not")
 	}
 	refusedRoot := readOrFail(t, reader{proc: proc(t, true), privileged: true, userName: name})
@@ -233,8 +235,8 @@ func TestAttribution(t *testing.T) {
 	}
 }
 
-// A table the kernel does not provide is skipped, and a cancelled run stops.
-func TestReadSkipsMissingTablesAndStopsWhenCancelled(t *testing.T) {
+// A table the kernel does not provide is skipped, and a canceled run stops.
+func TestReadSkipsMissingTablesAndStopsWhenCanceled(t *testing.T) {
 	root := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(root, "net"), 0o750); err != nil {
 		t.Fatal(err)
@@ -249,6 +251,6 @@ func TestReadSkipsMissingTablesAndStopsWhenCancelled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	if _, err := r.read(ctx); err == nil {
-		t.Error("a cancelled run read to the end")
+		t.Error("a canceled run read to the end")
 	}
 }

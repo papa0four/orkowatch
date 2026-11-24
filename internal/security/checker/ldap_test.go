@@ -156,9 +156,9 @@ func TestLDAPReach(t *testing.T) {
 		"ldap://[2001:db8::1]/":         ldapInClear,
 		"ldap://localhost.example.com/": ldapInClear,
 		"ldap://dir.example.com?base":   ldapInClear,
-		"http://dir.example.com/":       ldapUnrecognised,
-		"dir.example.com":               ldapUnrecognised,
-		`"ldaps://dir.example.com/"`:    ldapUnrecognised,
+		"http://dir.example.com/":       ldapUnrecognized,
+		"dir.example.com":               ldapUnrecognized,
+		`"ldaps://dir.example.com/"`:    ldapUnrecognized,
 	}
 	for uri, want := range cases {
 		if got := ldapReachOf(uri); got != want {
@@ -173,7 +173,7 @@ func TestLDAPReach(t *testing.T) {
 		"DNSLDAPS:example.com":   ldapOverTLS,
 		"ldap://127.0.0.1/":      ldapOnHost,
 		"ldap://dns.example.com": ldapInClear,
-		"DNSX":                   ldapUnrecognised,
+		"DNSX":                   ldapUnrecognized,
 	}
 	for server, want := range lookups {
 		if got := nslcdReach(server); got != want {

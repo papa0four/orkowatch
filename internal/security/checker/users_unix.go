@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/papa0four/orkowatch/internal/account"
 	"github.com/papa0four/orkowatch/internal/security/finding"
 	"github.com/papa0four/orkowatch/internal/security/registry"
 )
@@ -332,7 +333,7 @@ func judgeAccount(user userAccount, r *report) {
 // then what else was observed of it.
 func accountEvidence(user userAccount, facts ...finding.Fact) finding.Evidence {
 	return evidence(finding.KindAccount, user.username, append([]finding.Fact{
-		fact(finding.FactUID, formatUnixID(user.uid)),
+		fact(finding.FactUID, account.FormatID(user.uid)),
 		fact(finding.FactShell, user.shell),
 	}, facts...)...)
 }

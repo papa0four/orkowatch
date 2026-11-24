@@ -10,13 +10,13 @@ import (
 )
 
 // How a run ended is read when its work returns. Work that returns inside
-// its deadline finished, however long afterwards the deadline passes while
+// its deadline finished, however long afterward the deadline passes while
 // its results are being read; work the deadline cut short timed out; and a
-// context cancelled for another reason is not a timeout.
+// context canceled for another reason is not a timeout.
 func TestRunReadsTheEndingWhenTheWorkReturns(t *testing.T) {
 	const deadline = 50 * time.Millisecond
 	quick := func(context.Context, Reporter) error { return nil }
-	untilCancelled := func(ctx context.Context, _ Reporter) error {
+	untilCanceled := func(ctx context.Context, _ Reporter) error {
 		<-ctx.Done()
 		return nil
 	}
@@ -31,14 +31,14 @@ func TestRunReadsTheEndingWhenTheWorkReturns(t *testing.T) {
 
 	ctx, cancel = context.WithTimeout(context.Background(), deadline)
 	defer cancel()
-	if ending, err := Run(ctx, Options{}, untilCancelled); err != nil || ending != TimedOut {
+	if ending, err := Run(ctx, Options{}, untilCanceled); err != nil || ending != TimedOut {
 		t.Errorf("work the deadline cut short: %v, %v", ending, err)
 	}
 
 	ctx, cancel = context.WithCancel(context.Background())
 	cancel()
-	if ending, err := Run(ctx, Options{}, untilCancelled); err != nil || ending != Finished {
-		t.Errorf("work whose context was cancelled with no deadline: %v, %v", ending, err)
+	if ending, err := Run(ctx, Options{}, untilCanceled); err != nil || ending != Finished {
+		t.Errorf("work whose context was canceled with no deadline: %v, %v", ending, err)
 	}
 
 	failed := errors.New("the work failed")

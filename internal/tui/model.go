@@ -14,6 +14,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
+	"github.com/papa0four/orkowatch/internal/render"
 	"github.com/papa0four/orkowatch/internal/security/finding"
 )
 
@@ -331,8 +332,8 @@ func (m model) feedView() string {
 	return b.String()
 }
 
-// outcomeSummary returns the colour and the words for a finished task: its
-// findings when it has any, coloured by the worst of them, and its result
+// outcomeSummary returns the color and the words for a finished task: its
+// findings when it has any, colored by the worst of them, and its result
 // otherwise.
 func outcomeSummary(outcome Outcome) (color.Color, string) {
 	if count := len(outcome.Findings); count > 0 {
@@ -342,11 +343,7 @@ func outcomeSummary(outcome Outcome) (color.Color, string) {
 				worst = found.Severity
 			}
 		}
-		noun := "findings"
-		if count == 1 {
-			noun = "finding"
-		}
-		return severityColor(worst), fmt.Sprintf("%d %s", count, noun)
+		return severityColor(worst), render.Count(count, "finding", "findings")
 	}
 	return resultColor(outcome.Result), string(outcome.Result)
 }

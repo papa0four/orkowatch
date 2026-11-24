@@ -8,12 +8,11 @@ import (
 	"strings"
 
 	"github.com/papa0four/orkowatch/internal/render"
-	"github.com/papa0four/orkowatch/internal/security/enrichment"
 	"github.com/papa0four/orkowatch/internal/security/finding"
 )
 
 // WriteViewText renders a completed audit as text: each check with its
-// findings, the enrichment block, suppression notice, and summary. It renders
+// findings, the suppression notice, and the summary. It renders
 // from the projection a saved report carries, so a live run and a saved report
 // show the same text. It does not render the system block; callers write that
 // separately via osfingerprint.WriteViewText. The first write error, if any, is
@@ -35,16 +34,6 @@ func WriteViewText(w io.Writer, v View) error {
 		if err := writeCheck(ew, check, minSeverity); err != nil {
 			return err
 		}
-	}
-
-	if err := enrichment.Block(w, enrichment.Data{
-		Requested: v.EnrichmentRequested,
-		Err:       v.EnrichmentError,
-		CWEs:      v.ReferenceCWEs,
-		Entries:   v.Entries,
-		Failures:  v.Failures,
-	}); err != nil {
-		return err
 	}
 
 	if err := render.SuppressionNotice(w, v.FindingsSuppressed,
@@ -163,20 +152,20 @@ func writeFinding(ew *render.ErrWriter, condition ConditionView) error {
 // registry's baseline, and the score on this host with what it rests on.
 func writeWeaknessAndCVSS(ew *render.ErrWriter, def *FindingView) {
 	if def.Weakness != nil {
-		ew.Printf("  Weakness: %s\n", WeaknessText(*def.Weakness))
+		writeLabeled(ew, "Weakness", WeaknessLines(*def.Weakness))
 	} else if def.NoWeakness != "" {
 		ew.Printf("  Weakness: none. %s\n", def.NoWeakness)
 	}
 	if def.CVSS == nil {
 		return
 	}
-	writeScore(ew, "CVSS baseline", ScoreLines(*def.CVSS))
-	writeScore(ew, "CVSS on this host", HostScoreLines(def.Host))
+	writeLabeled(ew, "CVSS baseline", ScoreLines(*def.CVSS))
+	writeLabeled(ew, "CVSS on this host", HostScoreLines(def.Host))
 }
 
-// writeScore writes a score's first line after its label and the lines that
+// writeLabeled writes a block's first line after its label and the lines that
 // trace it indented beneath.
-func writeScore(ew *render.ErrWriter, label string, lines []string) {
+func writeLabeled(ew *render.ErrWriter, label string, lines []string) {
 	ew.Printf("  %s: %s\n", label, lines[0])
 	for _, line := range lines[1:] {
 		ew.Printf("    %s\n", line)
@@ -229,11 +218,23 @@ func writeDetails(ew *render.ErrWriter, details []string) {
 	}
 }
 
-// WeaknessText renders the CWE entry a finding maps to as its identifier and
-// name, with MITRE's guidance on mapping to it. It is shared so every view of a
-// finding names its weakness the same way.
-func WeaknessText(w finding.Weakness) string {
-	return fmt.Sprintf("%s %s (MITRE mapping usage: %s)", w.ID, w.Name, w.Usage)
+// WeaknessLines renders the CWE entry a finding maps to as its identifier and
+// name, with MITRE's guidance on mapping to it, then its lineage from the
+// broadest entry down to its own. It is shared so every view of a finding names
+// its weakness the same way.
+func WeaknessLines(w finding.Weakness) []string {
+	lines := []string{fmt.Sprintf("%s %s (MITRE mapping usage: %s)", w.ID, w.Name, w.Usage)}
+	if len(w.Lineage) == 0 {
+		return lines
+	}
+	for i, a := range w.Lineage {
+		step := fmt.Sprintf("%s %s (%s)", a.ID, a.Name, a.Abstraction)
+		if i > 0 {
+			step = "> " + step
+		}
+		lines = append(lines, step)
+	}
+	return append(lines, fmt.Sprintf("> %s %s", w.ID, w.Name))
 }
 
 // CVSSText renders a CVSS score with the label FIRST requires on a displayed
@@ -242,7 +243,7 @@ func CVSSText(s finding.CVSSScore) string {
 	return fmt.Sprintf("%.1f %s  %s v%s, %s  %s", s.Score, s.Severity, s.Nomenclature, s.Version, s.Basis, s.Vector)
 }
 
-// ScoreLines renders a CVSS score as every view shows it: the labelled score,
+// ScoreLines renders a CVSS score as every view shows it: the labeled score,
 // then the link that opens FIRST's calculator on its vector.
 func ScoreLines(s finding.CVSSScore) []string {
 	lines := []string{CVSSText(s)}
@@ -268,8 +269,8 @@ func HostScoreLines(h *finding.HostScore) []string {
 	}
 	for _, m := range h.Modified {
 		lines = append(lines,
-			fmt.Sprintf("%s:%s from %s %s on %d of %d subjects: %s",
-				m.Metric, m.Value, m.Fact.Name, render.HostText(m.Fact.Value), m.Carried, m.Subjects, m.Because),
+			fmt.Sprintf("%s:%s from %s %s on %d of %s: %s",
+				m.Metric, m.Value, m.Fact.Name, render.HostText(m.Fact.Value), m.Carried, render.Count(m.Subjects, "subject", "subjects"), m.Because),
 			fmt.Sprintf("  Implementation Guide, %s: \"%s\"", m.Section, m.Quote))
 	}
 	for _, u := range h.Unmodified {

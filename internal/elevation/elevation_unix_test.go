@@ -1,0 +1,194 @@
+//go:build linux || darwin || freebsd || openbsd || netbsd
+
+// internal/elevation/elevation_unix_test.go
+
+package elevation
+
+import (
+	"os"
+	"os/exec"
+	"os/user"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+// The process is elevated exactly when id(1) says its effective user is root.
+func TestElevated(t *testing.T) {
+	out, err := exec.Command("id", "-u").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := strings.TrimSpace(string(out)) == "0"; Elevated() != want {
+		t.Errorf("Elevated() = %v with id -u printing %s", Elevated(), out)
+	}
+}
+
+// The operator is the account SUDO_USER names, and there is none when the
+// variable is unset or names no account.
+func TestInvokingOperator(t *testing.T) {
+	me, err := user.Current()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("SUDO_USER", me.Username)
+	invoker, ok := InvokingOperator()
+	if !ok || invoker.Home != me.HomeDir || invoker.uid != uint32(os.Getuid()) || invoker.gid != uint32(os.Getgid()) {
+		t.Errorf("SUDO_USER=%s gave %+v, %v, want the current account with home %s", me.Username, invoker, ok, me.HomeDir)
+	}
+
+	for _, name := range []string{"", "no-such-account-owatch"} {
+		t.Setenv("SUDO_USER", name)
+		if invoker, ok := InvokingOperator(); ok {
+			t.Errorf("SUDO_USER=%q gave the operator %+v", name, invoker)
+		}
+	}
+
+	// doas names its user in DOAS_USER, and sudo's is read first.
+	t.Setenv("SUDO_USER", "")
+	t.Setenv("DOAS_USER", me.Username)
+	if invoker, ok := InvokingOperator(); !ok || invoker.uid != uint32(os.Getuid()) || invoker.Home != me.HomeDir {
+		t.Errorf("DOAS_USER=%s gave %+v, %v, want the current account", me.Username, invoker, ok)
+	}
+	t.Setenv("SUDO_USER", "no-such-account-owatch")
+	if invoker, ok := InvokingOperator(); ok {
+		t.Errorf("with SUDO_USER naming no account, DOAS_USER gave the operator %+v", invoker)
+	}
+}
+
+// The operator owns an open file whose owner is the operator's account, and
+// no other.
+func TestOperatorOwns(t *testing.T) {
+	f, err := os.Create(filepath.Join(t.TempDir(), "file"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close() //nolint:errcheck // a test's own file, read for its owner only
+	uid := uint32(os.Getuid())
+	for owner, want := range map[uint32]bool{uid: true, uid + 1: false} {
+		if got, err := (Operator{uid: owner}).Owns(f); err != nil || got != want {
+			t.Errorf("an operator with uid %d owns a file of uid %d: %v, %v", owner, uid, got, err)
+		}
+	}
+}
+
+// A directory is exposed by an owner, a writing group or a writing world that
+// is neither root nor the operator, and the sticky bit excuses the last.
+func TestExposed(t *testing.T) {
+	const (
+		alice, staff = 1000, 50
+		bob, users   = 1001, 100
+	)
+	invoker := Operator{uid: alice, gid: staff}
+	cases := map[string]struct {
+		uid, gid uint32
+		mode     os.FileMode
+		sudo     bool
+		want     string
+	}{
+		"root's, closed":                        {rootID, rootID, 0o755, false, ""},
+		"root's, root's group writes":           {rootID, rootID, 0o775, false, ""},
+		"the operator's, closed":                {alice, staff, 0o700, true, ""},
+		"the operator's, without sudo":          {alice, staff, 0o700, false, "owned by uid 1000"},
+		"another user's":                        {bob, users, 0o700, true, "owned by uid 1001"},
+		"the operator's group writes":           {rootID, staff, 0o770, true, ""},
+		"that group writes, without sudo":       {rootID, staff, 0o770, false, "group-writable by gid 50"},
+		"another group writes":                  {alice, users, 0o770, true, "group-writable by gid 100"},
+		"another group, not writing":            {alice, users, 0o750, true, ""},
+		"the world writes":                      {rootID, rootID, 0o757, false, "world-writable without the sticky bit"},
+		"the world writes under the sticky bit": {rootID, rootID, 0o757 | os.ModeSticky, false, ""},
+		"an owner outranks the mode":            {bob, rootID, 0o777, true, "owned by uid 1001"},
+	}
+	for name, c := range cases {
+		got := exposed(c.uid, c.gid, c.mode, invoker, c.sudo)
+		if (c.want == "") != (got == "") || !strings.HasPrefix(got, c.want) {
+			t.Errorf("%s: %q, want %q", name, got, c.want)
+		}
+	}
+}
+
+// A directory only administrators may change is root's, written by no group
+// but root's, and not by the world, sticky bit or not.
+func TestBeyondAdmins(t *testing.T) {
+	const alice, staff = 1000, 50
+	cases := map[string]struct {
+		uid, gid uint32
+		mode     os.FileMode
+		want     string
+	}{
+		"root's, closed":                        {rootID, rootID, 0o700, ""},
+		"root's, read by all":                   {rootID, rootID, 0o755, ""},
+		"root's, root's group writes":           {rootID, rootID, 0o775, ""},
+		"another user's":                        {alice, rootID, 0o700, "owned by uid 1000, not root"},
+		"another group writes":                  {rootID, staff, 0o770, "group-writable by gid 50, not root's group"},
+		"another group, not writing":            {rootID, staff, 0o750, ""},
+		"the world writes":                      {rootID, rootID, 0o757, "world-writable"},
+		"the world writes under the sticky bit": {rootID, rootID, 0o757 | os.ModeSticky, "world-writable"},
+		"an owner outranks the mode":            {alice, rootID, 0o777, "owned by uid 1000, not root"},
+	}
+	for name, c := range cases {
+		if got := beyondAdmins(c.uid, c.gid, c.mode); got != c.want {
+			t.Errorf("%s: %q, want %q", name, got, c.want)
+		}
+	}
+}
+
+// A directory the test's own account made is open beyond administrators
+// unless the account is root, whoever the operator is; a link to a directory
+// is not a directory; and one that does not exist is not judged.
+func TestOpenBeyondAdmins(t *testing.T) {
+	me, err := user.Current()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	t.Setenv("SUDO_USER", me.Username)
+	reason, err := OpenBeyondAdmins(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if root := os.Getuid() == rootID; root != (reason == "") {
+		t.Errorf("as uid %d, with that account the operator: %q", os.Getuid(), reason)
+	}
+
+	link := filepath.Join(t.TempDir(), "link")
+	if err := os.Symlink(dir, link); err != nil {
+		t.Fatal(err)
+	}
+	if reason, err := OpenBeyondAdmins(link); err != nil || reason != "not a directory" {
+		t.Errorf("a link to the directory: %q, %v", reason, err)
+	}
+
+	if _, err := OpenBeyondAdmins(dir + "-absent"); err == nil {
+		t.Error("a directory that does not exist was judged")
+	}
+}
+
+// A directory the test's own account made is exposed to that account unless
+// the account is root or the operator behind sudo.
+func TestExposure(t *testing.T) {
+	me, err := user.Current()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+
+	t.Setenv("SUDO_USER", "")
+	reason, err := Exposure(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if root := os.Getuid() == rootID; root != (reason == "") {
+		t.Errorf("without sudo, as uid %d: %q", os.Getuid(), reason)
+	}
+
+	t.Setenv("SUDO_USER", me.Username)
+	if reason, err := Exposure(dir); err != nil || reason != "" {
+		t.Errorf("as the operator's own directory: %q, %v", reason, err)
+	}
+
+	if _, err := Exposure(dir + "-absent"); err == nil {
+		t.Error("a directory that does not exist was judged")
+	}
+}

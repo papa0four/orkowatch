@@ -13,8 +13,10 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/papa0four/orkowatch/cmd/commands/cliargs"
 	"github.com/papa0four/orkowatch/cmd/commands/delivery"
 	"github.com/papa0four/orkowatch/cmd/commands/security"
+	"github.com/papa0four/orkowatch/internal/dataset"
 	"github.com/papa0four/orkowatch/internal/osfingerprint"
 	"github.com/papa0four/orkowatch/internal/render"
 	"github.com/papa0four/orkowatch/internal/security/audit"
@@ -53,6 +55,7 @@ type (
 		OSInfo        *osfingerprint.OSInfo
 		Software      []softwarelist.SoftwareEntry
 		Sockets       *sockets.View
+		Datasets      *dataset.View
 		SecurityAudit *audit.Result
 		Errors        []string
 	}
@@ -77,6 +80,7 @@ type (
 		System    *osfingerprint.SystemView  `json:"system,omitempty" yaml:"system,omitempty"`
 		Software  *softwarelist.SoftwareView `json:"software,omitempty" yaml:"software,omitempty"`
 		Sockets   *sockets.View              `json:"sockets,omitempty" yaml:"sockets,omitempty"`
+		Datasets  *dataset.View              `json:"datasets,omitempty" yaml:"datasets,omitempty"`
 		Security  *audit.View                `json:"security,omitempty" yaml:"security,omitempty"`
 		Errors    []string                   `json:"errors,omitempty" yaml:"errors,omitempty"`
 	}
@@ -98,7 +102,7 @@ func newAllCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "all",
-		Args:  cobra.NoArgs,
+		Args:  cliargs.None,
 		Short: "Run all available scans",
 		RunE:  c.runAllScans,
 		Long: `The all command performs a comprehensive system scan including:
@@ -133,9 +137,9 @@ Results can be output in various formats and saved to a file.`,
 
 	cmd.Flags().BoolVarP(&c.verbose, "verbose", "v", false,
 		"Enable verbose output for all scans")
-	cmd.Flags().StringSliceVar(&c.skipModules, "skip-modules", []string{},
-		fmt.Sprintf("Modules to skip (comma-separated: %s)",
-			selection.ValidNamesFor(selection.CategoryModule)))
+	cliargs.NameList(cmd, &c.skipModules, "skip-modules",
+		fmt.Sprintf("Modules to skip (comma-separated: %s)", selection.ValidNamesFor(selection.CategoryModule)),
+		selection.AcceptedNames(selection.CategoryModule))
 	cmd.Flags().DurationVar(&c.timeout, "timeout", 30*time.Minute,
 		"Maximum time to run all scans")
 
@@ -185,8 +189,9 @@ func toAllResult(result *ScanResult, minSeverity string) allResult {
 		out.Software = &view
 	}
 
-	// sockets
+	// sockets and datasets
 	out.Sockets = result.Sockets
+	out.Datasets = result.Datasets
 
 	// security audit
 	if result.SecurityAudit != nil {
@@ -242,7 +247,7 @@ func (c *allCmd) runAllScans(cmd *cobra.Command, args []string) error {
 	interactive := render.StdoutIsTerminal()
 	switch err := c.audit.ConfirmFullScan(c.auditMask(mask), "", interactive && render.StdinIsTerminal(), os.Stdin, os.Stderr); {
 	case errors.Is(err, security.ErrScanDeclined):
-		fmt.Fprintln(os.Stderr, "Scan cancelled.")
+		fmt.Fprintln(os.Stderr, "Scan canceled.")
 		return nil
 	case err != nil:
 		return err
@@ -470,7 +475,6 @@ func (c *allCmd) runSecurityAuditModule(ctx context.Context, mask selection.Chec
 	auditor := audit.NewSecurityAuditor(audit.Options{
 		Observer:    security.Observe(reporter),
 		MinSeverity: c.audit.MinSeverity(),
-		Enrich:      c.audit.Enrich(),
 		Checks:      selection.EnabledChecks(mask),
 		Unselected:  c.audit.Unselected(mask),
 		HostInfo:    hostInfo,
@@ -501,6 +505,7 @@ func allSource(title string, v allResult, text string) security.BrowserSource {
 		System:   v.System,
 		Software: v.Software,
 		Sockets:  v.Sockets,
+		Datasets: v.Datasets,
 		Modules:  moduleNotes(v.Modules),
 		Text:     text,
 	}
@@ -595,7 +600,7 @@ func writeSections(ew *render.ErrWriter, w io.Writer, sections []textSection) er
 }
 
 // writeSingleModuleText writes the report of a command that ran one inventory
-// module, osinfo or software, as that module's own text with no all-report
+// module, such as osinfo or owatch data status, as that module's own text with no all-report
 // heading around it. The projection holds one module row only for such a
 // command, so a saved report is rendered as the run that wrote it was.
 func writeSingleModuleText(w io.Writer, v allResult) error {
@@ -613,6 +618,10 @@ func writeSingleModuleText(w io.Writer, v allResult) error {
 	case selection.NameListeners:
 		if v.Sockets != nil {
 			return sockets.WriteText(w, *v.Sockets)
+		}
+	case selection.NameDatasets:
+		if v.Datasets != nil {
+			return dataset.WriteText(w, *v.Datasets)
 		}
 	}
 	return nil

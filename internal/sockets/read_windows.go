@@ -16,6 +16,8 @@ import (
 	"unsafe"
 
 	"golang.org/x/sys/windows"
+
+	"github.com/papa0four/orkowatch/internal/elevation"
 )
 
 const (
@@ -102,7 +104,7 @@ type (
 // elevated. Unix-domain, raw and packet sockets are not in these tables and
 // are listed in NotRead.
 func Read(ctx context.Context) (View, error) {
-	r := reader{elevated: administrator(), inspect: inspectProcess}
+	r := reader{elevated: elevation.AdministratorInEffect(), inspect: inspectProcess}
 	sockets, err := r.read(ctx)
 	if err != nil {
 		return View{}, err
@@ -110,21 +112,6 @@ func Read(ctx context.Context) (View, error) {
 	view := NewView(sockets)
 	view.NotRead = notRead()
 	return view, nil
-}
-
-// administrator reports whether the run holds the Administrators group in
-// effect, which is what an elevated run adds. The token's elevation flag is
-// not used: a token restricted from an elevated one, as runas /trustlevel
-// makes, still reports elevated while its Administrators group is deny-only.
-// When membership cannot be checked the run is taken as not administrator, so
-// a refusal advises elevating rather than claiming elevation would not help.
-func administrator() bool {
-	admins, err := windows.CreateWellKnownSid(windows.WinBuiltinAdministratorsSid)
-	if err != nil {
-		return false
-	}
-	member, err := windows.Token(0).IsMember(admins)
-	return err == nil && member
 }
 
 func (r reader) read(ctx context.Context) ([]Socket, error) {

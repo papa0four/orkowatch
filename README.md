@@ -29,9 +29,9 @@ and open an issue against this doc.
   and find nothing on a localized Windows; and files owned by a SID that no
   longer resolves go undetected. Tracked as a single fix (#111). Linux/Unix
   audit checks are not affected.
-- **`--enrich` currently has no effect.** No CVE/CWE enrichment adapter
-  (NVD, CISA KEV, EPSS, GHSA) is wired yet. The flag is accepted and does
-  nothing; findings are not annotated with CVE data.
+- **No CVE matching yet.** Installed software and the operating system are
+  not matched to CVEs, and findings carry no CVE data. There is no `--enrich`
+  flag; passing it fails as an unknown flag.
 - **There is no `--mitre` flag.** MITRE ATT&CK® mapping is registry data shown
   by default; see MITRE ATT&CK below. Passing `--mitre` fails as an unknown flag.
 - **macOS and BSD are implemented but not yet fully verified.** The Unix
@@ -41,8 +41,7 @@ and open an issue against this doc.
   #100; treat output there as unproven rather than trusted.
 - **Filename and report structure may still change.** The naming convention
   and JSON/YAML report shape are considered stable for the fields that exist
-  today, but new segments (enrichment, MITRE) will be added as those features
-  land.
+  today, but fields will be added as features land.
 - **No log capture or history modules yet.** OS fingerprinting, software
   inventory, the host's sockets (Linux and Windows), and the four audit
   checks (SSH, firewall, users, permissions) exist today.
@@ -62,6 +61,10 @@ and open an issue against this doc.
 | `owatch audit` | Run security audit checks |
 | `owatch all` | Run all available scans |
 | `owatch browse [report-file]` | Open a saved report in the results browser; reads any format that holds the whole report (JSON, YAML) |
+| `owatch data refresh` | Fetch the vulnerability datasets this host needs, over HTTPS (see Vulnerability Datasets below) |
+| `owatch data import <directory>` | Install vulnerability datasets from a directory, with no network |
+| `owatch data remove <dataset>` | Delete a dataset from the store, after asking |
+| `owatch data status` | Show the datasets held, how old they are, and what needs attention |
 | `owatch completion` | Generate shell completion scripts (see Shell Completion below) |
 | `owatch help` | Show the full command menu (equivalent to `-h`/`--help`) |
 | `owatch notices` | Print the third-party notices for the MITRE data owatch carries |
@@ -133,7 +136,6 @@ With no check flags given, all checks run by default.
 | `--report-file` | Save report to directory; filename is generated automatically | — |
 | `--min-severity` | Minimum severity to report, judged on the severity on this host: NONE, LOW, MEDIUM, HIGH, CRITICAL | NONE |
 | `--timeout` | Maximum audit duration | 10m |
-| `--enrich, -e` | Query external sources to annotate findings with CVEs mapped to referenced CWEs | false |
 | `--allow-elevated-write` | Permit an elevated write outside the allowlisted directories or into a directory other users control | false |
 | `-v, --verbose` | Add the live findings feed to the progress display, or print progress lines when output is not a terminal; does not change report content | false |
 | `-y, --yes` | Do not ask before a permissions check that scans the entire filesystem | false |
@@ -188,7 +190,6 @@ individual audit checks within the audit module, or both together.
 | `--report-file` | Save report to directory; filename is generated automatically | — |
 | `--min-severity` | Minimum severity to report, judged on the severity on this host: NONE, LOW, MEDIUM, HIGH, CRITICAL | NONE |
 | `--timeout` | Maximum time to run all scans | 30m |
-| `--enrich, -e` | Query external sources to annotate findings with CVEs mapped to referenced CWEs | false |
 | `--allow-elevated-write` | Permit an elevated write outside the allowlisted directories or into a directory other users control | false |
 | `-v, --verbose` | Add the live findings feed to the progress display; does not change report content | false |
 | `-y, --yes` | Do not ask before a permissions check that scans the entire filesystem | false |
@@ -346,13 +347,18 @@ citations are withheld in this way until each is checked against the benchmark.
 
 A finding also states its weakness and its CVSS score. The weakness is a CWE entry
 from the bundled MITRE catalog, shown with its name, MITRE's description and MITRE's
-own guidance on mapping to it (`weakness` in JSON and YAML). The registry refuses to
-load a definition that maps to an entry MITRE marks Discouraged or Prohibited. Where
+own guidance on mapping to it (`weakness` in JSON and YAML). Beneath it is the entry's
+lineage, the path from its Pillar down to it through the parent MITRE marks primary
+in the Research Concepts view, so CWE-521 Weak Password Requirements is shown under
+CWE-284 Improper Access Control, CWE-287 Improper Authentication, CWE-1390 Weak
+Authentication and CWE-1391 Use of Weak Credentials (`weakness.lineage`, broadest
+first). The registry refuses to load a definition that maps to an entry MITRE marks
+Discouraged or Prohibited; the entries above it in its lineage may be either. Where
 no entry describes a finding, which is the case for a disabled SELinux, the finding
 says so and gives the reason (`no_weakness`) rather than naming a weakness that does
 not fit.
 
-Every finding shows two CVSS v4.0 scores, each labelled with FIRST's nomenclature.
+Every finding shows two CVSS v4.0 scores, each labeled with FIRST's nomenclature.
 The baseline (`cvss`) is CVSS-B, a base score for the condition in general, and its
 label says it is not measured on the host. The score on this host (`host_score`) is
 CVSS-BE: where the evidence a checker recorded meets one of the registry's rules,
@@ -370,6 +376,114 @@ owatch computes both itself and never requests the link.
 A finding's severity is the CVSS-BE severity when the host's evidence modified the
 score, and otherwise the registry's rating, which is the severity band of the
 baseline.
+
+## Vulnerability Datasets
+
+owatch holds the vulnerability data it reads on the host, so a run needs no
+network. Each account has its own store, at a fixed place under the home the
+system records for the account, which no environment variable moves:
+
+| Platform | Store |
+|---|---|
+| Linux, FreeBSD, OpenBSD, NetBSD | `~/.local/share/owatch/datasets` |
+| macOS | `~/Library/Application Support/owatch/datasets` |
+| Windows | `<profile>\AppData\Local\owatch\datasets` |
+
+A run as root or from an elevated terminal does not read an account's store,
+which that account can change. It uses the protected store, which only the
+system and its administrators can change:
+
+| Platform | Protected store |
+|---|---|
+| Linux | `/var/lib/owatch/datasets` |
+| FreeBSD, OpenBSD, NetBSD | `/var/db/owatch/datasets` |
+| macOS | `/Library/Application Support/owatch/datasets` |
+| Windows | `owatch\datasets` in the ProgramData folder |
+
+`owatch data refresh` is the only owatch command that opens a network
+connection, and it never runs elevated. An elevated `owatch data status`
+installs into the protected store what the account behind the run holds newer:
+the user who ran `sudo` or `doas`, or on Windows the account the terminal is
+elevated for. Each file is read as untrusted and must be a regular file that
+account owns, not a link, and within its size limit. One that is not is left
+alone and reported with the reason, and `owatch data import` installs it
+deliberately. A root login with no account behind it installs with
+`owatch data import`.
+
+The datasets this version knows, each fetched from the address its publisher
+gives for it:
+
+| Dataset | What it is | Fetched from | Applies to | License |
+|---|---|---|---|---|
+| `epss` | FIRST's daily Exploit Prediction Scoring System scores | `epss.empiricalsecurity.com` | Every host | None stated |
+| `kev` | CISA's Known Exploited Vulnerabilities catalog | `www.cisa.gov` | Every host | CC0 1.0 |
+
+EPSS scores are from FIRST, https://www.first.org/epss, and are generated by
+Empirical Security. FIRST publishes them free of charge, names no license, and
+asks for attribution where they are used.
+
+CISA distributes the catalog under the Creative Commons 0 1.0 license. Use of it
+does not authorize use of the CISA Logo or DHS Seal and is not an endorsement by
+CISA or DHS.
+
+owatch holds both and reports their state, with the date and version of each;
+no report reads their entries yet.
+
+```bash
+# Fetch the datasets this host needs, over HTTPS
+owatch data refresh
+
+# Fetch them into a directory to carry to a host with no network,
+# for this host or for another one
+owatch data refresh --to /media/usb/owatch-datasets
+owatch data refresh --to /media/usb/owatch-datasets --for linux/ubuntu/22.04
+
+# Install the datasets in a directory, such as one carried from another host
+owatch data import /media/usb/owatch-datasets
+
+# Delete a dataset, after a question; --yes skips it
+owatch data remove kev
+
+# Show what is held, in the results browser, as text, or saved
+owatch data status
+owatch data status --plain
+owatch data status -o json --report-file /path/to/reports
+```
+
+`owatch data refresh` connects over HTTPS to the address each dataset's source
+publishes it at, follows a redirect only to a host that dataset names, and sends
+nothing about the host: every request carries `User-Agent: owatch` and no other
+detail. It reads no more than a dataset may hold and gives up on a download after
+10 minutes. A proxy named by `HTTPS_PROXY` is used, and no other environment
+variable changes where it connects. It prints each dataset's size before fetching
+it and asks before one larger than 100 MiB; `--yes` skips the question. What is
+fetched is checked as any dataset is before it replaces the copy held, a download
+that fails because a server is briefly unable to answer is tried three times, and
+a dataset that could not be refreshed keeps the copy held. `--for` names another
+host by the `Target` line `owatch osinfo` prints there, `os/platform/version`,
+copied as printed and quoted when it holds a space, as on Windows. It needs
+`--to`. `refresh` never runs as root or from an elevated terminal, and no flag
+changes that: a host whose only account is root imports datasets fetched
+elsewhere.
+
+`owatch data status` lists each dataset that applies to the host, held or not,
+with the date of its data, when it was fetched, its size, and its state: current,
+out of sync more than 7 days after it was fetched, or stale more than 14 days
+after. A dataset whose last import failed, or whose install did not finish, says
+what needs attention. Datasets held that no longer apply to the host, or that this
+version does not know, are listed with their size. Its report is delivered as the
+other reports are, and `owatch browse` opens a saved one on its Datasets tab.
+
+Every dataset is checked whenever it is read, wherever it came from: its
+manifest is validated, its data is opened only as a regular file and never
+through a link, held to the size its manifest gives, and hashed against the
+checksum the manifest records, and its content must be what its source
+publishes. `import` refuses a dataset that fails any of these with the reason,
+skips one that does not apply to the host, and leaves the held copy when it was
+fetched no earlier. An install that fails because a file is in use is tried
+three times; one that fails for another reason is recorded and shown until the
+dataset is installed. The store keeps one copy of each dataset, and a dataset
+leaves it only through `owatch data remove`.
 
 ## Third-Party Notices
 
@@ -431,7 +545,7 @@ on this host.
 generates the filename automatically:
 
 ```text
-owatch-<hostname>-m.<module_codes>-c.<check_codes>-e.<enrichment_codes>-<timestamp>.<ext>
+owatch-<hostname>-m.<module_codes>-c.<check_codes>-<timestamp>.<ext>
 ```
 
 - Segments are omitted entirely when empty — there are never double hyphens.
@@ -465,18 +579,7 @@ segment below — a module code would be redundant with that.
 | `s` | SSH configuration | implemented |
 | `u` | User accounts | implemented |
 
-### `e.` — Enrichment adapters
-
-| Letter | Adapter | Status |
-|---|---|---|
-| `g` | GHSA advisories | reserved, not yet implemented |
-| `k` | CISA KEV | reserved, not yet implemented |
-| `n` | NVD (CVE lookup) | reserved, not yet implemented |
-| `p` | EPSS scoring | reserved, not yet implemented |
-
-No `e.` segment appears in any filename yet, since no adapter is wired.
-
-Note: c.s (SSH check) and m.s (software module) share the same letter — that's intentional and safe, since each category is its own namespace (the registry only enforces uniqueness within a category, not across all three). This distinction is worth stating explicitly so it doesn't read as a typo when someone's staring at `m.os-c.fpsu` for the first time.
+Note: c.s (SSH check) and m.s (software module) share the same letter — that's intentional and safe, since each category is its own namespace (the registry only enforces uniqueness within a category, not across both). This distinction is worth stating explicitly so it doesn't read as a typo when someone's staring at `m.os-c.fpsu` for the first time.
 
 ## Shell Completion
 

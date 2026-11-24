@@ -13,14 +13,14 @@ import (
 )
 
 // Tab identifiers. A tab's identifier fixes the key that jumps to it, so a
-// source has the same letter in every run. tabLetters also reserves a letter
-// for each source that arrives with the enrichment work.
+// source has the same letter in every run.
 const (
 	TabFindings = "findings"
 	TabSystem   = "system"
 	TabSoftware = "software"
 	TabSockets  = "sockets"
 	TabAttack   = "attack"
+	TabDatasets = "datasets"
 
 	// The headings of the source table in the left pane, and the gap between
 	// its two columns.
@@ -87,10 +87,7 @@ var (
 		TabSoftware: "s",
 		TabSockets:  "l",
 		TabAttack:   "m",
-		"nvd":       "n",
-		"kev":       "k",
-		"epss":      "e",
-		"ghsa":      "g",
+		TabDatasets: "d",
 	}
 
 	// detailKeys is the viewport's key map. Its defaults bind j, k, h, l, f,
@@ -362,7 +359,7 @@ func (b browser) recordBody(p *recordPane) string {
 	if noun == "" {
 		noun = strings.ToLower(p.tab.Name)
 	}
-	status := fmt.Sprintf("%d of %d %s", len(p.visible), len(p.tab.Records), noun)
+	status := fmt.Sprintf("%s: %d of %d", noun, len(p.visible), len(p.tab.Records))
 	main := lipgloss.JoinVertical(lipgloss.Left,
 		b.queryLine(status),
 		p.listView(b.listHeight(), b.mainWidth(), true),

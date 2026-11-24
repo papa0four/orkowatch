@@ -38,7 +38,7 @@ var (
 	styleSelected = lipgloss.NewStyle().Reverse(true)
 )
 
-// severityColor returns the colour a severity is shown in. An unrecognised
+// severityColor returns the color a severity is shown in. An unrecognized
 // severity is shown muted rather than dressed up as one it is not.
 func severityColor(severity string) color.Color {
 	switch severity {
@@ -53,8 +53,8 @@ func severityColor(severity string) color.Color {
 	}
 }
 
-// resultColor returns the colour a finished task's result is shown in when it
-// produced no findings to take a colour from.
+// resultColor returns the color a finished task's result is shown in when it
+// produced no findings to take a color from.
 func resultColor(result finding.Result) color.Color {
 	switch result {
 	case finding.ResultPass:
@@ -68,7 +68,7 @@ func resultColor(result finding.Result) color.Color {
 	}
 }
 
-// itemColor returns the colour a browser item is shown in: its severity when
+// itemColor returns the color a browser item is shown in: its severity when
 // it is a finding, its result otherwise.
 func itemColor(item Item) color.Color {
 	if item.isFinding() {

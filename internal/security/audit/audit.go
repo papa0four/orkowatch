@@ -2,8 +2,8 @@
 
 // Package audit orchestrates the security checks: it selects the enabled set,
 // runs them concurrently under a caller-supplied deadline, aggregates their
-// findings and CWE references, and optionally enriches those references. It
-// owns the serializable projection of a completed run and its text rendering.
+// findings and CWE references. It owns the serializable projection of a
+// completed run and its text rendering.
 package audit
 
 import (
@@ -17,7 +17,6 @@ import (
 
 	"github.com/papa0four/orkowatch/internal/osfingerprint"
 	"github.com/papa0four/orkowatch/internal/security/checker"
-	"github.com/papa0four/orkowatch/internal/security/enrichment"
 	"github.com/papa0four/orkowatch/internal/security/finding"
 	"github.com/papa0four/orkowatch/internal/security/registry"
 	"github.com/papa0four/orkowatch/internal/sockets"
@@ -41,7 +40,7 @@ type (
 
 	// Options configures the audit process. The run's deadline is not part of
 	// Options: it arrives as the context passed to RunAudit, owned by the
-	// command layer, and bounds checks and enrichment together as one budget.
+	// command layer, and bounds the whole run.
 	Options struct {
 		// Observer is told when each check starts and finishes. Nil means
 		// nobody is watching.
@@ -56,7 +55,6 @@ type (
 
 		FilePermsPath string
 		MinSeverity   string
-		Enrich        bool
 		HostInfo      *osfingerprint.OSInfo
 
 		// Sockets are the host's sockets, from which the SSH and firewall
@@ -82,18 +80,15 @@ type (
 	// report then carries no system block, and the caller decides whether to
 	// say why.
 	Result struct {
-		FingerprintError    error
-		StartTime           time.Time
-		EndTime             time.Time
-		Duration            time.Duration
-		Results             []finding.AuditResult
-		IncompleteChecks    []string
-		HostInfo            *osfingerprint.OSInfo
-		Summary             Summary
-		EnrichmentRequested bool
-		EnrichmentError     error
-		Enrichment          *enrichment.Result
-		CWEs                []string
+		FingerprintError error
+		StartTime        time.Time
+		EndTime          time.Time
+		Duration         time.Duration
+		Results          []finding.AuditResult
+		IncompleteChecks []string
+		HostInfo         *osfingerprint.OSInfo
+		Summary          Summary
+		CWEs             []string
 	}
 
 	// Summary counts a completed audit at three levels: checks by their
@@ -212,8 +207,8 @@ func maxConcurrentChecks() int {
 // its check's canonical index so output order is independent of completion
 // order. A skipped check occupies its index with a notselected result, and
 // one the platform defines no finding for with notchecked.
-// ctx bounds the entire run -- checks and enrichment share its deadline --
-// and cancellation propagates into checker exec and filesystem work.
+// ctx bounds the entire run, and cancellation propagates into checker exec
+// and filesystem work.
 func (sa *SecurityAuditor) RunAudit(ctx context.Context) (*Result, error) {
 	if !registry.HasDefinitions(sa.osContext) {
 		return nil, fmt.Errorf("no finding definitions for %s; the audit cannot report findings on this platform",
@@ -232,11 +227,10 @@ func (sa *SecurityAuditor) RunAudit(ctx context.Context) (*Result, error) {
 	}
 
 	result := &Result{
-		FingerprintError:    fingerprintErr,
-		StartTime:           time.Now(),
-		HostInfo:            fingerprint,
-		Results:             make([]finding.AuditResult, len(runners)),
-		EnrichmentRequested: sa.options.Enrich,
+		FingerprintError: fingerprintErr,
+		StartTime:        time.Now(),
+		HostInfo:         fingerprint,
+		Results:          make([]finding.AuditResult, len(runners)),
 	}
 
 	sem := make(chan struct{}, maxConcurrentChecks())
@@ -283,7 +277,7 @@ func (sa *SecurityAuditor) RunAudit(ctx context.Context) (*Result, error) {
 		}
 	}
 
-	sa.finalize(ctx, result)
+	finalize(result)
 	return result, nil
 }
 
@@ -361,41 +355,12 @@ func unrunResult(r checkRunner, result finding.Result, reason string) finding.Au
 	}
 }
 
-// finalize computes duration, summary, and reference aggregation, then runs
-// enrichment when requested. Enrichment shares the caller's ctx rather than
-// opening a fresh deadline: --timeout is one budget for the whole run, not
-// a separate window per phase.
-func (sa *SecurityAuditor) finalize(ctx context.Context, result *Result) {
+// finalize computes duration, summary, and reference aggregation.
+func finalize(result *Result) {
 	result.EndTime = time.Now()
 	result.Duration = result.EndTime.Sub(result.StartTime)
 	result.Summary = summarize(result.Results)
 	result.CWEs = failedCWEs(result.Results)
-
-	if !sa.options.Enrich {
-		return
-	}
-
-	enricher, err := enrichment.NewEnricher()
-	if err != nil {
-		result.EnrichmentError = err
-		return
-	}
-
-	if len(result.CWEs) == 0 {
-		return
-	}
-
-	req := enrichment.EnrichRequest{
-		CWEs:        result.CWEs,
-		MinSeverity: sa.options.MinSeverity,
-	}
-
-	enrichResult, err := enricher.Enrich(ctx, req)
-	if err != nil {
-		result.EnrichmentError = err
-		return
-	}
-	result.Enrichment = &enrichResult
 }
 
 // failedCWEs returns the weaknesses the failed conditions map to,

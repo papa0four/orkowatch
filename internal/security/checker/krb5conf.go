@@ -176,7 +176,7 @@ func (p *krb5Parser) set(tag string, first setting) {
 	p.config.libdefaults[tag] = first
 	if p.closed {
 		p.config.undecided[tag] = fmt.Sprintf(
-			"%s is first set at %s, after a [libdefaults] section marked final, which the library honours within a file only from release 1.22",
+			"%s is first set at %s, after a [libdefaults] section marked final, which the library honors within a file only from release 1.22",
 			tag, first.at())
 	}
 }

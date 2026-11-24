@@ -20,7 +20,7 @@ func TestFactVocabulary(t *testing.T) {
 		t.Error("an unknown fact name is accepted")
 	}
 	if !KindFile.Known() || EvidenceKind("fiel").Known() {
-		t.Error("evidence kinds are not recognised exactly")
+		t.Error("evidence kinds are not recognized exactly")
 	}
 	for name := range factValues {
 		if !name.Known() {

@@ -292,7 +292,7 @@ func TestWith(t *testing.T) {
 		t.Fatal(err)
 	}
 	if local.String() != b+"/MAV:L" || local.Score() != 8.6 || local.Nomenclature() != "CVSS-BE" {
-		t.Errorf("MAV:L gives %s scoring %.1f labelled %s", local, local.Score(), local.Nomenclature())
+		t.Errorf("MAV:L gives %s scoring %.1f labeled %s", local, local.Score(), local.Nomenclature())
 	}
 
 	// Set out of order, written in order, and a metric set back to Not Defined

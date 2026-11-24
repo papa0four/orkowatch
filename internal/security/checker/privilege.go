@@ -16,24 +16,20 @@ import (
 	"os/exec"
 	"strings"
 
+	"github.com/papa0four/orkowatch/internal/account"
+	"github.com/papa0four/orkowatch/internal/elevation"
 	"github.com/papa0four/orkowatch/internal/security/finding"
 	"github.com/papa0four/orkowatch/internal/security/registry"
 )
 
 const (
 	// /etc/group field indices as defined by POSIX. The identifier sits at
-	// unixIDField, as it does in /etc/passwd. groupMinFields is the fewest an
+	// account.IDField, as it does in /etc/passwd. groupMinFields is the fewest an
 	// entry has: FreeBSD's getent ends the entry of a group with no members
 	// at its identifier, where glibc's writes an empty member list.
 	groupFieldName    = 0
 	groupFieldMembers = 3
 	groupMinFields    = 3
-
-	// getentProgram reads a database through the name service switch.
-	// getentNotFound is the exit status getent(1) gives for a key the
-	// database does not hold, which is an answer and not a failed lookup.
-	getentProgram  = "getent"
-	getentNotFound = 2
 
 	// sudoAdminHeading titles the administrative accounts sudo itself named.
 	sudoAdminHeading = "Accounts sudo admits to a shell as root:"
@@ -60,7 +56,7 @@ type (
 	// runs the audit, which programs the host has, sudo and the group
 	// database.
 	privilegeSources struct {
-		euid      int
+		elevated  bool
 		installed func(program string) bool
 		sudo      sudoRun
 		groups    func(ctx context.Context) (privilegedGroups, error)
@@ -77,7 +73,7 @@ func (g privilegedGroups) add(output []byte) {
 			continue
 		}
 		group := fields[groupFieldName]
-		if gid, ok := parseUnixID(fields[unixIDField]); ok {
+		if gid, ok := account.ParseID(fields[account.IDField]); ok {
 			g.gids[gid] = group
 		}
 		if len(fields) <= groupFieldMembers {
@@ -113,7 +109,7 @@ func readAdminGroups(ctx context.Context) (privilegedGroups, error) {
 	groups := newPrivilegedGroups()
 
 	for _, group := range adminGroups {
-		entry, err := lookupGroup(ctx, getentProgram, group)
+		entry, err := lookupGroup(ctx, account.GetentProgram, group)
 		if err != nil {
 			return groups, err
 		}
@@ -126,10 +122,10 @@ func readAdminGroups(ctx context.Context) (privilegedGroups, error) {
 // lookupGroup asks getent for one group's entry. A group the database does
 // not hold is no entry and no error.
 func lookupGroup(ctx context.Context, getent, group string) ([]byte, error) {
-	entry, err := exec.CommandContext(ctx, getent, "group", group).Output() // #nosec G204 -- the program is getentProgram outside tests, and a group name is a literal or one the caller has checked
+	entry, err := exec.CommandContext(ctx, getent, "group", group).Output() // #nosec G204 -- the program is account.GetentProgram outside tests, and a group name is a literal or one the caller has checked
 	var exit *exec.ExitError
 	switch {
-	case errors.As(err, &exit) && exit.ExitCode() == getentNotFound:
+	case errors.As(err, &exit) && exit.ExitCode() == account.GetentNotFound:
 		return nil, nil
 	case err != nil:
 		return nil, fmt.Errorf("%s group %s: %w", getent, group, execError(err))
@@ -140,7 +136,7 @@ func lookupGroup(ctx context.Context, getent, group string) ([]byte, error) {
 // hostPrivilegeSources are the sources of the host the audit runs on.
 func hostPrivilegeSources() privilegeSources {
 	return privilegeSources{
-		euid:      os.Geteuid(),
+		elevated:  elevation.Elevated(),
 		installed: onPath,
 		sudo:      runSudo,
 		groups:    readAdminGroups,
@@ -179,7 +175,7 @@ func (h *hostAccounts) readPrivilege(ctx context.Context, src privilegeSources) 
 
 	sudo := src.installed("sudo")
 	switch {
-	case sudo && src.euid == rootUID:
+	case sudo && src.elevated:
 		h.askSudo(ctx, src.sudo)
 	case sudo:
 		h.unjudged = append(h.unjudged, unaskedSudo(ctx, src.groups, h.accounts)...)

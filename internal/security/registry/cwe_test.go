@@ -3,8 +3,12 @@
 package registry
 
 import (
+	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 
 	"github.com/papa0four/orkowatch/internal/security/finding"
 )
@@ -57,7 +61,7 @@ func TestEveryUnusableWeaknessIsRefused(t *testing.T) {
 }
 
 // The catalog holds MITRE's weaknesses with their usage, including the ones
-// MITRE discourages or prohibits, so a mapping to one is recognised and refused
+// MITRE discourages or prohibits, so a mapping to one is recognized and refused
 // and not mistaken for a typo. Groupings such as CWE-16 are not weaknesses and
 // are absent.
 func TestCatalogCarriesMITREsUsage(t *testing.T) {
@@ -72,28 +76,34 @@ func TestCatalogCarriesMITREsUsage(t *testing.T) {
 	if _, ok := weaknesses["CWE-16"]; ok {
 		t.Error("CWE-16, a grouping, is in the catalog of weaknesses")
 	}
-	// A child names its parent, so a mapping can be walked up or down.
-	if parents := weaknesses["CWE-266"].parents; len(parents) == 0 || parents[0] != "CWE-269" {
-		t.Errorf("CWE-266 has parents %v, want CWE-269", parents)
+	// A weakness with several parents in MITRE's view keeps the one MITRE marks
+	// primary, so it has one path to its Pillar.
+	for id, want := range map[finding.CWE]finding.CWE{"CWE-266": "CWE-269", "CWE-250": "CWE-269", "CWE-732": "CWE-285", "CWE-1188": "CWE-1419", "CWE-284": ""} {
+		if got := weaknesses[id].parent; got != want {
+			t.Errorf("%s has parent %q, want %q", id, got, want)
+		}
 	}
 }
 
-// A damaged catalog stops startup: an unknown usage, a parent the catalog lacks
-// and a cycle are each refused.
+// A damaged catalog stops startup: an unknown usage, a parent the catalog lacks,
+// a cycle and a list of parents in place of one are each refused.
 func TestCatalogLoaderRefusesDamage(t *testing.T) {
 	const head = "version: \"5.0\"\nverified: \"2026-11-15\"\nweaknesses:\n"
-	entry := func(id, usage, parents string) string {
-		return "  \"" + id + "\":\n    name: \"n\"\n    abstraction: \"Base\"\n    usage: \"" + usage + "\"\n    parents: [" + parents + "]\n"
+	entry := func(id, usage, parent string) string {
+		return "  \"" + id + "\":\n    name: \"n\"\n    abstraction: \"Base\"\n    usage: \"" + usage + "\"\n    parent: \"" + parent + "\"\n"
 	}
 	cases := map[string]string{
 		"an unknown usage":   head + entry("CWE-1", "Maybe", ""),
-		"a missing parent":   head + entry("CWE-1", "Allowed", `"CWE-2"`),
-		"a cycle":            head + entry("CWE-1", "Allowed", `"CWE-2"`) + entry("CWE-2", "Allowed", `"CWE-1"`),
-		"an unknown field":   head + entry("CWE-1", "Allowed", "") + "    colour: red\n",
+		"a missing parent":   head + entry("CWE-1", "Allowed", "CWE-2"),
+		"a cycle":            head + entry("CWE-1", "Allowed", "CWE-2") + entry("CWE-2", "Allowed", "CWE-1"),
+		"a longer cycle":     head + entry("CWE-1", "Allowed", "CWE-2") + entry("CWE-2", "Allowed", "CWE-3") + entry("CWE-3", "Allowed", "CWE-1"),
+		"an unknown field":   head + entry("CWE-1", "Allowed", "") + "    color: red\n",
 		"no version":         "weaknesses:\n" + entry("CWE-1", "Allowed", ""),
 		"a malformed id":     head + entry("1", "Allowed", ""),
+		"a malformed parent": head + entry("CWE-1", "Allowed", "2"),
 		"an unknown kind":    strings.Replace(head+entry("CWE-1", "Allowed", ""), `"Base"`, `"Galaxy"`, 1),
-		"a parent of itself": head + entry("CWE-1", "Allowed", `"CWE-1"`),
+		"a parent of itself": head + entry("CWE-1", "Allowed", "CWE-1"),
+		"a list of parents":  head + "  \"CWE-1\":\n    name: \"n\"\n    abstraction: \"Base\"\n    usage: \"Allowed\"\n    parents: []\n",
 	}
 	for name, data := range cases {
 		func() {
@@ -108,9 +118,9 @@ func TestCatalogLoaderRefusesDamage(t *testing.T) {
 }
 
 // Every shipped finding carries its weakness's name and MITRE's description
-// from the catalog, or the reason none applies, and a CVSS score labelled as
+// from the catalog, or the reason none applies, and a CVSS score labeled as
 // the baseline it is.
-func TestShippedFindingsCarryWeaknessAndLabelledCVSS(t *testing.T) {
+func TestShippedFindingsCarryWeaknessAndLabeledCVSS(t *testing.T) {
 	for label, d := range allDefinitions() {
 		f := d.Finding()
 		switch {
@@ -121,7 +131,59 @@ func TestShippedFindingsCarryWeaknessAndLabelledCVSS(t *testing.T) {
 			t.Errorf("%s: carries neither a weakness nor a reason", label)
 		}
 		if f.CVSS == nil || f.CVSS.Nomenclature != "CVSS-B" || f.CVSS.Version != "4.0" || f.CVSS.Source != "registry" || f.CVSS.Score != d.CVSSScore || f.CVSS.Vector != d.CVSSVector {
-			t.Errorf("%s: CVSS %+v is not the registry's labelled baseline", label, f.CVSS)
+			t.Errorf("%s: CVSS %+v is not the registry's labeled baseline", label, f.CVSS)
+		}
+	}
+}
+
+// A finding's weakness carries the path down to it from its Pillar, through
+// the parents MITRE marks primary.
+func TestWeaknessCarriesItsLineage(t *testing.T) {
+	w := FindingDefinition{Result: finding.ResultFail, CWE: "CWE-521"}.weakness()
+	var got []string
+	for _, a := range w.Lineage {
+		got = append(got, string(a.ID)+" "+a.Abstraction)
+	}
+	want := []string{"CWE-284 Pillar", "CWE-287 Class", "CWE-1390 Class", "CWE-1391 Class"}
+	if !slices.Equal(got, want) {
+		t.Errorf("CWE-521 has lineage %v, want %v", got, want)
+	}
+	if w.Lineage[0].Name != "Improper Access Control" {
+		t.Errorf("the Pillar is named %q", w.Lineage[0].Name)
+	}
+	asJSON, err := json.Marshal(w)
+	if err != nil {
+		t.Fatal(err)
+	}
+	asYAML, err := yaml.Marshal(w)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(asJSON), `"lineage":[{"id":"CWE-284","name":"Improper Access Control","abstraction":"Pillar"}`) {
+		t.Errorf("JSON does not carry the lineage: %s", asJSON)
+	}
+	if !strings.Contains(string(asYAML), "lineage:\n    - id: CWE-284\n      name: Improper Access Control\n      abstraction: Pillar\n") {
+		t.Errorf("YAML does not carry the lineage:\n%s", asYAML)
+	}
+}
+
+// Every shipped finding's lineage starts at a Pillar and each entry is the
+// parent of the next, ending at the parent of the finding's own weakness.
+func TestShippedLineagesDescendFromAPillar(t *testing.T) {
+	for label, d := range allDefinitions() {
+		w := d.weakness()
+		if w == nil {
+			continue
+		}
+		if len(w.Lineage) == 0 || w.Lineage[0].Abstraction != "Pillar" || weaknesses[w.Lineage[0].ID].parent != "" {
+			t.Errorf("%s: %s has lineage %v, which does not start at a Pillar", label, w.ID, w.Lineage)
+			continue
+		}
+		next := append(slices.Clone(w.Lineage[1:]), finding.WeaknessAncestor{ID: w.ID})
+		for i, a := range w.Lineage {
+			if weaknesses[next[i].ID].parent != a.ID {
+				t.Errorf("%s: %s in the lineage of %s is not the parent of %s", label, a.ID, w.ID, next[i].ID)
+			}
 		}
 	}
 }

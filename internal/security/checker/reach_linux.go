@@ -15,6 +15,8 @@ import (
 	"strings"
 
 	"golang.org/x/sys/unix"
+
+	"github.com/papa0four/orkowatch/internal/account"
 )
 
 // The access ACL extended attribute as the kernel stores it, from
@@ -102,7 +104,7 @@ func anyInRootGroup(ctx context.Context, names []string) (bool, error) {
 		names = names[len(batch):]
 
 		args := append([]string{"initgroups", "--"}, batch...)
-		output, err := exec.CommandContext(ctx, getentProgram, args...).Output() // #nosec G204 -- fixed command; account names follow "--" and reach no shell
+		output, err := exec.CommandContext(ctx, account.GetentProgram, args...).Output() // #nosec G204 -- fixed command; account names follow "--" and reach no shell
 		if err != nil {
 			return false, execError(err)
 		}
@@ -123,7 +125,7 @@ func listsRootGroup(output []byte) bool {
 			continue
 		}
 		for _, field := range fields[1:] {
-			if gid, ok := parseUnixID(field); ok && gid == rootGID {
+			if gid, ok := account.ParseID(field); ok && gid == rootGID {
 				return true
 			}
 		}

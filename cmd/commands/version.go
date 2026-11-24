@@ -6,6 +6,8 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
+
+	"github.com/papa0four/orkowatch/cmd/commands/cliargs"
 )
 
 /*
@@ -20,7 +22,7 @@ var Version = "dev"
 func newVersionCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "version",
-		Args:  cobra.NoArgs,
+		Args:  cliargs.None,
 		Short: "Print the orkowatch version",
 		Run: func(cmd *cobra.Command, args []string) {
 			fmt.Printf("owatch version %s\n", Version)

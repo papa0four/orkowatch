@@ -3,11 +3,14 @@
 package security
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
+	"github.com/papa0four/orkowatch/internal/dataset"
 	"github.com/papa0four/orkowatch/internal/security/audit"
 	"github.com/papa0four/orkowatch/internal/security/finding"
+	"github.com/papa0four/orkowatch/internal/selection"
 	"github.com/papa0four/orkowatch/internal/softwarelist"
 	"github.com/papa0four/orkowatch/internal/tui"
 )
@@ -99,17 +102,22 @@ func TestAttackTabStatesTheBasis(t *testing.T) {
 }
 
 // The browser's finding detail carries the weakness with MITRE's description
-// and the labelled CVSS, or the reason no weakness applies.
+// and the labeled CVSS, or the reason no weakness applies.
 func TestBrowserItemCarriesWeaknessAndCVSS(t *testing.T) {
 	cond := audit.ConditionView{Key: "permissions.world_writable_file", Result: finding.ResultFail,
 		Finding: &audit.FindingView{Title: "World-writable file", Severity: "HIGH",
 			Weakness: &finding.Weakness{ID: "CWE-732", Name: "Incorrect Permission Assignment for Critical Resource",
 				Description: "The product specifies permissions for a security-critical resource in a way that allows it to be read or modified by unintended actors.",
-				Usage:       "Allowed-with-Review", URL: "https://cwe.mitre.org/data/definitions/732.html"},
+				Usage:       "Allowed-with-Review", URL: "https://cwe.mitre.org/data/definitions/732.html",
+				Lineage: []finding.WeaknessAncestor{
+					{ID: "CWE-284", Name: "Improper Access Control", Abstraction: "Pillar"},
+					{ID: "CWE-285", Name: "Improper Authorization", Abstraction: "Class"},
+				}},
 			CVSS: &finding.CVSSScore{Version: "4.0", Vector: "CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:H/VI:H/VA:N/SC:N/SI:N/SA:N", Score: 8.4, Severity: "HIGH",
 				Source: "registry", Nomenclature: "CVSS-B", Basis: "baseline for the condition, not measured on this host"}}}
 	item := browserItem(cond)
-	for _, want := range []string{"CWE-732 Incorrect Permission Assignment", "Allowed-with-Review"} {
+	for _, want := range []string{"CWE-732 Incorrect Permission Assignment", "Allowed-with-Review",
+		"\nCWE-284 Improper Access Control (Pillar)\n> CWE-285 Improper Authorization (Class)\n> CWE-732 Incorrect Permission Assignment for Critical Resource"} {
 		if !strings.Contains(item.Weakness, want) {
 			t.Errorf("weakness %q lacks %q", item.Weakness, want)
 		}
@@ -175,5 +183,64 @@ func TestSoftwareTabShowsWhatTheManagerStates(t *testing.T) {
 	}
 	if got := labels(tab.Records[1]); got != "name=Some Application; version=1.2" {
 		t.Errorf("an application's fields are %q, want its name and version alone", got)
+	}
+}
+
+// A report that holds no datasets offers no Datasets tab, so every report but
+// owatch data status's opens as it did; one that does offers it, and a run
+// of that module alone opens on it.
+func TestDatasetsTabOnlyWhenHeld(t *testing.T) {
+	for _, src := range []BrowserSource{{Title: "audit"}, {Title: "all", Modules: []ModuleNote{{Name: selection.NameOS}}}} {
+		for _, tab := range BrowserReport(src).Tabs {
+			if tab.ID == tui.TabDatasets {
+				t.Errorf("%s offers a Datasets tab", src.Title)
+			}
+		}
+	}
+	report := BrowserReport(BrowserSource{
+		Datasets: &dataset.View{Store: "/store", Datasets: []dataset.Row{{ID: "kev", State: dataset.StateNotHeld}}},
+		Modules:  []ModuleNote{{Name: selection.NameDatasets, Result: finding.ResultInformational}},
+	})
+	if report.Start != tui.TabDatasets {
+		t.Errorf("opens on %q, want the datasets", report.Start)
+	}
+	empty := datasetsTab(dataset.View{Store: "/store"})
+	if len(empty.Records) != 0 || !strings.Contains(empty.Note, "/store holds none") {
+		t.Errorf("an empty store gave %+v", empty)
+	}
+}
+
+// What an elevated run installed from the operator's store is the first
+// record, with the same sentences the text report prints.
+func TestDatasetsTabSaysWhatWasInstalled(t *testing.T) {
+	operator := &dataset.Operator{Store: "/home/a/store", Installed: []string{"kev"}, Refused: []dataset.Refusal{{ID: "epss", Reason: "it is a link"}}, Advice: "run import"}
+	tab := datasetsTab(dataset.View{Store: "/store", Operator: operator, Datasets: []dataset.Row{{ID: "kev", State: dataset.StateCurrent}}})
+	if len(tab.Records) != 2 || tab.Records[0].Title != "from the operator" || tab.Records[1].Title != "kev" {
+		t.Fatalf("records %+v, want the operator's ahead of the dataset's", tab.Records)
+	}
+	var got []string
+	for _, f := range tab.Records[0].Fields {
+		got = append(got, f.Value)
+	}
+	if !slices.Equal(got, operator.Lines()) {
+		t.Errorf("the record says %q, want %q", got, operator.Lines())
+	}
+	if plain := datasetsTab(dataset.View{Store: "/store", Datasets: []dataset.Row{{ID: "kev", State: dataset.StateCurrent}}}); len(plain.Records) != 1 {
+		t.Errorf("with nothing from an operator: %+v", plain.Records)
+	}
+}
+
+// A held dataset's record gives the date of its data and, after it, the
+// version its source gives the data.
+func TestDatasetsTabShowsTheVersion(t *testing.T) {
+	tab := datasetsTab(dataset.View{Store: "/store", Datasets: []dataset.Row{
+		{ID: "kev", State: dataset.StateCurrent, DataDate: "2026-11-23", Version: "2026.11.23"},
+	}})
+	var got []string
+	for _, f := range tab.Records[0].Fields {
+		got = append(got, f.Label+"="+f.Value)
+	}
+	if want := "state=current; date of the data=2026-11-23; version=2026.11.23; store=/store"; strings.Join(got, "; ") != want {
+		t.Errorf("the record's fields are %q, want %q", strings.Join(got, "; "), want)
 	}
 }

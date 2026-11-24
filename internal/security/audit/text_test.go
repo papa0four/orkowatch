@@ -42,7 +42,7 @@ func findingText(t *testing.T, def *FindingView) string {
 }
 
 // The text report shows the baseline and the score on this host, each
-// labelled, and traces the host score to the fact and passage behind it.
+// labeled, and traces the host score to the fact and passage behind it.
 func TestTextShowsBothScores(t *testing.T) {
 	text := findingText(t, hostScored())
 	for _, want := range []string{
@@ -50,13 +50,32 @@ func TestTextShowsBothScores(t *testing.T) {
 		"    calculator: https://www.first.org/cvss/calculator/4.0#baseline",
 		"  CVSS on this host: 8.6 HIGH  CVSS-BE v4.0, Modified Base metrics derived from evidence recorded on this host  CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N/MAV:L",
 		"    calculator: https://www.first.org/cvss/calculator/4.0#host",
-		"    MAV:L from listening loopback-only on 1 of 1 subjects: sshd listens only on loopback addresses",
+		"    MAV:L from listening loopback-only on 1 of 1 subject: sshd listens only on loopback addresses",
 		"      Implementation Guide, Modified Attack Vector (MAV): \"the service is exposed locally\"",
 		"    MPR not modified: no file evidence was recorded, so PR:N stands",
 	} {
 		if !strings.Contains(text, want+"\n") {
 			t.Errorf("the text lacks %q:\n%s", want, text)
 		}
+	}
+}
+
+// The text report names the weakness, then its lineage from the Pillar down
+// to the weakness itself.
+func TestTextShowsTheWeaknessLineage(t *testing.T) {
+	def := hostScored()
+	def.Weakness = &finding.Weakness{ID: "CWE-266", Name: "Incorrect Privilege Assignment", Usage: "Allowed",
+		Lineage: []finding.WeaknessAncestor{
+			{ID: "CWE-284", Name: "Improper Access Control", Abstraction: "Pillar"},
+			{ID: "CWE-269", Name: "Improper Privilege Management", Abstraction: "Class"},
+		}}
+	want := "  Weakness: CWE-266 Incorrect Privilege Assignment (MITRE mapping usage: Allowed)\n" +
+		"    CWE-284 Improper Access Control (Pillar)\n" +
+		"    > CWE-269 Improper Privilege Management (Class)\n" +
+		"    > CWE-266 Incorrect Privilege Assignment\n" +
+		"  CVSS baseline:"
+	if text := findingText(t, def); !strings.Contains(text, want) {
+		t.Errorf("the text lacks the lineage %q:\n%s", want, text)
 	}
 }
 
