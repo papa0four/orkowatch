@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/papa0four/orkowatch/internal/dataset"
+	"github.com/papa0four/orkowatch/internal/dataset/datasettest"
 	"github.com/papa0four/orkowatch/internal/osfingerprint"
 )
 
@@ -82,7 +83,7 @@ func TestRefreshInstalls(t *testing.T) {
 	}
 	row := rowOf(t, s, []dataset.Dataset{served}, "wanted")
 	want := dataset.Row{
-		ID: "wanted", State: dataset.StateCurrent, Source: "https://data.example/wanted", DataDate: "2026-11-20",
+		ID: "wanted", State: dataset.StateCurrent, Source: "https://data.example/wanted", DataDate: "2026-11-20", Version: datasettest.Version,
 		Fetched: "2026-11-22T12:00:00Z", Size: int64(len(content)), License: "CC0 1.0", Attribution: "Served for the tests",
 	}
 	if row != want {

@@ -38,15 +38,17 @@ type View struct {
 }
 
 // Row is one dataset as status shows it. A held dataset carries what its
-// manifest and its data say, the date of its data as time.DateOnly writes it
-// and its fetch time as time.RFC3339 does; any other carries its state and,
-// where there is one, the reason or its size.
+// manifest and its data say, the date of its data as time.DateOnly writes it,
+// the version its source gives the data, and its fetch time as time.RFC3339
+// writes it; any other carries its state and, where there is one, the reason
+// or its size.
 type Row struct {
 	ID          string `json:"id" yaml:"id"`
 	State       State  `json:"state" yaml:"state"`
 	Reason      string `json:"reason,omitempty" yaml:"reason,omitempty"`
 	Source      string `json:"source,omitempty" yaml:"source,omitempty"`
 	DataDate    string `json:"data_date,omitempty" yaml:"data_date,omitempty"`
+	Version     string `json:"version,omitempty" yaml:"version,omitempty"`
 	Fetched     string `json:"fetched,omitempty" yaml:"fetched,omitempty"`
 	Size        int64  `json:"size,omitempty" yaml:"size,omitempty"`
 	License     string `json:"license,omitempty" yaml:"license,omitempty"`
@@ -107,7 +109,7 @@ func rowDetail(r Row) string {
 	var detail string
 	switch r.State {
 	case StateCurrent, StateOutOfSync, StateStale:
-		detail = fmt.Sprintf("%s: data of %s, fetched %s, %s", r.State, r.DataDate, r.Fetched, Size(r.Size))
+		detail = fmt.Sprintf("%s: data of %s, version %s, fetched %s, %s", r.State, r.DataDate, r.Version, r.Fetched, Size(r.Size))
 	case StateUnusable:
 		detail = fmt.Sprintf("%s: %s", r.State, r.Reason)
 	case StateNotApplicable, StateUnknown:

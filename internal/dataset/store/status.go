@@ -63,6 +63,9 @@ func (s Store) heldRow(d dataset.Dataset, now time.Time) dataset.Row {
 		facts, checkErr = d.Check(data)
 		return checkErr
 	})
+	if err == nil && facts.Version == "" {
+		err = errors.New("its check states no version of the data")
+	}
 	if err != nil {
 		return dataset.Row{ID: d.ID(), State: dataset.StateUnusable, Reason: err.Error()}
 	}
@@ -71,6 +74,7 @@ func (s Store) heldRow(d dataset.Dataset, now time.Time) dataset.Row {
 		State:       dataset.StateAt(m.Fetched, now),
 		Source:      m.Source,
 		DataDate:    facts.Date.UTC().Format(time.DateOnly),
+		Version:     facts.Version,
 		Fetched:     m.Fetched.UTC().Format(time.RFC3339),
 		Size:        m.Size,
 		License:     m.License,

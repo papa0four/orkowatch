@@ -13,7 +13,7 @@ import (
 func TestWriteText(t *testing.T) {
 	var b strings.Builder
 	err := WriteText(&b, View{Store: "/store", Datasets: []Row{
-		{ID: "kev", State: StateCurrent, Source: "https://data.example/kev", DataDate: "2026-11-20",
+		{ID: "kev", State: StateCurrent, Source: "https://data.example/kev", DataDate: "2026-11-20", Version: "2026.11.20",
 			Fetched: "2026-11-22T11:00:00Z", Size: 3 << 20, License: "CC0 1.0", Attribution: "CISA"},
 		{ID: "epss", State: StateNotHeld},
 		{ID: "bad", State: StateUnusable, Reason: "checksum", Attention: "the import failed"},
@@ -25,7 +25,7 @@ func TestWriteText(t *testing.T) {
 	}
 	want := `Store: /store
 
-kev         current: data of 2026-11-20, fetched 2026-11-22T11:00:00Z, 3.0 MiB
+kev         current: data of 2026-11-20, version 2026.11.20, fetched 2026-11-22T11:00:00Z, 3.0 MiB
             source https://data.example/kev
             license CC0 1.0; CISA
 epss        not held

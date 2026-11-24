@@ -5,6 +5,7 @@ package store
 import (
 	"context"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -66,6 +67,7 @@ func TestStatusOfAHeldDataset(t *testing.T) {
 		State:       dataset.StateCurrent,
 		Source:      "https://data.example/test-data",
 		DataDate:    "2026-11-20",
+		Version:     datasettest.Version,
 		Fetched:     "2026-11-22T11:00:00Z",
 		Size:        int64(len(content)),
 		License:     "CC0 1.0",
@@ -73,6 +75,26 @@ func TestStatusOfAHeldDataset(t *testing.T) {
 	}
 	if got != want {
 		t.Errorf("row %+v, want %+v", got, want)
+	}
+}
+
+// unversioned is the test dataset with a check that states no version.
+type unversioned struct{ testDataset }
+
+func (u unversioned) Check(data io.Reader) (dataset.Facts, error) {
+	facts, err := u.testDataset.Check(data)
+	facts.Version = ""
+	return facts, err
+}
+
+// A dataset whose check states no version is unusable, so no row shows a
+// dataset without one.
+func TestStatusRefusesADatasetWithNoVersion(t *testing.T) {
+	s := Store{root: t.TempDir()}
+	d := unversioned{testDataset{Name: "test-data", Applies: true}}
+	put(t, s, d, content, now.Add(-time.Hour), nil)
+	if got := rowOf(t, s, []dataset.Dataset{d}, "test-data"); got.State != dataset.StateUnusable || !strings.Contains(got.Reason, "no version") {
+		t.Errorf("row %+v, want unusable for want of a version", got)
 	}
 }
 

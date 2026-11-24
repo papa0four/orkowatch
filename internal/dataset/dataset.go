@@ -41,6 +41,12 @@ type (
 	Facts struct {
 		// Date is the date the source gave its data.
 		Date time.Time
+
+		// Version is what the source calls this issue of its data, such as
+		// a catalog's version or the model its scores came from. Every
+		// dataset states one; a held dataset whose check gives none is
+		// shown as unusable.
+		Version string
 	}
 )
 

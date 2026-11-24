@@ -296,6 +296,7 @@ func datasetsTab(v dataset.View) tui.Tab {
 		add("needs attention", r.Attention)
 		add("reason", r.Reason)
 		add("date of the data", r.DataDate)
+		add("version", r.Version)
 		add("fetched", r.Fetched)
 		if r.Size > 0 {
 			add("size", dataset.Size(r.Size))

@@ -74,7 +74,8 @@ func (Catalog) Origin() dataset.Origin {
 // Check refuses data that is not the catalog whole: one JSON object and
 // nothing after it, with its version, the time it was released, and a count
 // that is the number of entries present, each naming a CVE. The count is what
-// tells a catalog cut short at an entry's end from a whole one.
+// tells a catalog cut short at an entry's end from a whole one. It gives the
+// release time as the data's date and the catalog version as its version.
 func (Catalog) Check(data io.Reader) (dataset.Facts, error) {
 	var c catalog
 	dec := json.NewDecoder(data)
@@ -105,5 +106,5 @@ func (Catalog) Check(data io.Reader) (dataset.Facts, error) {
 			return dataset.Facts{}, fmt.Errorf("entry %d names %q, which is not a CVE identifier", i+1, e.CVEID)
 		}
 	}
-	return dataset.Facts{Date: released}, nil
+	return dataset.Facts{Date: released, Version: c.CatalogVersion}, nil
 }

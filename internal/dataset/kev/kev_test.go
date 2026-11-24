@@ -71,6 +71,9 @@ func TestCheckAcceptsTheRecordedCatalog(t *testing.T) {
 	if want := time.Date(2026, 11, 23, 12, 54, 37, 964600000, time.UTC); !facts.Date.Equal(want) {
 		t.Errorf("date of the data = %s, want %s", facts.Date, want)
 	}
+	if facts.Version != "2026.11.23" {
+		t.Errorf("version of the data = %q, want the catalog version 2026.11.23", facts.Version)
+	}
 	if int64(len(data)) > (Catalog{}).MaxBytes() {
 		t.Errorf("the recorded catalog holds %d bytes, more than the dataset may", len(data))
 	}
