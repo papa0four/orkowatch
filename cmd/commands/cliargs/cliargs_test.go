@@ -3,6 +3,7 @@
 package cliargs
 
 import (
+	"os"
 	"slices"
 	"testing"
 
@@ -38,6 +39,21 @@ func TestRejoin(t *testing.T) {
 	}
 	if got := Rejoin(audit, []string{"--skip-checks", "ssh", "users"}); !slices.Equal(got, []string{"--skip-checks", "ssh,users"}) {
 		t.Errorf("Rejoin on the command itself = %q", got)
+	}
+
+	// A name that is also a path here, as a directory audit is to scan can
+	// be, stays the path; after a trailing comma it is still the list's.
+	t.Chdir(t.TempDir())
+	if err := os.Mkdir("users", 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, tt := range []struct{ args, want []string }{
+		{[]string{"audit", "--skip-checks", "ssh", "users"}, []string{"audit", "--skip-checks", "ssh", "users"}},
+		{[]string{"audit", "--skip-checks", "ssh,", "users"}, []string{"audit", "--skip-checks", "ssh,users"}},
+	} {
+		if got := Rejoin(root, tt.args); !slices.Equal(got, tt.want) {
+			t.Errorf("beside a directory named users, Rejoin(%q) = %q, want %q", tt.args, got, tt.want)
+		}
 	}
 }
 

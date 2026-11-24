@@ -9,6 +9,7 @@ package cliargs
 
 import (
 	"fmt"
+	"os"
 	"slices"
 	"strings"
 
@@ -32,10 +33,10 @@ func NameList(cmd *cobra.Command, p *[]string, name, usage string, names []strin
 // Rejoin returns args with each word a shell split off a list flag's value
 // put back into that list. A word joins the list it directly follows when the
 // list ends in a comma, as "ssh, users" written without quotes leaves it, or
-// when every name in it is one the flag accepts, as a shell that splits a
-// list on its commas leaves "ssh,users". Any other word, a path among them,
-// stays an argument. The command the words are for is found from cmd and
-// args as cobra finds it.
+// when every name in it is one the flag accepts and it is not a path that
+// exists, as a shell that splits a list on its commas leaves "ssh,users". Any
+// other word stays an argument. The command the words are for is found from
+// cmd and args as cobra finds it.
 func Rejoin(cmd *cobra.Command, args []string) []string {
 	target, _, err := cmd.Find(args)
 	if err != nil {
@@ -78,13 +79,19 @@ func Rejoin(cmd *cobra.Command, args []string) []string {
 }
 
 // continues reports whether word goes on the list whose value ends last: the
-// value ends in a comma, or every name in word is one of names.
+// value ends in a comma, or every name in word is one of names and word is
+// not a path that exists. A path a command takes, such as the one audit scans
+// after --fperms, can share a name with a check; read as the path, it is what
+// the command read before names were rejoined.
 func continues(last, word string, names []string) bool {
 	if strings.HasPrefix(word, "-") {
 		return false
 	}
 	if strings.HasSuffix(last, ",") {
 		return true
+	}
+	if _, err := os.Lstat(word); err == nil {
+		return false
 	}
 	found := false
 	for _, part := range strings.Split(word, ",") {
