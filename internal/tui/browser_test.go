@@ -39,6 +39,21 @@ func press(b browser, key string) browser {
 	return m.(browser)
 }
 
+// pressCode presses a key that types nothing, such as esc or enter.
+func pressCode(b browser, code rune) browser {
+	m, _ := b.onKey(tea.KeyPressMsg{Code: code})
+	return m.(browser)
+}
+
+// keep types query into the search and keeps it with enter.
+func keep(b browser, query string) browser {
+	b = press(b, "/")
+	for _, r := range query {
+		b = press(b, string(r))
+	}
+	return pressCode(b, tea.KeyEnter)
+}
+
 func sized(b browser, width, height int) browser {
 	b.width, b.height = width, height
 	b.layout()
@@ -199,6 +214,50 @@ func TestFindingDetailShowsBothScores(t *testing.T) {
 				t.Errorf("at width %d a line is %d wide, past the pane's %d: %q", width, w, b.mainWidth(), line)
 			}
 		}
+	}
+}
+
+// A kept search is cleared by esc on the list and on the left pane, on the
+// findings tab and on a record tab. From the detail pane the first esc goes
+// back to the list and the second clears. The footer names the key only while
+// esc would clear a search.
+func TestEscClearsAKeptSearch(t *testing.T) {
+	r := sidebarReport(3)
+	r.Tabs = append(r.Tabs, Tab{ID: TabSockets, Name: "Sockets", Records: []Record{{Title: "alpha"}, {Title: "beta"}, {Title: "gamma"}}})
+	b := sized(newBrowser(r), 160, 40)
+	offers := func(b browser) bool { return strings.Contains(plain(b.helpView()), "(esc) clear search") }
+
+	if b = keep(b, "check1"); len(b.visible) != 1 || !offers(b) {
+		t.Fatalf("a kept search lists %d and offers esc %v", len(b.visible), offers(b))
+	}
+	if b = pressCode(b, tea.KeyEscape); b.query != "" || len(b.visible) != 3 || offers(b) {
+		t.Errorf("esc on the list left %q, %d listed, esc offered %v", b.query, len(b.visible), offers(b))
+	}
+
+	b = keep(b, "check1")
+	b.focus = focusFilters
+	if b = pressCode(b, tea.KeyEscape); b.query != "" || len(b.visible) != 3 {
+		t.Errorf("esc on the left pane left %q and %d listed", b.query, len(b.visible))
+	}
+
+	b.focus = focusList
+	b = pressCode(keep(b, "check1"), tea.KeyEnter)
+	if b.focus != focusDetail || offers(b) {
+		t.Fatalf("in the detail pane, focus %d and esc offered %v", b.focus, offers(b))
+	}
+	if b = pressCode(b, tea.KeyEscape); b.focus != focusList || b.query != "check1" {
+		t.Errorf("the first esc in the detail pane gave focus %d and search %q", b.focus, b.query)
+	}
+	if b = pressCode(b, tea.KeyEscape); b.query != "" || len(b.visible) != 3 {
+		t.Errorf("the second esc left %q and %d listed", b.query, len(b.visible))
+	}
+
+	b = keep(press(b, "l"), "beta")
+	if p := b.activePane(); len(p.visible) != 1 || !offers(b) {
+		t.Fatalf("a kept search on the sockets tab lists %d and offers esc %v", len(p.visible), offers(b))
+	}
+	if b = pressCode(b, tea.KeyEscape); b.query != "" || len(b.activePane().visible) != 3 {
+		t.Errorf("esc on the sockets tab left %q and %d listed", b.query, len(b.activePane().visible))
 	}
 }
 

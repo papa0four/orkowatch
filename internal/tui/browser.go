@@ -325,7 +325,9 @@ func (b browser) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 // onKey routes a key press: to the search box while it is open, to the full
-// report while it is shown, and otherwise to the focused pane.
+// report while it is shown, and otherwise to the focused pane. Esc on the list
+// or the left pane clears a kept search, on whichever tab shows it; the detail
+// pane keeps esc for going back to the list.
 func (b browser) onKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
 	switch {
@@ -339,6 +341,10 @@ func (b browser) onKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return b, tea.Quit
 	case b.showText:
 		return b.onTextKey(msg)
+	case key == "esc" && b.clearsSearch():
+		b.query = ""
+		b.refilter()
+		return b, nil
 	}
 
 	if next, ok := b.onTabKey(key); ok {
@@ -367,6 +373,12 @@ func (b browser) onKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return b.onRecordKey(msg)
 	}
 	return b.onFindingKey(msg)
+}
+
+// clearsSearch reports whether esc clears the search: one is kept, and the
+// keyboard is on the list or the left pane.
+func (b browser) clearsSearch() bool {
+	return b.query != "" && b.focus != focusDetail
 }
 
 // onTabKey switches tabs on a tab's letter, a digit, or a bracket, reporting
@@ -891,11 +903,15 @@ func (b browser) help() []hint {
 		tabs = []hint{keyHint("prev/next source", "[ ]")}
 	}
 	// common lists the hints of a pane in the order they are dropped from the end
-	// when the window is narrow: movement first and kept longest, then the way to
-	// the full report, the sources and the panes, and last the toggles that only
-	// the findings have, then search.
+	// when the window is narrow: movement first and kept longest, then clearing a
+	// kept search, the way to the full report, the sources and the panes, and
+	// last the toggles that only the findings have, then search.
 	common := func(before []hint, toggles ...hint) []hint {
-		out := append(before, report)
+		out := before
+		if b.clearsSearch() {
+			out = append(out, keyHint("clear search", "esc"))
+		}
+		out = append(out, report)
 		out = append(out, tabs...)
 		out = append(out, pane)
 		out = append(out, toggles...)
