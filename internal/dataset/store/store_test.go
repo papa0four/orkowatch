@@ -4,7 +4,6 @@ package store
 
 import (
 	"context"
-	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -257,17 +256,25 @@ func TestStatusRows(t *testing.T) {
 }
 
 // The process's store is under the home the system records for its account,
-// and an elevated process has none.
+// and an elevated process's is the protected one in the system's data
+// directory.
 func TestForProcess(t *testing.T) {
 	s, err := ForProcess(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
 	if elevation.Elevated() {
-		if !errors.Is(err, ErrElevated) {
-			t.Errorf("an elevated process gave %v, want ErrElevated", err)
+		base, err := systemData()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if want := filepath.Join(base, "owatch", "datasets"); s.Root() != want || s.protect == nil {
+			t.Errorf("an elevated process's store is %s, protected %v; want %s, protected", s.Root(), s.protect != nil, want)
 		}
 		return
 	}
-	if err != nil {
-		t.Fatal(err)
+	if s.protect != nil {
+		t.Error("the account's own store is protected")
 	}
 	want, err := accountRoot(context.Background())
 	if err != nil {

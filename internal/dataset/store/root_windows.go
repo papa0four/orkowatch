@@ -20,5 +20,11 @@ func accountRoot(context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(profile, "AppData", "Local", "owatch", "datasets"), nil
+	return RootOf(profile), nil
+}
+
+// RootOf is the store of the account whose profile folder is home, as
+// Windows records it for the account.
+func RootOf(home string) string {
+	return filepath.Join(home, "AppData", "Local", "owatch", "datasets")
 }

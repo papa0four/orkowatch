@@ -28,7 +28,7 @@ var dataNow = time.Date(2026, 11, 22, 12, 0, 0, 0, time.UTC)
 func testData(t *testing.T, interactive bool, answer string) (*dataCmd, store.Store) {
 	t.Helper()
 	s := store.At(filepath.Join(t.TempDir(), "store"))
-	return &dataCmd{
+	d := &dataCmd{
 		known:       []dataset.Dataset{datasettest.Dataset{Name: "wanted", Applies: true}},
 		open:        func(context.Context) (store.Store, error) { return s, nil },
 		host:        func() (*osfingerprint.OSInfo, error) { return &osfingerprint.OSInfo{}, nil },
@@ -36,7 +36,14 @@ func testData(t *testing.T, interactive bool, answer string) (*dataCmd, store.St
 		interactive: func() bool { return interactive },
 		in:          strings.NewReader(answer),
 		elevated:    func() bool { return false },
-	}, s
+	}
+	// The store is read as it is opened, with nothing installed on the way,
+	// unless a test gives its own.
+	d.read = func(ctx context.Context, _ []dataset.Dataset, _ *osfingerprint.OSInfo, _ time.Time) (store.Store, store.Adoption, error) {
+		opened, err := d.open(ctx)
+		return opened, store.Adoption{}, err
+	}
+	return d, s
 }
 
 // run executes owatch data with args over d and returns what it printed.
@@ -111,13 +118,14 @@ func TestDataRemove(t *testing.T) {
 	}
 }
 
-// An elevated run has no store, and import and remove say so.
-func TestDataElevated(t *testing.T) {
+// A store that cannot be used, as a protected one open to others cannot, is
+// refused by import and remove with the reason.
+func TestDataRefusesAnOpenStore(t *testing.T) {
 	d, _ := testData(t, false, "")
-	d.open = func(context.Context) (store.Store, error) { return store.Store{}, store.ErrElevated }
+	d.open = func(context.Context) (store.Store, error) { return store.Store{}, store.ErrOpen }
 	for _, args := range [][]string{{"import", t.TempDir()}, {"remove", "--yes", "wanted"}} {
-		if _, err := run(d, args...); !errors.Is(err, store.ErrElevated) {
-			t.Errorf("%v gave %v, want ErrElevated", args, err)
+		if _, err := run(d, args...); !errors.Is(err, store.ErrOpen) {
+			t.Errorf("%v gave %v, want ErrOpen", args, err)
 		}
 	}
 }
@@ -163,12 +171,60 @@ func TestDataStatusReport(t *testing.T) {
 	}
 }
 
-// An elevated run has no store, and status says so.
-func TestDataStatusElevated(t *testing.T) {
+// Status reads the store through the opener for reading, and says what an
+// elevated run installed from the operator's store on the way, what it left
+// alone with the command that installs it deliberately, and, with no one
+// behind the run, how datasets reach the host. A run that installed and
+// refused nothing says nothing of the operator.
+func TestDataStatusSaysWhatWasInstalled(t *testing.T) {
+	for name, tt := range map[string]struct {
+		adoption store.Adoption
+		want     []string
+		absent   string
+	}{
+		"installed": {store.Adoption{From: "/home/a/store", Outcomes: []store.Outcome{{ID: "wanted", Result: store.Installed}}},
+			[]string{"Installed from /home/a/store: wanted\n"}, "deliberate"},
+		"refused": {store.Adoption{From: "/home/a/store", Outcomes: []store.Outcome{{ID: "wanted", Result: store.Refused, Reason: "manifest.json: it is not owned"}}},
+			[]string{"Not installed from /home/a/store: wanted: manifest.json: it is not owned\n",
+				"To install what was not installed, as a deliberate act, run owatch data import /home/a/store\n"}, "Installed from"},
+		"kept":         {store.Adoption{From: "/home/a/store", Outcomes: []store.Outcome{{ID: "wanted", Result: store.Kept}}}, nil, "/home/a/store"},
+		"nothing new":  {store.Adoption{From: "/home/a/store"}, nil, "/home/a/store"},
+		"no operator":  {store.Adoption{NoOperator: true}, []string{"No account is behind this elevated run", "owatch data import <directory> here."}, "Installed from"},
+		"not elevated": {store.Adoption{}, nil, "elevated"},
+	} {
+		d, s := testData(t, false, "")
+		d.read = func(context.Context, []dataset.Dataset, *osfingerprint.OSInfo, time.Time) (store.Store, store.Adoption, error) {
+			return s, tt.adoption, nil
+		}
+		dir := t.TempDir()
+		if _, err := run(d, "status", "-o", "text", "--report-file", dir); err != nil {
+			t.Fatal(err)
+		}
+		saved, err := filepath.Glob(filepath.Join(dir, "owatch-*"))
+		if err != nil || len(saved) != 1 {
+			t.Fatalf("%s: saved reports: %v, %v", name, saved, err)
+		}
+		report, err := os.ReadFile(saved[0])
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, want := range tt.want {
+			if !strings.Contains(string(report), want) {
+				t.Errorf("%s: the report lacks %q:\n%s", name, want, report)
+			}
+		}
+		if strings.Contains(string(report), tt.absent) {
+			t.Errorf("%s: the report holds %q:\n%s", name, tt.absent, report)
+		}
+	}
+}
+
+// A store that cannot be used is refused by status with the reason.
+func TestDataStatusRefusesAnOpenStore(t *testing.T) {
 	d, _ := testData(t, false, "")
-	d.open = func(context.Context) (store.Store, error) { return store.Store{}, store.ErrElevated }
-	if _, err := run(d, "status", "--plain"); err == nil || !strings.Contains(err.Error(), store.ErrElevated.Error()) {
-		t.Errorf("status gave %v, want the elevated refusal", err)
+	d.open = func(context.Context) (store.Store, error) { return store.Store{}, store.ErrOpen }
+	if _, err := run(d, "status", "--plain"); err == nil || !strings.Contains(err.Error(), store.ErrOpen.Error()) {
+		t.Errorf("status gave %v, want the refusal of an open store", err)
 	}
 }
 

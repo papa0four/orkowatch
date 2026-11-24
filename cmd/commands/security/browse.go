@@ -281,10 +281,19 @@ func systemTab(system osfingerprint.SystemView) tui.Tab {
 }
 
 // datasetsTab is the store's datasets, one record each in the order status
-// lists them, with what needs attention ahead of the rest. A store that holds
-// nothing and has nothing that applies says so in place of the list.
+// lists them, with what needs attention ahead of the rest. What an elevated
+// run installed from the operator's store, or left alone there, is a record
+// before them. A store that holds nothing and has nothing that applies says
+// so in place of the list.
 func datasetsTab(v dataset.View) tui.Tab {
 	tab := tui.Tab{ID: tui.TabDatasets, Name: "Datasets"}
+	if v.Operator != nil {
+		var fields []tui.SummaryLine
+		for _, line := range v.Operator.Lines() {
+			fields = append(fields, tui.SummaryLine{Value: safeLines(line)})
+		}
+		tab.Records = append(tab.Records, tui.Record{Title: "from the operator", Subtitle: "what this elevated run installed", Fields: fields})
+	}
 	for _, r := range v.Datasets {
 		var fields []tui.SummaryLine
 		add := func(label, value string) {

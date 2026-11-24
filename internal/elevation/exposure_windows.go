@@ -17,9 +17,7 @@ const fileDeleteChild = 0x40
 
 // Exposure names what gives a principal other than the system, the
 // administrators and the directory's owner write access to dir, or returns
-// the empty string when nothing does. An entry that cannot be read is an
-// error rather than the end of the list: stopping there would call a
-// directory safe on the strength of entries nobody examined.
+// the empty string when nothing does.
 func Exposure(dir string) (string, error) {
 	sd, err := windows.GetNamedSecurityInfo(
 		dir,
@@ -30,6 +28,19 @@ func Exposure(dir string) (string, error) {
 		return "", fmt.Errorf("read security info: %w", err)
 	}
 
+	trusted, err := trustedSIDs(sd)
+	if err != nil {
+		return "", err
+	}
+	return writerBeyond(sd, trusted)
+}
+
+// writerBeyond names the first principal outside trusted that sd's access
+// control list lets change the directory, or returns the empty string when
+// there is none. An entry that cannot be read is an error rather than the end
+// of the list: stopping there would call a directory safe on the strength of
+// entries nobody examined.
+func writerBeyond(sd *windows.SECURITY_DESCRIPTOR, trusted []*windows.SID) (string, error) {
 	dacl, _, err := sd.DACL()
 	if errors.Is(err, windows.ERROR_OBJECT_NOT_FOUND) || (err == nil && dacl == nil) {
 		// A missing or NULL DACL grants everyone full access.
@@ -37,11 +48,6 @@ func Exposure(dir string) (string, error) {
 	}
 	if err != nil {
 		return "", fmt.Errorf("read dacl: %w", err)
-	}
-
-	trusted, err := trustedSIDs(sd)
-	if err != nil {
-		return "", err
 	}
 
 	const writeMask = windows.FILE_WRITE_DATA | windows.FILE_APPEND_DATA |
@@ -71,18 +77,9 @@ func Exposure(dir string) (string, error) {
 // the account running the elevated process, which is the operator on Windows
 // the way the user behind sudo is on Unix.
 func trustedSIDs(sd *windows.SECURITY_DESCRIPTOR) ([]*windows.SID, error) {
-	wellKnown := []windows.WELL_KNOWN_SID_TYPE{
-		windows.WinLocalSystemSid,
-		windows.WinBuiltinAdministratorsSid,
-		windows.WinCreatorOwnerSid,
-	}
-	trusted := make([]*windows.SID, 0, len(wellKnown))
-	for _, t := range wellKnown {
-		sid, err := windows.CreateWellKnownSid(t)
-		if err != nil {
-			return nil, fmt.Errorf("well-known sid: %w", err)
-		}
-		trusted = append(trusted, sid)
+	trusted, err := wellKnownSIDs(windows.WinLocalSystemSid, windows.WinBuiltinAdministratorsSid, windows.WinCreatorOwnerSid)
+	if err != nil {
+		return nil, err
 	}
 	if owner, _, err := sd.Owner(); err == nil && owner != nil {
 		trusted = append(trusted, owner)
@@ -95,6 +92,19 @@ func trustedSIDs(sd *windows.SECURITY_DESCRIPTOR) ([]*windows.SID, error) {
 	trusted = append(trusted, operator.User.Sid)
 
 	return trusted, nil
+}
+
+// wellKnownSIDs returns the SIDs Windows defines for kinds.
+func wellKnownSIDs(kinds ...windows.WELL_KNOWN_SID_TYPE) ([]*windows.SID, error) {
+	sids := make([]*windows.SID, 0, len(kinds))
+	for _, kind := range kinds {
+		sid, err := windows.CreateWellKnownSid(kind)
+		if err != nil {
+			return nil, fmt.Errorf("well-known sid: %w", err)
+		}
+		sids = append(sids, sid)
+	}
+	return sids, nil
 }
 
 func sidTrusted(sid *windows.SID, trusted []*windows.SID) bool {

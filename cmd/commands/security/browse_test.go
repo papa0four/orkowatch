@@ -3,6 +3,7 @@
 package security
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -206,6 +207,26 @@ func TestDatasetsTabOnlyWhenHeld(t *testing.T) {
 	empty := datasetsTab(dataset.View{Store: "/store"})
 	if len(empty.Records) != 0 || !strings.Contains(empty.Note, "/store holds none") {
 		t.Errorf("an empty store gave %+v", empty)
+	}
+}
+
+// What an elevated run installed from the operator's store is the first
+// record, with the same sentences the text report prints.
+func TestDatasetsTabSaysWhatWasInstalled(t *testing.T) {
+	operator := &dataset.Operator{Store: "/home/a/store", Installed: []string{"kev"}, Refused: []dataset.Refusal{{ID: "epss", Reason: "it is a link"}}, Advice: "run import"}
+	tab := datasetsTab(dataset.View{Store: "/store", Operator: operator, Datasets: []dataset.Row{{ID: "kev", State: dataset.StateCurrent}}})
+	if len(tab.Records) != 2 || tab.Records[0].Title != "from the operator" || tab.Records[1].Title != "kev" {
+		t.Fatalf("records %+v, want the operator's ahead of the dataset's", tab.Records)
+	}
+	var got []string
+	for _, f := range tab.Records[0].Fields {
+		got = append(got, f.Value)
+	}
+	if !slices.Equal(got, operator.Lines()) {
+		t.Errorf("the record says %q, want %q", got, operator.Lines())
+	}
+	if plain := datasetsTab(dataset.View{Store: "/store", Datasets: []dataset.Row{{ID: "kev", State: dataset.StateCurrent}}}); len(plain.Records) != 1 {
+		t.Errorf("with nothing from an operator: %+v", plain.Records)
 	}
 }
 
