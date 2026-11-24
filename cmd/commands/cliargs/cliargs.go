@@ -8,13 +8,11 @@
 package cliargs
 
 import (
-	"errors"
 	"fmt"
 	"slices"
 	"strings"
 
 	"github.com/spf13/cobra"
-	"github.com/spf13/pflag"
 )
 
 // namesKey is the annotation under which a list flag records the names it
@@ -104,10 +102,9 @@ func continues(last, word string, names []string) bool {
 
 // None refuses any argument to cmd. A command with subcommands keeps cobra's
 // answer, since a word there names a command that does not exist. Any other
-// command calls the word an argument, and when it takes a list flag it says a
-// list is one argument: a shell splits a list written with a space after a
-// comma, and the name after the space arrives here, where cobra would call it
-// an unknown command.
+// command calls the word an argument, where cobra would call it an unknown
+// command. A name a shell split off a list never arrives here, since Rejoin
+// puts it back first.
 func None(cmd *cobra.Command, args []string) error {
 	if len(args) == 0 {
 		return nil
@@ -115,15 +112,5 @@ func None(cmd *cobra.Command, args []string) error {
 	if cmd.HasSubCommands() {
 		return cobra.NoArgs(cmd, args)
 	}
-	message := fmt.Sprintf("unexpected argument %q to %s", args[0], cmd.CommandPath())
-	var lists []string
-	cmd.Flags().VisitAll(func(f *pflag.Flag) {
-		if f.Value.Type() == "stringSlice" {
-			lists = append(lists, "--"+f.Name)
-		}
-	})
-	if len(lists) > 0 {
-		message += "; a list given to " + strings.Join(lists, " or ") + " is one argument, its names joined by commas with no spaces"
-	}
-	return errors.New(message)
+	return fmt.Errorf("unexpected argument %q to %s", args[0], cmd.CommandPath())
 }

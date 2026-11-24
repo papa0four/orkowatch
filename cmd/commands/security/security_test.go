@@ -74,7 +74,7 @@ func TestFilePermsSelection(t *testing.T) {
 		{"an empty path after an equals sign", []string{"--fperms="}, 0, "", "requires a path"},
 		{"two paths after the flag", []string{"--fperms", dir, file}, 0, "", "one path is taken"},
 		{"a path after an equals sign and another", []string{"--fperms=" + dir, file}, 0, "", "one path is taken"},
-		{"a path with no flag", []string{dir}, 0, "", "unexpected argument " + strconv.Quote(dir) + " to audit; a list given to --skip-checks is one argument, its names joined by commas with no spaces; a path to scan is given after --fperms"},
+		{"a path with no flag", []string{dir}, 0, "", "unexpected argument " + strconv.Quote(dir) + " to audit; a path to scan is given after --fperms"},
 		{"a path after another check's flag", []string{"--ssh", dir}, 0, "", "a path to scan is given after --fperms"},
 		{"the check selected and skipped", []string{"--fperms", "--skip-checks", "permissions"}, 0, "", "all available checks were skipped"},
 		{"a list a shell split on its comma", []string{"--ssh", "--fwall", "--users", "--skip-checks", "ssh", "fwall"}, selection.CheckUsers, "", ""},
