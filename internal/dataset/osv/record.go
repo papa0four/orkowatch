@@ -25,6 +25,7 @@ type record struct {
 	Modified   string      `json:"modified"`
 	Published  string      `json:"published"`
 	Withdrawn  string      `json:"withdrawn"`
+	Summary    string      `json:"summary"`
 	Aliases    []string    `json:"aliases"`
 	Upstream   []string    `json:"upstream"`
 	Severity   []Severity  `json:"severity"`
@@ -62,14 +63,16 @@ type reference struct {
 }
 
 // Record is a record as owatch keeps it: its identifier, the CVEs it names,
-// when it was published and last modified, its advisory's address, its
-// scores, and the packages of the release it affects with their ranges.
+// when it was published and last modified, its advisory's address, the
+// rating its title opens with where it has one, its scores, and the packages
+// of the release it affects with their ranges.
 type Record struct {
 	ID        string     `json:"id"`
 	CVEs      []string   `json:"cves"`
 	Published string     `json:"published,omitempty"`
 	Modified  string     `json:"modified"`
 	Advisory  string     `json:"advisory,omitempty"`
+	Rating    string     `json:"rating,omitempty"`
 	Severity  []Severity `json:"severity,omitempty"`
 	Affected  []Affected `json:"affected"`
 }
@@ -92,7 +95,7 @@ func (r record) keptFor(rel release, seen map[string]bool) (*Record, error) {
 	if err != nil || len(affected) == 0 {
 		return nil, err
 	}
-	k := Record{ID: r.ID, CVEs: r.cves(), Published: r.Published, Modified: r.Modified, Advisory: r.advisory(), Affected: affected}
+	k := Record{ID: r.ID, CVEs: r.cves(), Published: r.Published, Modified: r.Modified, Advisory: r.advisory(), Rating: r.rating(), Affected: affected}
 	for _, s := range r.Severity {
 		if s.Type != "" && s.Score != "" {
 			k.Severity = append(k.Severity, s)
@@ -146,6 +149,21 @@ func (r record) cves() []string {
 	return slices.Compact(cves)
 }
 
+// ratings are the words an advisory's title opens with, before a colon, to
+// rate it, as Red Hat rates its advisories and AlmaLinux and Rocky Linux
+// write theirs: "Important: kernel security update".
+var ratings = []string{"Critical", "Important", "Moderate", "Low"}
+
+// rating is the rating r's title opens with, as written, or none. It is the
+// only part of the title kept.
+func (r record) rating() string {
+	word, _, found := strings.Cut(r.Summary, ": ")
+	if found && slices.Contains(ratings, word) {
+		return word
+	}
+	return ""
+}
+
 // advisory is the address of r's first advisory, or none.
 func (r record) advisory() string {
 	for _, ref := range r.References {
@@ -181,6 +199,9 @@ func (k Record) valid(rel release) error {
 	}
 	if err := validAdvisory(k.Advisory); err != nil {
 		return err
+	}
+	if k.Rating != "" && !slices.Contains(ratings, k.Rating) {
+		return fmt.Errorf("%q is not an advisory's rating", printable(k.Rating))
 	}
 	for _, s := range k.Severity {
 		if err := text("a score's type", s.Type); err != nil {
