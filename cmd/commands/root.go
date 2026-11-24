@@ -9,6 +9,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/papa0four/orkowatch/cmd/commands/cliargs"
 	"github.com/papa0four/orkowatch/cmd/commands/security"
 )
 
@@ -50,9 +51,12 @@ func newRootCmd() *cobra.Command {
 // Execute runs the root command and exits with a non-zero status on error.
 // SilenceErrors is set onthe root command, so this is the single error-reporting
 // point for the binary; errors go to stderr, never stdout, so they cannot
-// interleave with report output or escape 2> redirection.
+// interleave with report output or escape 2> redirection. The command line is
+// read with each name a shell split off a list put back into it.
 func Execute() {
-	if err := newRootCmd().Execute(); err != nil {
+	root := newRootCmd()
+	root.SetArgs(cliargs.Rejoin(root, os.Args[1:]))
+	if err := root.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}

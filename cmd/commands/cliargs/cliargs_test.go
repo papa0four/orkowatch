@@ -3,10 +3,43 @@
 package cliargs
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/spf13/cobra"
 )
+
+// A word a shell split off a list goes back into it when the list ended in a
+// comma or the word holds only names the flag accepts; a path, a word after
+// another flag, and anything after -- stay where they are. The command is
+// found from the root or given directly.
+func TestRejoin(t *testing.T) {
+	root := &cobra.Command{Use: "owatch"}
+	audit := &cobra.Command{Use: "audit", RunE: func(*cobra.Command, []string) error { return nil }}
+	var skip []string
+	NameList(audit, &skip, "skip-checks", "", []string{"firewall", "fwall", "ssh", "users"})
+	audit.Flags().Bool("ssh", false, "")
+	root.AddCommand(audit)
+
+	for _, tt := range []struct{ args, want []string }{
+		{[]string{"audit", "--skip-checks", "ssh", "users"}, []string{"audit", "--skip-checks", "ssh,users"}},
+		{[]string{"audit", "--skip-checks", "ssh", "USERS", "fwall"}, []string{"audit", "--skip-checks", "ssh,USERS,fwall"}},
+		{[]string{"audit", "--skip-checks", "ssh,", "users"}, []string{"audit", "--skip-checks", "ssh,users"}},
+		{[]string{"audit", "--skip-checks", "ssh,", "userz"}, []string{"audit", "--skip-checks", "ssh,userz"}},
+		{[]string{"audit", "--skip-checks=ssh", "users,firewall"}, []string{"audit", "--skip-checks=ssh,users,firewall"}},
+		{[]string{"audit", "--skip-checks", "ssh", "/dir"}, []string{"audit", "--skip-checks", "ssh", "/dir"}},
+		{[]string{"audit", "--skip-checks", "ssh", "--ssh", "users"}, []string{"audit", "--skip-checks", "ssh", "--ssh", "users"}},
+		{[]string{"audit", "--", "--skip-checks", "ssh", "users"}, []string{"audit", "--", "--skip-checks", "ssh", "users"}},
+		{[]string{"audit", "--skip-checks"}, []string{"audit", "--skip-checks"}},
+	} {
+		if got := Rejoin(root, tt.args); !slices.Equal(got, tt.want) {
+			t.Errorf("Rejoin(%q) = %q, want %q", tt.args, got, tt.want)
+		}
+	}
+	if got := Rejoin(audit, []string{"--skip-checks", "ssh", "users"}); !slices.Equal(got, []string{"--skip-checks", "ssh,users"}) {
+		t.Errorf("Rejoin on the command itself = %q", got)
+	}
+}
 
 // No argument passes. A stray one is called an argument, with the list flags
 // the command takes named; a command with subcommands keeps cobra's unknown

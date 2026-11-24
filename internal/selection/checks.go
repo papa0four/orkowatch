@@ -348,6 +348,23 @@ func buildChecksByName() map[string]registryEntry {
 	return byName
 }
 
+// AcceptedNames returns every name MaskFromNames resolves within category:
+// each entry's canonical name, and its flag name where that differs. A
+// command reads it to tell a name a shell split off a list from an argument.
+func AcceptedNames(category CheckCategory) []string {
+	var names []string
+	for _, e := range registry {
+		if e.category != category {
+			continue
+		}
+		names = append(names, e.name)
+		if e.flag != e.name {
+			names = append(names, e.flag)
+		}
+	}
+	return names
+}
+
 // ValidNamesFor returns a comma-separated string of all canonical names
 // registered under category, in registry order. It is the single source for
 // operator-facing name lists: MaskFromNames error messages and the help text

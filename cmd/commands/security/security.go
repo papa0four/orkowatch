@@ -79,9 +79,9 @@ type (
 func BindAudit(cmd *cobra.Command) *AuditFlags {
 	a := &AuditFlags{}
 
-	cmd.Flags().StringSliceVar(&a.skipChecks, "skip-checks", []string{},
-		fmt.Sprintf("Audit checks to skip (comma-separated: %s)",
-			selection.ValidNamesFor(selection.CategoryCheck)))
+	cliargs.NameList(cmd, &a.skipChecks, "skip-checks",
+		fmt.Sprintf("Audit checks to skip (comma-separated: %s)", selection.ValidNamesFor(selection.CategoryCheck)),
+		selection.AcceptedNames(selection.CategoryCheck))
 	cmd.Flags().StringVar(&a.minSeverity, "min-severity", finding.SeverityNone,
 		fmt.Sprintf("Minimum severity level to report, judged on the severity on this host (%s)", finding.SeverityNames()))
 	cmd.Flags().BoolVarP(&a.yes, "yes", "y", false,

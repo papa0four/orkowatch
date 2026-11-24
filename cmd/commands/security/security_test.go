@@ -15,12 +15,14 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/papa0four/orkowatch/cmd/commands/cliargs"
 	"github.com/papa0four/orkowatch/internal/selection"
 )
 
 // selected runs the audit command's own parsing and validation on args,
 // through cobra, and returns the checks and the scan root they settle on in
-// place of running the audit.
+// place of running the audit. The arguments are read as the binary reads
+// them, with a name a shell split off a list put back.
 func selected(t *testing.T, args ...string) (selection.CheckMask, string, error) {
 	t.Helper()
 
@@ -37,7 +39,7 @@ func selected(t *testing.T, args ...string) (selection.CheckMask, string, error)
 	cmd.SilenceUsage, cmd.SilenceErrors = true, true
 	cmd.SetOut(io.Discard)
 	cmd.SetErr(io.Discard)
-	cmd.SetArgs(args)
+	cmd.SetArgs(cliargs.Rejoin(cmd, args))
 
 	err := cmd.Execute()
 	return mask, c.scanRoot, err
@@ -75,6 +77,9 @@ func TestFilePermsSelection(t *testing.T) {
 		{"a path with no flag", []string{dir}, 0, "", "unexpected argument " + strconv.Quote(dir) + " to audit; a list given to --skip-checks is one argument, its names joined by commas with no spaces; a path to scan is given after --fperms"},
 		{"a path after another check's flag", []string{"--ssh", dir}, 0, "", "a path to scan is given after --fperms"},
 		{"the check selected and skipped", []string{"--fperms", "--skip-checks", "permissions"}, 0, "", "all available checks were skipped"},
+		{"a list a shell split on its comma", []string{"--ssh", "--fwall", "--users", "--skip-checks", "ssh", "fwall"}, selection.CheckUsers, "", ""},
+		{"a list a shell split after its comma", []string{"--ssh", "--users", "--skip-checks", "ssh,", "users", "--fwall"}, selection.CheckFirewall, "", ""},
+		{"a path after a list", []string{"--fperms", "--skip-checks", "ssh", dir}, selection.CheckPerms, dir, ""},
 	}
 
 	for _, tt := range tests {
