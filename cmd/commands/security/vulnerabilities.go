@@ -46,11 +46,11 @@ func vulnerabilitiesTab(v vulnmatch.View) tui.Tab {
 				{Label: "not matched", Value: safeLines(n.Reason)},
 				{Label: "matched against", Value: against},
 			},
-			Filters: []string{statusNotMatched, vulnmatch.LevelNone},
+			Filters: [][]string{{statusNotMatched}, {vulnmatch.LevelNone}},
 		})
 	}
 	slices.SortStableFunc(tab.Records, func(a, b tui.Record) int {
-		return cmp.Compare(statusPlace(a.Filters[0]), statusPlace(b.Filters[0]))
+		return cmp.Compare(statusPlace(a.Filters[0][0]), statusPlace(b.Filters[0][0]))
 	})
 
 	start := vulnmatch.StatusFixAvailable
@@ -111,7 +111,7 @@ func vulnerabilityRecord(pkg vulnmatch.PackageMatches, found vulnmatch.Vulnerabi
 		Title:    safeLines(found.ID + "  " + pkg.Package),
 		Subtitle: safeLines(subtitle),
 		Fields:   fields,
-		Filters:  []string{found.Status, found.Severity.Level},
+		Filters:  [][]string{{found.Status}, {found.Severity.Level}},
 	}
 }
 

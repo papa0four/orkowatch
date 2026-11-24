@@ -80,7 +80,7 @@ func New(manager string, entries []softwarelist.SoftwareEntry) (*Matcher, error)
 		if e.Manager != manager {
 			continue
 		}
-		name, version := named(e)
+		name, version := Named(e)
 		at := slices.IndexFunc(m.installed[name], func(u *unit) bool { return u.version == version })
 		if at < 0 {
 			m.installed[name] = append(m.installed[name], &unit{name: name, version: version})
@@ -94,11 +94,11 @@ func New(manager string, entries []softwarelist.SoftwareEntry) (*Matcher, error)
 	return m, nil
 }
 
-// named is the name and version of entry as its manager's records name it:
+// Named is the name and version of entry as its manager's records name it:
 // the source package and its version where the manager states them, the
 // entry's own otherwise. rpm's records name binary packages, and its entries
 // state no source version.
-func named(e softwarelist.SoftwareEntry) (string, string) {
+func Named(e softwarelist.SoftwareEntry) (string, string) {
 	if e.Manager == softwarelist.ManagerRPM {
 		return e.Name, e.Version
 	}

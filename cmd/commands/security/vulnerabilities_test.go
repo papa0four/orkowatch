@@ -55,7 +55,7 @@ func TestVulnerabilitiesTab(t *testing.T) {
 	}
 	var rows []string
 	for _, r := range tab.Records {
-		rows = append(rows, r.Title+" | "+r.Subtitle+" | "+strings.Join(r.Filters, ","))
+		rows = append(rows, r.Title+" | "+r.Subtitle+" | "+r.Filters[0][0]+","+r.Filters[1][0])
 	}
 	want := []string{
 		"CVE-2026-1  openssl | fix 3.0.2-2  Important | fix available,high",

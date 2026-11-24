@@ -61,6 +61,9 @@ type Severity struct {
 // with the place of those with none stated.
 func Levels() []string { return slices.Clone(levels) }
 
+// Worse reports whether s is placed higher on the scale than other.
+func (s Severity) Worse(other Severity) bool { return rank(s.Level) < rank(other.Level) }
+
 // rank is the place of level on the scale, the most severe first.
 func rank(level string) int {
 	if at := slices.Index(levels, level); at >= 0 {
