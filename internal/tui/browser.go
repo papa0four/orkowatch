@@ -349,6 +349,11 @@ func (b browser) onKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		b.query = ""
 		b.refilter()
 		return b, nil
+	case key == "esc" && b.escToFilters():
+		// The cursor is where it was left, on the filter last applied.
+		b.focus = focusFilters
+		b.keepCursorVisible()
+		return b, nil
 	}
 
 	if next, ok := b.onTabKey(key); ok {
@@ -383,6 +388,13 @@ func (b browser) onKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 // keyboard is on the list or the left pane.
 func (b browser) clearsSearch() bool {
 	return b.query != "" && b.focus != focusDetail
+}
+
+// escToFilters reports whether esc takes the keyboard from the list back to
+// the left pane: no search is kept for esc to clear first, and the left pane
+// is shown.
+func (b browser) escToFilters() bool {
+	return b.focus == focusList && !b.clearsSearch() && b.sidebarShown()
 }
 
 // onTabKey switches tabs on a tab's letter, a digit, or a bracket, reporting
@@ -536,10 +548,13 @@ func (b *browser) onFilterKey(key string) {
 			b.selectTab(b.filterCursor)
 			return
 		}
+		// A filter applied hands the keyboard to the list it narrowed, ready
+		// to move through or search; esc or shift+tab comes back.
 		for _, g := range b.filterGroups() {
 			if option < len(g.options) {
 				g.chosen = option
 				b.refilter()
+				b.focus = focusList
 				return
 			}
 			option -= len(g.options)
@@ -943,6 +958,11 @@ func (b browser) help() []hint {
 	}
 
 	pn := b.activePane()
+	// From the list, esc goes back to the left pane once no search is kept.
+	var back []hint
+	if b.escToFilters() {
+		back = []hint{keyHint("left pane", "esc")}
+	}
 	switch {
 	case b.showText && len(b.tabs) == 0:
 		return []hint{label("full report"), scroll, pan, quit}
@@ -950,6 +970,8 @@ func (b browser) help() []hint {
 		return append([]hint{scroll, pan, keyHint("back", "t", "or", "esc")}, append(tabs, quit)...)
 	case b.searching:
 		return []hint{label("type to search"), keyHint("keep", "enter"), keyHint("clear", "esc")}
+	case b.focus == focusFilters && pn != nil && len(pn.groups) > 0:
+		return common([]hint{keyHint("move", "up/down"), keyHint("open or apply", "enter")})
 	case b.focus == focusFilters && pn != nil:
 		return common([]hint{keyHint("move", "up/down"), keyHint("open source", "enter")})
 	case pn != nil && pn.listless():
@@ -957,13 +979,13 @@ func (b browser) help() []hint {
 	case pn != nil && b.focus == focusDetail:
 		return common([]hint{scroll, pan, keyHint("list", "esc")})
 	case pn != nil:
-		return common([]hint{move, keyHint("detail", "enter")})
+		return common(append([]hint{move, keyHint("detail", "enter")}, back...))
 	case b.focus == focusFilters:
 		return common([]hint{keyHint("move", "up/down"), keyHint("apply", "enter")}, findings...)
 	case b.focus == focusDetail:
 		return common([]hint{scroll, pan, keyHint("list", "esc")}, findings...)
 	default:
-		return common([]hint{move, keyHint("detail", "enter")}, findings...)
+		return common(append([]hint{move, keyHint("detail", "enter")}, back...), findings...)
 	}
 }
 

@@ -131,6 +131,44 @@ func TestFindingsFilters(t *testing.T) {
 	}
 }
 
+// Choosing a filter hands the keyboard to the list it narrowed, and esc from
+// the list goes back to the left pane, to the filter last applied. With a
+// search kept, the first esc clears it and the second goes back. Choosing a
+// source keeps the keyboard in the left pane, so the next is one key away.
+func TestFilterFocus(t *testing.T) {
+	b := sized(newBrowser(filteredReport()), 120, 40)
+	b = apply(b, 2)
+	if b.focus != focusList {
+		t.Fatalf("after a filter was chosen the keyboard is on pane %d, want the list", b.focus)
+	}
+	if hints := plain(b.View().Content); !strings.Contains(hints, "left pane") {
+		t.Errorf("the list's hints do not say esc goes to the left pane:\n%s", hints)
+	}
+	b = pressCode(b, 0x1b)
+	if b.focus != focusFilters || b.filterCursor != len(b.tabs)+2 {
+		t.Errorf("esc left the keyboard on pane %d at row %d, want the left pane on the filter applied", b.focus, b.filterCursor)
+	}
+
+	b = apply(b, 1)
+	b = keep(b, "alp")
+	if hints := plain(b.View().Content); !strings.Contains(hints, "clear search") || strings.Contains(hints, "left pane") {
+		t.Errorf("with a search kept the hints should offer esc to clear it, not to leave:\n%s", hints)
+	}
+	b = pressCode(b, 0x1b)
+	if b.focus != focusList || b.query != "" {
+		t.Errorf("the first esc with a search kept left pane %d and search %q, want the search cleared on the list", b.focus, b.query)
+	}
+	if b = pressCode(b, 0x1b); b.focus != focusFilters {
+		t.Errorf("the second esc left the keyboard on pane %d", b.focus)
+	}
+
+	b.filterCursor = 1
+	b.onFilterKey("enter")
+	if b.focus != focusFilters || b.tabs[b.active].id != TabSystem {
+		t.Errorf("choosing a source left pane %d on %q, want the left pane on System", b.focus, b.tabs[b.active].id)
+	}
+}
+
 // v opens the Vulnerabilities tab.
 func TestVulnerabilitiesKey(t *testing.T) {
 	report := filteredReport()
