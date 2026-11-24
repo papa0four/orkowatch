@@ -77,6 +77,15 @@ func TestProtectedStoreIsMadeProtected(t *testing.T) {
 	}
 }
 
+// refusedOpen fails t unless err refuses a store open to others, and says
+// nothing of making the store, which was there.
+func refusedOpen(t *testing.T, what string, err error) {
+	t.Helper()
+	if !errors.Is(err, ErrOpen) || strings.Contains(err.Error(), "create") {
+		t.Errorf("%s gave %v, want ErrOpen and nothing of creating the store", what, err)
+	}
+}
+
 // An elevated run never reads a dataset from a directory someone who is not
 // an administrator can change: with the store's own directory or the one
 // above it open, status, import, and remove refuse and nothing is read or
@@ -102,12 +111,9 @@ func TestProtectedStoreIsNeverReadWhenOpen(t *testing.T) {
 		if _, err := s.Status(known, host, now); !errors.Is(err, ErrOpen) || !strings.Contains(err.Error(), dir+" is writable by another") {
 			t.Errorf("%s open: status gave %v, want ErrOpen naming it", which, err)
 		}
-		if _, err := s.Import(context.Background(), src.root, known, host, now.Add(time.Hour)); !errors.Is(err, ErrOpen) {
-			t.Errorf("%s open: import gave %v, want ErrOpen", which, err)
-		}
-		if err := s.Remove(context.Background(), "wanted"); !errors.Is(err, ErrOpen) {
-			t.Errorf("%s open: remove gave %v, want ErrOpen", which, err)
-		}
+		_, err := s.Import(context.Background(), src.root, known, host, now.Add(time.Hour))
+		refusedOpen(t, which+" open: import", err)
+		refusedOpen(t, which+" open: remove", s.Remove(context.Background(), "wanted"))
 		if !slices.Contains(names(t, s, "wanted"), manifestName) {
 			t.Errorf("%s open: the dataset was removed", which)
 		}

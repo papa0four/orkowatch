@@ -70,7 +70,7 @@ func (s Store) lock(ctx context.Context, wait time.Duration) (func() error, erro
 // openLock makes the store when it does not exist and opens its lock file.
 func (s Store) openLock() (*os.File, error) {
 	if err := s.ensure(); err != nil {
-		return nil, fmt.Errorf("create the dataset store: %w", err)
+		return nil, err
 	}
 	f, err := openLockFile(filepath.Join(s.root, lockName))
 	if err != nil {

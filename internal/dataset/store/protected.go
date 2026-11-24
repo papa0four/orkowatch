@@ -54,10 +54,14 @@ func (s Store) own() []string {
 
 // ensure makes the store's directory when it does not exist. A protected
 // store's directories are each made protected, and then judged, so one that
-// was already there and is open to others is refused and not written into.
+// was already there and is open to others is refused and not written into;
+// the refusal is returned as judged gives it, since nothing was being made.
 func (s Store) ensure() error {
 	if s.protect == nil {
-		return os.MkdirAll(s.root, dirMode)
+		if err := os.MkdirAll(s.root, dirMode); err != nil {
+			return fmt.Errorf("create the dataset store: %w", err)
+		}
+		return nil
 	}
 	for _, dir := range s.own() {
 		_, err := os.Lstat(dir)
@@ -65,7 +69,7 @@ func (s Store) ensure() error {
 			err = s.protect.make(dir)
 		}
 		if err != nil {
-			return err
+			return fmt.Errorf("create the dataset store: %w", err)
 		}
 	}
 	return s.judged()
