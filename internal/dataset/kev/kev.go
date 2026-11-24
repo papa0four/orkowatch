@@ -10,7 +10,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"regexp"
 	"time"
 
 	"github.com/papa0four/orkowatch/internal/dataset"
@@ -34,9 +33,6 @@ const (
 	license     = "CC0 1.0"
 	attribution = "CISA Known Exploited Vulnerabilities Catalog. Use of this information does not authorize use of the CISA Logo or DHS Seal, and is not an endorsement by CISA or DHS."
 )
-
-// cveID is the pattern CISA's schema for the catalog gives a CVE identifier.
-var cveID = regexp.MustCompile(`^CVE-[0-9]{4}-[0-9]{4,19}$`)
 
 // Catalog is the Known Exploited Vulnerabilities catalog as a dataset.
 type Catalog struct{}
@@ -102,7 +98,7 @@ func (Catalog) Check(data io.Reader) (dataset.Facts, error) {
 		return dataset.Facts{}, errors.New("it holds no entries")
 	}
 	for i, e := range c.Vulnerabilities {
-		if !cveID.MatchString(e.CVEID) {
+		if !dataset.ValidCVE(e.CVEID) {
 			return dataset.Facts{}, fmt.Errorf("entry %d names %q, which is not a CVE identifier", i+1, e.CVEID)
 		}
 	}
