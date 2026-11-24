@@ -453,13 +453,15 @@ owatch data status -o json --report-file /path/to/reports
 `owatch data refresh` connects over HTTPS to the address each dataset's source
 publishes it at, follows a redirect only to a host that dataset names, and sends
 nothing about the host: every request carries `User-Agent: owatch` and no other
-detail. It reads no more than a dataset may hold and gives up on a download after
-10 minutes. A proxy named by `HTTPS_PROXY` is used, and no other environment
-variable changes where it connects. It prints each dataset's size before fetching
-it and asks before one larger than 100 MiB; `--yes` skips the question. What is
-fetched is checked as any dataset is before it replaces the copy held, a download
-that fails because a server is briefly unable to answer is tried three times, and
-a dataset that could not be refreshed keeps the copy held. `--for` names another
+detail. It reads no more than a dataset's origin may serve, allows a download its
+size at 256 KiB a second and never less than 10 minutes, and gives up on one that
+receives nothing for a minute. A proxy named by `HTTPS_PROXY` is used, and no
+other environment variable changes where it connects. It prints each dataset's
+size and the time its download is allowed before fetching it, and asks before one
+larger than 100 MiB; `--yes` skips the question. What is fetched is checked as any
+dataset is before it replaces the copy held, a download that fails because a
+server is briefly unable to answer, or that stalls, is tried three times, and a
+dataset that could not be refreshed keeps the copy held. `--for` names another
 host by the `Target` line `owatch osinfo` prints there, `os/platform/version`,
 copied as printed and quoted when it holds a space, as on Windows. It needs
 `--to`. `refresh` never runs as root or from an elevated terminal, and no flag

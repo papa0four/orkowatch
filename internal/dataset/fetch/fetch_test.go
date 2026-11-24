@@ -247,6 +247,92 @@ func TestLimits(t *testing.T) {
 	}
 }
 
+// A download is allowed its size at 256 KiB a second, and never less than ten
+// minutes: an 838 MB file is allowed the 54 minutes it needs at that rate.
+func TestTimeLimit(t *testing.T) {
+	c := newClient(nil, nil)
+	for size, want := range map[int64]time.Duration{
+		0:           10 * time.Minute,
+		1 << 20:     10 * time.Minute,
+		150 << 20:   10 * time.Minute,
+		160 << 20:   640 * time.Second,
+		837_827_112: 3197 * time.Second,
+		2 << 30:     8192 * time.Second,
+	} {
+		if got := c.TimeLimit(size); got != want {
+			t.Errorf("a download of %d bytes is allowed %v, want %v", size, got, want)
+		}
+	}
+}
+
+// A download that receives nothing for the stall time is ended as a failure
+// that may clear, while one that keeps receiving runs past it.
+func TestStall(t *testing.T) {
+	release := make(chan struct{})
+	write := func(w http.ResponseWriter, text string) {
+		if _, err := w.Write([]byte(text)); err != nil {
+			t.Logf("the test server could not answer: %v", err)
+		}
+		w.(http.Flusher).Flush()
+	}
+	o := serve(t, map[string]http.HandlerFunc{
+		"/stalls": func(w http.ResponseWriter, _ *http.Request) {
+			write(w, "owatch")
+			<-release
+		},
+		"/trickles": func(w http.ResponseWriter, _ *http.Request) {
+			for range 6 {
+				write(w, "x")
+				time.Sleep(50 * time.Millisecond)
+			}
+		},
+	})
+	// Released before the server closes, which waits for its handlers.
+	t.Cleanup(func() { close(release) })
+	o.client.stall = 150 * time.Millisecond
+
+	var got bytes.Buffer
+	err := o.client.Fetch(context.Background(), o.at("/stalls"), &got)
+	var fetchErr *Error
+	if !errors.As(err, &fetchErr) || !fetchErr.Passing() || !strings.Contains(err.Error(), "nothing was received for 150ms") {
+		t.Errorf("a stalled download gave %v, want a failure that may clear naming the stall", err)
+	}
+	got.Reset()
+	if err := o.client.Fetch(context.Background(), o.at("/trickles"), &got); err != nil || got.String() != "xxxxxx" {
+		t.Errorf("a download that kept receiving gave %v and %q", err, got.String())
+	}
+}
+
+// wide is a dataset whose origin may serve two seconds' worth at the floor
+// rate.
+type wide struct{ datasettest.Dataset }
+
+func (wide) FetchMaxBytes() int64 { return 2 * floorRate }
+
+func (wide) Keep(io.ReaderAt, int64, *osfingerprint.OSInfo, io.Writer) error { return nil }
+
+// A download whose size the server does not state is allowed the time the
+// most its origin may serve needs, not only the floor.
+func TestUnstatedSizeIsAllowedTheMost(t *testing.T) {
+	o := serve(t, map[string]http.HandlerFunc{
+		"/unstated": func(w http.ResponseWriter, _ *http.Request) {
+			for range 8 {
+				if _, err := w.Write([]byte("x")); err != nil {
+					t.Logf("the test server could not answer: %v", err)
+				}
+				w.(http.Flusher).Flush()
+				time.Sleep(100 * time.Millisecond)
+			}
+		},
+	})
+	o.client.timeout = 300 * time.Millisecond
+
+	var got bytes.Buffer
+	if err := o.client.Fetch(context.Background(), wide{o.at("/unstated").(datasettest.Dataset)}, &got); err != nil || got.Len() != 8 {
+		t.Errorf("a download of unstated size within the most its origin may serve gave %v and %d bytes", err, got.Len())
+	}
+}
+
 // A server briefly unable to answer is a failure that may clear; a missing
 // file, a certificate that does not verify, and an address that is not HTTPS
 // are not.

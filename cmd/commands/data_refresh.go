@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -26,9 +27,10 @@ import (
 const largeDownload = 100 << 20
 
 // fetcher is what brings a dataset from its origin: how large it is there,
-// and its data.
+// how long a download of that size is allowed, and its data.
 type fetcher interface {
 	Size(ctx context.Context, d dataset.Dataset) (size int64, stated bool, err error)
+	TimeLimit(size int64) time.Duration
 	Fetch(ctx context.Context, d dataset.Dataset, w io.Writer) error
 }
 
@@ -58,17 +60,20 @@ func (d *dataCmd) refreshCmd() *cobra.Command {
 from the address its source publishes it at. This is the only owatch command
 that opens a network connection. It connects over HTTPS to the hosts the
 datasets themselves name and to no other, sends nothing about this host, reads
-no more than a dataset may hold, and gives up on a download after a fixed time.
-A proxy named by HTTPS_PROXY is used; no other environment variable changes
-where it connects.
+no more than a dataset's origin may serve, and gives up on a download that runs
+past the time its size allows or that receives nothing for a minute. A proxy
+named by HTTPS_PROXY is used; no other environment variable changes where it
+connects.
 
-Each dataset's size is printed before it is fetched. One larger than 100 MiB is
-asked about first; --yes skips the question, and is needed for such a dataset
-when no one is at the terminal. What is fetched is checked as any dataset is
-before it replaces the copy held. A download that fails because a server is
-briefly unable to answer is tried three times; one that fails for another
-reason once. A dataset that could not be refreshed keeps the copy held, and
-owatch data status shows the failure until it is refreshed.
+Each dataset's size, and the time its download is allowed, is printed before it
+is fetched: its size at 256 KiB a second, and never less than ten minutes. One
+larger than 100 MiB is asked about first; --yes skips the question, and is
+needed for such a dataset when no one is at the terminal. What is fetched is
+checked as any dataset is before it replaces the copy held. A download that
+fails because a server is briefly unable to answer, or that stalls, is tried
+three times; one that fails for another reason once. A dataset that could not
+be refreshed keeps the copy held, and owatch data status shows the failure
+until it is refreshed.
 
 --to writes the datasets to a directory to carry to another host, where owatch
 data import installs them. --for names that host by the Target line owatch
@@ -188,7 +193,7 @@ func (d *dataCmd) choose(ctx context.Context, out, prompt io.Writer, f fetcher, 
 			// what a fetch could read.
 			size, described = dataset.FetchLimit(w), "up to "+dataset.Size(dataset.FetchLimit(w))
 		}
-		ew.Printf("%s\n", render.HostText(fmt.Sprintf("%s: %s from %s", w.ID(), described, w.Origin().URL)))
+		ew.Printf("%s\n", render.HostText(fmt.Sprintf("%s: %s from %s, allowed %s", w.ID(), described, w.Origin().URL, f.TimeLimit(size))))
 
 		switch {
 		case size <= largeDownload || yes:
