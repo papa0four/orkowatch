@@ -61,6 +61,26 @@ func TestValidID(t *testing.T) {
 	}
 }
 
+func TestValidCVE(t *testing.T) {
+	for id, want := range map[string]bool{
+		"CVE-1999-0001":                       true,
+		"CVE-2026-123456":                     true,
+		"CVE-2026-" + strings.Repeat("9", 19): true,
+		"CVE-2026-" + strings.Repeat("9", 20): false,
+		"CVE-2026-123":                        false,
+		"CVE-26-1234":                         false,
+		"cve-2026-1234":                       false,
+		"CVE-2026-1234 ":                      false,
+		"CVE-2026-1234\n":                     false,
+		"GHSA-2026-1234":                      false,
+		"":                                    false,
+	} {
+		if got := ValidCVE(id); got != want {
+			t.Errorf("ValidCVE(%q) = %v, want %v", id, got, want)
+		}
+	}
+}
+
 // A manifest round-trips through Encode and DecodeManifest, and is accepted.
 func TestManifestRoundTrip(t *testing.T) {
 	var buf bytes.Buffer

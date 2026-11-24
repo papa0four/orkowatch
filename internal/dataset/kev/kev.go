@@ -10,7 +10,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"regexp"
 	"time"
 
 	"github.com/papa0four/orkowatch/internal/dataset"
@@ -34,9 +33,6 @@ const (
 	license     = "CC0 1.0"
 	attribution = "CISA Known Exploited Vulnerabilities Catalog. Use of this information does not authorize use of the CISA Logo or DHS Seal, and is not an endorsement by CISA or DHS."
 )
-
-// cveID is the pattern CISA's schema for the catalog gives a CVE identifier.
-var cveID = regexp.MustCompile(`^CVE-[0-9]{4}-[0-9]{4,19}$`)
 
 // Catalog is the Known Exploited Vulnerabilities catalog as a dataset.
 type Catalog struct{}
@@ -74,7 +70,8 @@ func (Catalog) Origin() dataset.Origin {
 // Check refuses data that is not the catalog whole: one JSON object and
 // nothing after it, with its version, the time it was released, and a count
 // that is the number of entries present, each naming a CVE. The count is what
-// tells a catalog cut short at an entry's end from a whole one.
+// tells a catalog cut short at an entry's end from a whole one. It gives the
+// release time as the data's date and the catalog version as its version.
 func (Catalog) Check(data io.Reader) (dataset.Facts, error) {
 	var c catalog
 	dec := json.NewDecoder(data)
@@ -101,9 +98,9 @@ func (Catalog) Check(data io.Reader) (dataset.Facts, error) {
 		return dataset.Facts{}, errors.New("it holds no entries")
 	}
 	for i, e := range c.Vulnerabilities {
-		if !cveID.MatchString(e.CVEID) {
+		if !dataset.ValidCVE(e.CVEID) {
 			return dataset.Facts{}, fmt.Errorf("entry %d names %q, which is not a CVE identifier", i+1, e.CVEID)
 		}
 	}
-	return dataset.Facts{Date: released}, nil
+	return dataset.Facts{Date: released, Version: c.CatalogVersion}, nil
 }

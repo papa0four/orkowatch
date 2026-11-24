@@ -174,16 +174,19 @@ func TestDataStatusElevated(t *testing.T) {
 
 // Every dataset owatch knows can be held and fetched: a name the store can
 // hold that no other dataset has, an origin a fetch can start from, a limit
-// on what it may hold, and a license its manifest records. CISA's catalog is
-// one of them, and a store without it lists it as not held.
+// on what it may hold, and a license its manifest records. They are listed in
+// name order. CISA's catalog and FIRST's scores are among them, and a store
+// without them lists each as not held.
 func TestKnownDatasets(t *testing.T) {
 	seen := map[string]bool{}
+	var ids []string
 	for _, k := range knownDatasets() {
 		id := k.ID()
 		if !dataset.ValidID(id) || seen[id] {
 			t.Errorf("%q is not a name one dataset can have", id)
 		}
 		seen[id] = true
+		ids = append(ids, id)
 		if hosts, err := k.Origin().Hosts(); err != nil || len(hosts) == 0 {
 			t.Errorf("%s: hosts a fetch may reach = %q, %v", id, hosts, err)
 		}
@@ -191,8 +194,8 @@ func TestKnownDatasets(t *testing.T) {
 			t.Errorf("%s: may hold %d bytes under the license %q", id, k.MaxBytes(), k.Origin().License)
 		}
 	}
-	if !seen["kev"] {
-		t.Errorf("the known datasets are %v, without kev", seen)
+	if !seen["kev"] || !seen["epss"] || !slices.IsSorted(ids) {
+		t.Errorf("the known datasets are %v, want epss and kev among them, in name order", ids)
 	}
 
 	d, _ := testData(t, false, "")
@@ -206,7 +209,7 @@ func TestKnownDatasets(t *testing.T) {
 		t.Fatalf("saved reports: %v, %v", saved, err)
 	}
 	report, err := os.ReadFile(saved[0])
-	if err != nil || !strings.Contains(string(report), "kev  not held\n") {
+	if err != nil || !strings.Contains(string(report), "epss  not held\nkev   not held\n") {
 		t.Errorf("status of an empty store saved %q, %v", report, err)
 	}
 }

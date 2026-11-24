@@ -208,3 +208,18 @@ func TestDatasetsTabOnlyWhenHeld(t *testing.T) {
 		t.Errorf("an empty store gave %+v", empty)
 	}
 }
+
+// A held dataset's record gives the date of its data and, after it, the
+// version its source gives the data.
+func TestDatasetsTabShowsTheVersion(t *testing.T) {
+	tab := datasetsTab(dataset.View{Store: "/store", Datasets: []dataset.Row{
+		{ID: "kev", State: dataset.StateCurrent, DataDate: "2026-11-23", Version: "2026.11.23"},
+	}})
+	var got []string
+	for _, f := range tab.Records[0].Fields {
+		got = append(got, f.Label+"="+f.Value)
+	}
+	if want := "state=current; date of the data=2026-11-23; version=2026.11.23; store=/store"; strings.Join(got, "; ") != want {
+		t.Errorf("the record's fields are %q, want %q", strings.Join(got, "; "), want)
+	}
+}

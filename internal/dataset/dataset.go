@@ -41,6 +41,12 @@ type (
 	Facts struct {
 		// Date is the date the source gave its data.
 		Date time.Time
+
+		// Version is what the source calls this issue of its data, such as
+		// a catalog's version or the model its scores came from. Every
+		// dataset states one; a held dataset whose check gives none is
+		// shown as unusable.
+		Version string
 	}
 )
 
@@ -56,4 +62,15 @@ var idPattern = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
 // store, on every platform.
 func ValidID(id string) bool {
 	return len(id) <= maxIDLen && idPattern.MatchString(id)
+}
+
+// cvePattern is the pattern CISA's schema for its Known Exploited
+// Vulnerabilities catalog gives a CVE identifier.
+var cvePattern = regexp.MustCompile(`^CVE-[0-9]{4}-[0-9]{4,19}$`)
+
+// ValidCVE reports whether id is written as a CVE identifier is. Every
+// dataset that names CVEs judges them by it, so one that matches a CVE in
+// another dataset is judged the same in both.
+func ValidCVE(id string) bool {
+	return cvePattern.MatchString(id)
 }

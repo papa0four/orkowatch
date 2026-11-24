@@ -31,6 +31,9 @@ const (
 
 	// MaxBytes is the most a file of the test dataset may hold.
 	MaxBytes = 1 << 10
+
+	// Version is the version every sound file of the test dataset reports.
+	Version = "test-1"
 )
 
 // Dataset is a dataset made for tests: a header line, the date of its data,
@@ -69,7 +72,7 @@ func (Dataset) Check(data io.Reader) (dataset.Facts, error) {
 	if err != nil {
 		return dataset.Facts{}, errors.New("no date")
 	}
-	return dataset.Facts{Date: date}, nil
+	return dataset.Facts{Date: date, Version: Version}, nil
 }
 
 // DataName is the name the store gives the file holding data.
