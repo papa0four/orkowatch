@@ -167,7 +167,7 @@ func (m *Matcher) pair(key pairKey) *pair {
 // cannot be ordered, and a module build whose records give more than one
 // fixed version, are not matched, with the reason.
 func (m *Matcher) Result() View {
-	v := View{Order: m.manager, Matches: []Match{}}
+	v := View{Order: m.manager, Packages: []PackageMatches{}}
 	for _, units := range m.installed {
 		for _, u := range units {
 			v.Installed++
@@ -176,8 +176,8 @@ func (m *Matcher) Result() View {
 			}
 		}
 	}
+	affected := map[unitKey]*PackageMatches{}
 	for key, p := range m.pairs {
-		u := m.unit(key)
 		switch {
 		case p.err != "":
 			v.NotMatched = append(v.NotMatched, NotMatched{ID: key.id, Package: key.name, Installed: key.version, Reason: "the versions cannot be compared: " + p.err})
@@ -185,17 +185,23 @@ func (m *Matcher) Result() View {
 			v.NotMatched = append(v.NotMatched, NotMatched{ID: key.id, Package: key.name, Installed: key.version,
 				Reason: fmt.Sprintf("a module build, and the records give %d fixed versions without saying which module stream each is for", len(p.fixes))})
 		default:
-			match, ok, err := m.decide(key, p, u)
+			found, ok, err := m.decide(key, p)
 			switch {
 			case err != nil:
 				v.NotMatched = append(v.NotMatched, NotMatched{ID: key.id, Package: key.name, Installed: key.version, Reason: "the versions cannot be compared: " + err.Error()})
 			case ok:
-				v.Matches = append(v.Matches, match)
+				m.packageOf(affected, key).Vulnerabilities = append(m.packageOf(affected, key).Vulnerabilities, found)
 			}
 		}
 	}
-	slices.SortFunc(v.Matches, func(a, b Match) int {
-		return cmp.Or(strings.Compare(a.Package, b.Package), strings.Compare(a.Installed, b.Installed), strings.Compare(a.ID, b.ID))
+	for _, pkg := range affected {
+		slices.SortFunc(pkg.Vulnerabilities, func(a, b Vulnerability) int {
+			return cmp.Or(strings.Compare(statusOrder[a.Status], statusOrder[b.Status]), strings.Compare(a.ID, b.ID))
+		})
+		v.Packages = append(v.Packages, *pkg)
+	}
+	slices.SortFunc(v.Packages, func(a, b PackageMatches) int {
+		return cmp.Or(strings.Compare(a.Package, b.Package), strings.Compare(a.Installed, b.Installed))
 	})
 	slices.SortFunc(v.NotMatched, func(a, b NotMatched) int {
 		return cmp.Or(strings.Compare(a.Package, b.Package), strings.Compare(a.Installed, b.Installed), strings.Compare(a.ID, b.ID))
@@ -204,36 +210,57 @@ func (m *Matcher) Result() View {
 	return v
 }
 
-// decide is the match the judgments of one pair make, if they make one. Fixed
-// versions that cannot be ordered among themselves are an error.
-func (m *Matcher) decide(key pairKey, p *pair, u *unit) (Match, bool, error) {
+// statusOrder puts the vulnerabilities with a fix available ahead of the
+// unfixed within a package.
+var statusOrder = map[string]string{StatusFixAvailable: "0", StatusUnfixed: "1"}
+
+// unitKey is an installed package as the records name it, at one version.
+type unitKey struct {
+	name    string
+	version string
+}
+
+// packageOf returns the affected package of key in affected, made with the
+// binaries built from it when it is new.
+func (m *Matcher) packageOf(affected map[unitKey]*PackageMatches, key pairKey) *PackageMatches {
+	k := unitKey{name: key.name, version: key.version}
+	pkg, ok := affected[k]
+	if !ok {
+		pkg = &PackageMatches{Package: key.name, Installed: key.version}
+		if u := m.unit(key); u != nil {
+			pkg.Binaries = u.binaries
+		}
+		affected[k] = pkg
+	}
+	return pkg
+}
+
+// decide is the vulnerability the judgments of one pair make, if they make
+// one. Fixed versions that cannot be ordered among themselves are an error.
+func (m *Matcher) decide(key pairKey, p *pair) (Vulnerability, bool, error) {
 	var above []string
 	in := false
 	for _, j := range p.judgments {
 		switch j.verdict {
 		case cleared:
-			return Match{}, false, nil
+			return Vulnerability{}, false, nil
 		case inside:
 			in = true
 			above = append(above, j.above...)
 		}
 	}
 	if !in {
-		return Match{}, false, nil
+		return Vulnerability{}, false, nil
 	}
-	match := Match{ID: key.id, Package: key.name, Installed: key.version, Status: StatusUnfixed,
-		Severity: p.severity, Records: p.records}
-	if u != nil {
-		match.Binaries = u.binaries
-	}
+	found := Vulnerability{ID: key.id, Status: StatusUnfixed, Severity: p.severity, Records: p.records}
 	if len(above) > 0 {
 		lowest, err := m.lowest(above)
 		if err != nil {
-			return Match{}, false, err
+			return Vulnerability{}, false, err
 		}
-		match.Fixed, match.Status = lowest, StatusFixAvailable
+		found.Fixed, found.Status = lowest, StatusFixAvailable
 	}
-	return match, true, nil
+	return found, true, nil
 }
 
 // lowest is the lowest of versions, which holds at least one.

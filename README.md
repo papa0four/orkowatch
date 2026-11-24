@@ -32,7 +32,7 @@ and open an issue against this doc.
 - **CVE matching covers five distributions' packages.** `owatch software` and
   `owatch all` match installed packages on AlmaLinux, Alpine, Red Hat
   Enterprise Linux, Rocky Linux, and Ubuntu against the OSV dataset held for
-  the host; the results browser does not show the matches yet. The operating
+  the host, shown in the results browser's Vulnerabilities tab. The operating
   system and kernel as such are not matched, and findings carry no CVE data.
   There is no `--enrich` flag; passing it fails as an unknown flag.
 - **There is no `--mitre` flag.** MITRE ATT&CK® mapping is registry data shown
@@ -177,7 +177,10 @@ A package at or above any record's fixed version is not affected: a host on an
 earlier minor release's update is not told it lacks a later release's build of the
 same fix. The text report gives the counts, every vulnerability with a fix available,
 and the unfixed counted by package, since a release can carry thousands; the JSON and
-YAML reports hold every match with the records that name it and their scores. With
+YAML reports hold every match under `vulnerabilities.packages`, each affected package
+once with its installed version and the binaries built from it, and its
+vulnerabilities under it with their status, fixed version, scores, and the records
+that name them, beside `not_matched` and `counts`. With
 no dataset held, or one that cannot be used, the section says matching was not done,
 why, and what to run. Fixes published only in Ubuntu Pro or Red Hat's
 extended-support streams are not read, so a host on those streams can be shown a fix
@@ -267,14 +270,22 @@ On a terminal, `owatch audit`, `owatch osinfo`, `owatch software`, `owatch liste
 end in an interactive results browser instead of printing the report, because a
 whole-filesystem scan produces far more lines than a terminal keeps. Every
 command opens the same layout. The left pane lists the sources, each with the
-key that opens it, above the findings filters and the run's summary; it scrolls
-when it is taller than the window, and a window too narrow for it shows the
-sources as a bar along the top. The filters and the summary belong to findings,
-so they read n/a on a source that has none. The browser has a source for each
+key that opens it, above the active source's filters and the run's summary; it
+scrolls when it is taller than the window, and a window too narrow for it shows
+the sources as a bar along the top. Findings and Vulnerabilities have filters,
+and a source with none reads n/a there; the summary belongs to findings. The
+browser has a source for each
 part of the run: Findings lists each finding with its severity and shows the selected one in
 full with what triggered it (the rule that failed, what it found, the severity the registry
 gives it, the techniques it is mapped to) and its evidence; System shows the host's fingerprint; Software lists the
-installed packages and can be searched; Sockets lists each socket with its state, ends,
+installed packages and can be searched; Vulnerabilities, when the software was
+matched, lists each CVE of each affected package, those with a fix available
+first, and opens filtered to them: its filters choose fix available, unfixed,
+not matched, or all, and a severity label the records state, such as Ubuntu's
+priority, each option with how many fall under it, and `/` searches within
+them; the detail gives the package and what was built from it, the installed
+and fixed versions, the scores as the records give them, the records that name
+the CVE, and the dataset; Sockets lists each socket with its state, ends,
 scope and the processes holding it, or why they could not be read; MITRE ATT&CK® groups the findings by the
 technique each makes available, with the finding, rule and evidence behind each. A source a command did not run, or a module
 that was skipped or failed, is still listed and says so. A run opens on
@@ -283,12 +294,13 @@ Findings when the audit ran, and otherwise on the first module that did, so
 
 | Key | Action |
 |---|---|
-| the key in the left pane's `key` column (`f`, `o`, `s`, `l`, `m`) | Switch to that source from any pane; the left pane lists each source under the headings `key` and `source`, so a new source adds a row |
+| the key in the left pane's `key` column (`f`, `o`, `s`, `v`, `l`, `m`, `d`) | Switch to that source from any pane; the left pane lists each source under the headings `key` and `source`, so a new source adds a row |
 | `[`, `]`, `1` to `9` | Step to the previous or next source, or go to a source by its number |
 | `tab`, `shift+tab` | Move between the left, list and detail panes |
 | up/down, pgup/pgdn, home/end | Move through the focused pane |
 | left/right | Pan the detail pane or the full report sideways |
-| `enter` | In the left pane, open a source or apply a filter; in the list, open the selected item in the detail pane |
+| `enter` | In the left pane, open a source, or apply a filter and move to the list it narrowed; in the list, open the selected item in the detail pane |
+| `esc` | In the list, clear a kept search, or with none kept go back to the left pane, to the filter last applied; in the detail pane, go back to the list |
 | `/` | Search the active tab: on Findings, titles, rule keys, descriptions, references and evidence, and the detail pane then shows only the matching evidence lines; on Software, package names and versions. `enter` keeps the search, `esc` clears it, and each tab keeps its own |
 | `a` | On Findings, show every evaluated rule, not only findings and rules that could not be evaluated |
 | `x` | On Findings, load all of a finding's evidence when only the first 500 lines are shown |

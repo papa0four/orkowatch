@@ -23,9 +23,10 @@ const (
 )
 
 // View is the serializable projection of a match of a host's packages: the
-// dataset it was made against, or why none was made, then every match, every
-// vulnerability and package that could not be judged, and the counts. This is
-// the one shape the vulnerabilities section has in every report.
+// dataset it was made against, or why none was made, then every affected
+// package with its vulnerabilities under it, every vulnerability and package
+// that could not be judged, and the counts. This is the one shape the
+// vulnerabilities section has in every report.
 type View struct {
 	Dataset  string `json:"dataset,omitempty" yaml:"dataset,omitempty"`
 	Release  string `json:"release,omitempty" yaml:"release,omitempty"`
@@ -41,9 +42,9 @@ type View struct {
 	// Order is the version order the packages were compared in.
 	Order string `json:"version_order,omitempty" yaml:"version_order,omitempty"`
 
-	Counts     Counts       `json:"counts" yaml:"counts"`
-	Matches    []Match      `json:"matches" yaml:"matches"`
-	NotMatched []NotMatched `json:"not_matched,omitempty" yaml:"not_matched,omitempty"`
+	Counts     Counts           `json:"counts" yaml:"counts"`
+	Packages   []PackageMatches `json:"packages" yaml:"packages"`
+	NotMatched []NotMatched     `json:"not_matched,omitempty" yaml:"not_matched,omitempty"`
 
 	// Installed is how many packages, as the records name them, were
 	// matched, and NotCovered how many of those no record names.
@@ -64,20 +65,27 @@ type Counts struct {
 	NotMatched          int `json:"not_matched" yaml:"not_matched"`
 }
 
-// Match is one vulnerability of one installed package: its identifier, a CVE
-// or, for a record that names none, the record's own; the package as the
-// records name it, the installed packages built from it, and its version; the
-// version that fixes it, or none; its scores as the records give them; and
-// the records that name it.
-type Match struct {
-	ID        string         `json:"id" yaml:"id"`
-	Package   string         `json:"package" yaml:"package"`
-	Binaries  []string       `json:"binaries,omitempty" yaml:"binaries,omitempty"`
-	Installed string         `json:"installed" yaml:"installed"`
-	Status    string         `json:"status" yaml:"status"`
-	Fixed     string         `json:"fixed,omitempty" yaml:"fixed,omitempty"`
-	Severity  []osv.Severity `json:"severity,omitempty" yaml:"severity,omitempty"`
-	Records   []string       `json:"records" yaml:"records"`
+// PackageMatches is one affected package: the package as the records name it,
+// its installed version, and the installed packages built from it, given
+// once, with each of its vulnerabilities under it, those with a fix available
+// first.
+type PackageMatches struct {
+	Package         string          `json:"package" yaml:"package"`
+	Installed       string          `json:"installed" yaml:"installed"`
+	Binaries        []string        `json:"binaries,omitempty" yaml:"binaries,omitempty"`
+	Vulnerabilities []Vulnerability `json:"vulnerabilities" yaml:"vulnerabilities"`
+}
+
+// Vulnerability is one vulnerability of a package: its identifier, a CVE or,
+// for a record that names none, the record's own; whether a fix is available,
+// and the version that fixes it; its scores as the records give them; and the
+// records that name it.
+type Vulnerability struct {
+	ID       string         `json:"id" yaml:"id"`
+	Status   string         `json:"status" yaml:"status"`
+	Fixed    string         `json:"fixed,omitempty" yaml:"fixed,omitempty"`
+	Severity []osv.Severity `json:"severity,omitempty" yaml:"severity,omitempty"`
+	Records  []string       `json:"records" yaml:"records"`
 }
 
 // NotMatched is a vulnerability of an installed package that could not be
@@ -92,18 +100,30 @@ type NotMatched struct {
 // count fills the counts from what the view holds.
 func (v *View) count() {
 	v.Counts = Counts{Packages: v.Installed, NotCovered: v.NotCovered, NotMatched: len(v.NotMatched)}
-	withFix, withUnfixed := map[string]bool{}, map[string]bool{}
-	for _, m := range v.Matches {
-		key := m.Package + " " + m.Installed
-		if m.Status == StatusFixAvailable {
-			v.Counts.FixAvailable++
-			withFix[key] = true
-		} else {
-			v.Counts.Unfixed++
-			withUnfixed[key] = true
+	for _, pkg := range v.Packages {
+		fixable, unfixed := pkg.counts()
+		v.Counts.FixAvailable += fixable
+		v.Counts.Unfixed += unfixed
+		if fixable > 0 {
+			v.Counts.PackagesWithFix++
+		}
+		if unfixed > 0 {
+			v.Counts.PackagesWithUnfixed++
 		}
 	}
-	v.Counts.PackagesWithFix, v.Counts.PackagesWithUnfixed = len(withFix), len(withUnfixed)
+}
+
+// counts is how many of the package's vulnerabilities have a fix available,
+// and how many are unfixed.
+func (p PackageMatches) counts() (fixable, unfixed int) {
+	for _, found := range p.Vulnerabilities {
+		if found.Status == StatusFixAvailable {
+			fixable++
+		} else {
+			unfixed++
+		}
+	}
+	return fixable, unfixed
 }
 
 // WriteText writes v as the vulnerabilities section of a text report: the
@@ -128,16 +148,20 @@ func WriteText(w io.Writer, v View) error {
 
 	if c.FixAvailable > 0 {
 		ew.Printf("\nFix available:\n")
-		for _, m := range v.Matches {
-			if m.Status == StatusFixAvailable {
-				ew.Printf("  %s\n", render.HostText(fmt.Sprintf("%-20s %s %s, fixed in %s%s", m.ID, m.Package, m.Installed, m.Fixed, scores(m.Severity))))
+		for _, pkg := range v.Packages {
+			for _, found := range pkg.Vulnerabilities {
+				if found.Status == StatusFixAvailable {
+					ew.Printf("  %s\n", render.HostText(fmt.Sprintf("%-20s %s %s, fixed in %s%s", found.ID, pkg.Package, pkg.Installed, found.Fixed, scores(found.Severity))))
+				}
 			}
 		}
 	}
 	if c.Unfixed > 0 {
 		ew.Printf("\nUnfixed, by package:\n")
-		for _, line := range unfixedByPackage(v.Matches) {
-			ew.Printf("  %s\n", render.HostText(line))
+		for _, pkg := range v.Packages {
+			if _, unfixed := pkg.counts(); unfixed > 0 {
+				ew.Printf("  %s\n", render.HostText(fmt.Sprintf("%s %s: %s", pkg.Package, pkg.Installed, render.Count(unfixed, "unfixed", "unfixed"))))
+			}
 		}
 	}
 	if len(v.NotMatched) > 0 {
@@ -148,32 +172,6 @@ func WriteText(w io.Writer, v View) error {
 	}
 	ew.Printf("\nEvery match, the unfixed included, is in the JSON and YAML reports and the results browser.\n")
 	return ew.Err()
-}
-
-// unfixedByPackage counts the unfixed vulnerabilities of each package, in the
-// order the matches are in.
-func unfixedByPackage(matches []Match) []string {
-	var lines []string
-	var current string
-	count := 0
-	flush := func() {
-		if count > 0 {
-			lines = append(lines, fmt.Sprintf("%s: %s", current, render.Count(count, "unfixed", "unfixed")))
-		}
-	}
-	for _, m := range matches {
-		if m.Status != StatusUnfixed {
-			continue
-		}
-		key := m.Package + " " + m.Installed
-		if key != current {
-			flush()
-			current, count = key, 0
-		}
-		count++
-	}
-	flush()
-	return lines
 }
 
 // scores writes a match's scores as the records give them, each labeled with

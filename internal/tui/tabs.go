@@ -4,6 +4,7 @@ package tui
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"charm.land/bubbles/v2/key"
@@ -15,12 +16,13 @@ import (
 // Tab identifiers. A tab's identifier fixes the key that jumps to it, so a
 // source has the same letter in every run.
 const (
-	TabFindings = "findings"
-	TabSystem   = "system"
-	TabSoftware = "software"
-	TabSockets  = "sockets"
-	TabAttack   = "attack"
-	TabDatasets = "datasets"
+	TabFindings        = "findings"
+	TabSystem          = "system"
+	TabSoftware        = "software"
+	TabVulnerabilities = "vulnerabilities"
+	TabSockets         = "sockets"
+	TabAttack          = "attack"
+	TabDatasets        = "datasets"
 
 	// The headings of the source table in the left pane, and the gap between
 	// its two columns.
@@ -48,14 +50,29 @@ type (
 		Noun    string
 		Note    string
 		Records []Record
+
+		// Filters are the groups the left pane narrows the records by, each
+		// record falling under one option of each.
+		Filters []Filter
+	}
+
+	// Filter is a group of options the left pane narrows a tab's records
+	// by: its name, its options in the order shown, and the option the tab
+	// opens on. An option named All admits every record.
+	Filter struct {
+		Name    string
+		Options []string
+		Start   string
 	}
 
 	// Record is one row of a tab. Its fields are shown in the detail pane in
-	// the order given.
+	// the order given. Filters is the option of each of the tab's filters
+	// the record falls under, in the tab's order.
 	Record struct {
 		Title    string
 		Subtitle string
 		Fields   []SummaryLine
+		Filters  []string
 	}
 
 	// tabDef is a tab as the tab bar knows it.
@@ -67,27 +84,54 @@ type (
 
 	// recordPane is the list and detail of one record tab. Its state is
 	// reached through a pointer, so it survives the value copies the Bubble
-	// Tea model goes through.
+	// Tea model goes through. groups are the tab's filters as the left pane
+	// walks them.
 	recordPane struct {
 		tab     Tab
 		index   []string
+		groups  []*filterGroup
 		visible []int
 		cursor  int
 		listTop int
 		shown   int
 		detail  viewport.Model
 	}
+
+	// filterGroup is a group of filter options as the left pane draws and
+	// walks it: its name, its options and the label each is shown with,
+	// which is chosen, and how many records of the whole tab fall under each
+	// option, or none where the tab does not count them.
+	filterGroup struct {
+		name    string
+		options []string
+		labels  []string
+		chosen  int
+		counts  []int
+	}
 )
+
+// All is the option of a filter that admits every record.
+const All = allFilter
+
+// option is the option chosen in g, or the empty string for one that admits
+// everything.
+func (g *filterGroup) option() string {
+	if g.options[g.chosen] == allFilter {
+		return ""
+	}
+	return g.options[g.chosen]
+}
 
 var (
 	// tabLetters is the single key that jumps to each tab.
 	tabLetters = map[string]string{
-		TabFindings: "f",
-		TabSystem:   "o",
-		TabSoftware: "s",
-		TabSockets:  "l",
-		TabAttack:   "m",
-		TabDatasets: "d",
+		TabFindings:        "f",
+		TabSystem:          "o",
+		TabSoftware:        "s",
+		TabVulnerabilities: "v",
+		TabSockets:         "l",
+		TabAttack:          "m",
+		TabDatasets:        "d",
 	}
 
 	// detailKeys is the viewport's key map. Its defaults bind j, k, h, l, f,
@@ -145,7 +189,31 @@ func newRecordPane(tab Tab) *recordPane {
 		}
 		p.index[i] = strings.ToLower(text.String())
 	}
+	for at, f := range tab.Filters {
+		g := &filterGroup{name: f.Name, options: f.Options, labels: f.Options, counts: make([]int, len(f.Options))}
+		g.chosen = max(slices.Index(f.Options, f.Start), 0)
+		for i, option := range f.Options {
+			for _, r := range tab.Records {
+				if option == allFilter || (at < len(r.Filters) && r.Filters[at] == option) {
+					g.counts[i]++
+				}
+			}
+		}
+		p.groups = append(p.groups, g)
+	}
 	return p
+}
+
+// admits reports whether record i falls under the option chosen in each of
+// the pane's filters.
+func (p *recordPane) admits(i int) bool {
+	record := p.tab.Records[i]
+	for at, g := range p.groups {
+		if option := g.option(); option != "" && (at >= len(record.Filters) || record.Filters[at] != option) {
+			return false
+		}
+	}
+	return true
 }
 
 // listless reports whether the pane has nothing to choose between: a note, or
@@ -154,12 +222,12 @@ func (p *recordPane) listless() bool {
 	return len(p.tab.Records) <= 1
 }
 
-// refilter keeps the records that contain needle, already lower-case, and
-// selects the first.
+// refilter keeps the records the chosen filters admit that contain needle,
+// already lower-case, and selects the first.
 func (p *recordPane) refilter(needle string) {
 	p.visible = p.visible[:0]
 	for i, text := range p.index {
-		if needle == "" || strings.Contains(text, needle) {
+		if p.admits(i) && (needle == "" || strings.Contains(text, needle)) {
 			p.visible = append(p.visible, i)
 		}
 	}

@@ -107,6 +107,6 @@ func (m inventoryMatching) run(ctx context.Context, host *osfingerprint.OSInfo, 
 // notDone is the view of a match that was not made, for the dataset named id
 // when one was chosen.
 func notDone(id, reason string) *vulnmatch.View {
-	v := vulnmatch.View{Dataset: id, NotDone: reason, Matches: []vulnmatch.Match{}}
+	v := vulnmatch.View{Dataset: id, NotDone: reason, Packages: []vulnmatch.PackageMatches{}}
 	return &v
 }

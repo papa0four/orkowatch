@@ -71,6 +71,27 @@ func record(id string, cves []string, pkg string, ranges ...[]osv.Event) osv.Rec
 		Affected: []osv.Affected{{Package: pkg, Ecosystem: "Test:1", Ranges: ranges}}}
 }
 
+// match is one vulnerability with the package it is under, as the tests read
+// a view.
+type match struct {
+	ID, Package, Installed, Status, Fixed string
+	Binaries, Records                     []string
+	Severity                              []osv.Severity
+}
+
+// flatten lists the vulnerabilities of v, each with its package, in the order
+// the view holds them.
+func flatten(v View) []match {
+	var out []match
+	for _, pkg := range v.Packages {
+		for _, found := range pkg.Vulnerabilities {
+			out = append(out, match{ID: found.ID, Package: pkg.Package, Installed: pkg.Installed, Status: found.Status, Fixed: found.Fixed,
+				Binaries: pkg.Binaries, Records: found.Records, Severity: found.Severity})
+		}
+	}
+	return out
+}
+
 // matched runs a matcher of manager's entries over records.
 func matched(t *testing.T, manager string, entries []softwarelist.SoftwareEntry, records ...osv.Record) View {
 	t.Helper()
@@ -103,16 +124,18 @@ func TestMatchDpkgBySource(t *testing.T) {
 		record("USN-1-1", nil, "openssl", events("introduced", "0", "fixed", "3.0.2-0ubuntu1.11")),
 		record("UBUNTU-CVE-2026-3", []string{"CVE-2026-3"}, "libssl3", events("introduced", "0")),
 	)
-	want := []Match{
+	// The three are under one package, given once, those with a fix
+	// available first.
+	want := []match{
 		{ID: "CVE-2026-1", Package: "openssl", Installed: "3.0.2-0ubuntu1.10", Status: StatusFixAvailable, Fixed: "3.0.2-0ubuntu1.12"},
-		{ID: "CVE-2026-2", Package: "openssl", Installed: "3.0.2-0ubuntu1.10", Status: StatusUnfixed},
 		{ID: "USN-1-1", Package: "openssl", Installed: "3.0.2-0ubuntu1.10", Status: StatusFixAvailable, Fixed: "3.0.2-0ubuntu1.11"},
+		{ID: "CVE-2026-2", Package: "openssl", Installed: "3.0.2-0ubuntu1.10", Status: StatusUnfixed},
 	}
-	if len(v.Matches) != len(want) {
-		t.Fatalf("matches %+v, want %d", v.Matches, len(want))
+	if got := flatten(v); len(v.Packages) != 1 || len(got) != len(want) {
+		t.Fatalf("packages %+v, want one holding %d", v.Packages, len(want))
 	}
 	for i, w := range want {
-		got := v.Matches[i]
+		got := flatten(v)[i]
 		if got.ID != w.ID || got.Package != w.Package || got.Installed != w.Installed || got.Status != w.Status || got.Fixed != w.Fixed ||
 			!slices.Equal(got.Binaries, []string{"libssl3", "openssl"}) || len(got.Severity) != 1 {
 			t.Errorf("match %d: %+v, want %+v", i, got, w)
@@ -142,17 +165,17 @@ func TestMatchAcrossAdvisories(t *testing.T) {
 	} {
 		v := matched(t, "rpm", []softwarelist.SoftwareEntry{{Name: "fence-agents", Version: installed, Manager: "rpm"}}, advisories...)
 		switch {
-		case fixed == "" && len(v.Matches) != 0:
-			t.Errorf("%s: %+v, want it not affected", installed, v.Matches)
-		case fixed != "" && (len(v.Matches) != 1 || v.Matches[0].Fixed != fixed || !slices.Equal(v.Matches[0].Records, []string{"RHSA-2023:1", "RHSA-2024:2"})):
-			t.Errorf("%s: %+v, want it affected and fixed in %s", installed, v.Matches, fixed)
+		case fixed == "" && len(flatten(v)) != 0:
+			t.Errorf("%s: %+v, want it not affected", installed, flatten(v))
+		case fixed != "" && (len(flatten(v)) != 1 || flatten(v)[0].Fixed != fixed || !slices.Equal(flatten(v)[0].Records, []string{"RHSA-2023:1", "RHSA-2024:2"})):
+			t.Errorf("%s: %+v, want it affected and fixed in %s", installed, flatten(v), fixed)
 		}
 	}
 
 	other := record("RHSA-2024:3", []string{"CVE-2023-45803"}, "fence-agents", events("introduced", "5.0", "fixed", "5.1"))
 	v := matched(t, "rpm", []softwarelist.SoftwareEntry{{Name: "fence-agents", Version: "4.10.0-50.el9", Manager: "rpm"}}, advisories[0], other)
-	if len(v.Matches) != 1 || v.Matches[0].Fixed != "0:4.10.0-55.el9_3.3" {
-		t.Errorf("an advisory the package never entered cleared it: %+v", v.Matches)
+	if len(flatten(v)) != 1 || flatten(v)[0].Fixed != "0:4.10.0-55.el9_3.3" {
+		t.Errorf("an advisory the package never entered cleared it: %+v", flatten(v))
 	}
 }
 
@@ -166,12 +189,12 @@ func TestMatchModuleBuild(t *testing.T) {
 		record("ALSA-2025:2", []string{"CVE-2025-1"}, "nodejs", events("introduced", "0", "fixed", "1:20.20.9-1.module_el9.6.0+1+aaaa")),
 	}
 	v := matched(t, "rpm", []softwarelist.SoftwareEntry{nodejs}, streams...)
-	if len(v.Matches) != 0 || len(v.NotMatched) != 1 || !strings.Contains(v.NotMatched[0].Reason, "module build") || v.Counts.NotMatched != 1 {
-		t.Errorf("a module build with two streams' fixes: %+v, %+v", v.Matches, v.NotMatched)
+	if len(flatten(v)) != 0 || len(v.NotMatched) != 1 || !strings.Contains(v.NotMatched[0].Reason, "module build") || v.Counts.NotMatched != 1 {
+		t.Errorf("a module build with two streams' fixes: %+v, %+v", flatten(v), v.NotMatched)
 	}
 	v = matched(t, "rpm", []softwarelist.SoftwareEntry{nodejs}, streams[1])
-	if len(v.Matches) != 1 || v.Matches[0].Status != StatusFixAvailable || len(v.NotMatched) != 0 {
-		t.Errorf("a module build with one fix: %+v, %+v", v.Matches, v.NotMatched)
+	if len(flatten(v)) != 1 || flatten(v)[0].Status != StatusFixAvailable || len(v.NotMatched) != 0 {
+		t.Errorf("a module build with one fix: %+v, %+v", flatten(v), v.NotMatched)
 	}
 }
 
@@ -180,8 +203,8 @@ func TestMatchModuleBuild(t *testing.T) {
 func TestMatchCannotCompare(t *testing.T) {
 	v := matched(t, "apk", []softwarelist.SoftwareEntry{{Name: "busybox", Version: "", Manager: "apk", Source: "busybox"}},
 		record("ALPINE-CVE-2026-1", []string{"CVE-2026-1"}, "busybox", events("introduced", "0", "fixed", "1.36.1-r20")))
-	if len(v.Matches) != 0 || len(v.NotMatched) != 1 || !strings.Contains(v.NotMatched[0].Reason, "cannot be compared") {
-		t.Errorf("an empty version: %+v, %+v", v.Matches, v.NotMatched)
+	if len(flatten(v)) != 0 || len(v.NotMatched) != 1 || !strings.Contains(v.NotMatched[0].Reason, "cannot be compared") {
+		t.Errorf("an empty version: %+v, %+v", flatten(v), v.NotMatched)
 	}
 	if _, err := New("pacman", nil); err == nil {
 		t.Error("a manager with no known order was matched")
@@ -193,11 +216,11 @@ func TestMatchCannotCompare(t *testing.T) {
 // why.
 func TestWriteText(t *testing.T) {
 	v := View{Dataset: "osv-ubuntu", Release: "Ubuntu:22.04", DataDate: "2026-11-24", State: "current", Order: "dpkg",
-		Matches: []Match{
-			{ID: "CVE-2026-1", Package: "openssl", Installed: "3.0.2-1", Status: StatusFixAvailable, Fixed: "3.0.2-2", Severity: []osv.Severity{{Type: "Ubuntu", Score: "medium"}}},
-			{ID: "CVE-2026-2", Package: "openssl", Installed: "3.0.2-1", Status: StatusUnfixed},
-			{ID: "CVE-2026-3", Package: "openssl", Installed: "3.0.2-1", Status: StatusUnfixed},
-		},
+		Packages: []PackageMatches{{Package: "openssl", Installed: "3.0.2-1", Vulnerabilities: []Vulnerability{
+			{ID: "CVE-2026-1", Status: StatusFixAvailable, Fixed: "3.0.2-2", Severity: []osv.Severity{{Type: "Ubuntu", Score: "medium"}}},
+			{ID: "CVE-2026-2", Status: StatusUnfixed},
+			{ID: "CVE-2026-3", Status: StatusUnfixed},
+		}}},
 		NotMatched: []NotMatched{{ID: "CVE-2026-4", Package: "nodejs", Installed: "x", Reason: "a module build"}},
 		Installed:  3, NotCovered: 1}
 	v.count()
