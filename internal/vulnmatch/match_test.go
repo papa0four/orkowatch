@@ -86,7 +86,7 @@ func flatten(v View) []match {
 	for _, pkg := range v.Packages {
 		for _, found := range pkg.Vulnerabilities {
 			out = append(out, match{ID: found.ID, Package: pkg.Package, Installed: pkg.Installed, Status: found.Status, Fixed: found.Fixed,
-				Binaries: pkg.Binaries, Records: found.Records, Severity: found.Severity})
+				Binaries: pkg.Binaries, Records: found.Records, Severity: found.Scores})
 		}
 	}
 	return out
@@ -217,7 +217,7 @@ func TestMatchCannotCompare(t *testing.T) {
 func TestWriteText(t *testing.T) {
 	v := View{Dataset: "osv-ubuntu", Release: "Ubuntu:22.04", DataDate: "2026-11-24", State: "current", Order: "dpkg",
 		Packages: []PackageMatches{{Package: "openssl", Installed: "3.0.2-1", Vulnerabilities: []Vulnerability{
-			{ID: "CVE-2026-1", Status: StatusFixAvailable, Fixed: "3.0.2-2", Severity: []osv.Severity{{Type: "Ubuntu", Score: "medium"}}},
+			{ID: "CVE-2026-1", Status: StatusFixAvailable, Fixed: "3.0.2-2", Severity: Severity{Label: "medium", Level: LevelMedium, Basis: "Ubuntu priority"}},
 			{ID: "CVE-2026-2", Status: StatusUnfixed},
 			{ID: "CVE-2026-3", Status: StatusUnfixed},
 		}}},
@@ -231,7 +231,7 @@ func TestWriteText(t *testing.T) {
 	for _, want := range []string{
 		"Matched against osv-ubuntu, Ubuntu:22.04, data of 2026-11-24, current",
 		"3 packages matched: 1 vulnerability with a fix available in 1 package, 2 unfixed in 1 package, 1 pair not matched, 1 package no record covers",
-		"CVE-2026-1           openssl 3.0.2-1, fixed in 3.0.2-2 [Ubuntu medium]",
+		"medium      CVE-2026-1           openssl 3.0.2-1, fixed in 3.0.2-2",
 		"openssl 3.0.2-1: 2 unfixed",
 		"CVE-2026-4           nodejs x: a module build",
 	} {

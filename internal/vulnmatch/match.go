@@ -64,6 +64,7 @@ type pair struct {
 	fixes     []string
 	records   []string
 	severity  []osv.Severity
+	ratings   []string
 	err       string
 }
 
@@ -142,6 +143,9 @@ func (p *pair) note(r osv.Record, a osv.Affected, j judgment, err error) {
 	}
 	p.judgments = append(p.judgments, j)
 	p.fixes = appendNew(p.fixes, fixedIn(a.Ranges)...)
+	if r.Rating != "" {
+		p.ratings = appendNew(p.ratings, r.Rating)
+	}
 	for _, s := range r.Severity {
 		if !slices.Contains(p.severity, s) {
 			p.severity = append(p.severity, s)
@@ -196,7 +200,8 @@ func (m *Matcher) Result() View {
 	}
 	for _, pkg := range affected {
 		slices.SortFunc(pkg.Vulnerabilities, func(a, b Vulnerability) int {
-			return cmp.Or(strings.Compare(statusOrder[a.Status], statusOrder[b.Status]), strings.Compare(a.ID, b.ID))
+			return cmp.Or(strings.Compare(statusOrder[a.Status], statusOrder[b.Status]),
+				cmp.Compare(rank(a.Severity.Level), rank(b.Severity.Level)), strings.Compare(a.ID, b.ID))
 		})
 		v.Packages = append(v.Packages, *pkg)
 	}
@@ -211,7 +216,7 @@ func (m *Matcher) Result() View {
 }
 
 // statusOrder puts the vulnerabilities with a fix available ahead of the
-// unfixed within a package.
+// unfixed within a package; within each, the most severe come first.
 var statusOrder = map[string]string{StatusFixAvailable: "0", StatusUnfixed: "1"}
 
 // unitKey is an installed package as the records name it, at one version.
@@ -252,7 +257,7 @@ func (m *Matcher) decide(key pairKey, p *pair) (Vulnerability, bool, error) {
 	if !in {
 		return Vulnerability{}, false, nil
 	}
-	found := Vulnerability{ID: key.id, Status: StatusUnfixed, Severity: p.severity, Records: p.records}
+	found := Vulnerability{ID: key.id, Status: StatusUnfixed, Severity: severityOf(p.severity, p.ratings), Scores: p.severity, Records: p.records}
 	if len(above) > 0 {
 		lowest, err := m.lowest(above)
 		if err != nil {

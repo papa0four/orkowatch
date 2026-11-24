@@ -19,11 +19,12 @@ func matchedView() vulnmatch.View {
 	v := vulnmatch.View{Dataset: "osv-ubuntu", Release: "Ubuntu:22.04", DataDate: "2026-11-24", State: "current",
 		Packages: []vulnmatch.PackageMatches{
 			{Package: "bash", Installed: "5.1-6ubuntu1", Vulnerabilities: []vulnmatch.Vulnerability{
-				{ID: "CVE-2026-3", Status: vulnmatch.StatusUnfixed, Severity: []osv.Severity{{Type: "CVSS_V3", Score: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"}}, Records: []string{"UBUNTU-CVE-2026-3"}},
+				{ID: "CVE-2026-3", Status: vulnmatch.StatusUnfixed, Severity: vulnmatch.Severity{Level: vulnmatch.LevelNone}, Records: []string{"UBUNTU-CVE-2026-3"}},
 			}},
 			{Package: "openssl", Installed: "3.0.2-1", Binaries: []string{"libssl3", "openssl"}, Vulnerabilities: []vulnmatch.Vulnerability{
-				{ID: "CVE-2026-1", Status: vulnmatch.StatusFixAvailable, Fixed: "3.0.2-2", Severity: []osv.Severity{{Type: "Ubuntu", Score: "high"}, {Type: "CVSS_V3", Score: "CVSS:3.1/AV:N"}}, Records: []string{"UBUNTU-CVE-2026-1", "USN-1-1"}},
-				{ID: "CVE-2026-2", Status: vulnmatch.StatusUnfixed, Severity: []osv.Severity{{Type: "Ubuntu", Score: "low"}}, Records: []string{"UBUNTU-CVE-2026-2"}},
+				{ID: "CVE-2026-1", Status: vulnmatch.StatusFixAvailable, Fixed: "3.0.2-2", Severity: vulnmatch.Severity{Label: "Important", Level: vulnmatch.LevelHigh, Basis: "advisory rating"},
+					Scores: []osv.Severity{{Type: "CVSS_V3", Score: "CVSS:3.1/AV:N"}}, Records: []string{"UBUNTU-CVE-2026-1", "USN-1-1"}},
+				{ID: "CVE-2026-2", Status: vulnmatch.StatusUnfixed, Severity: vulnmatch.Severity{Label: "low", Level: vulnmatch.LevelLow, Basis: "CVSS v3.1 base 3.1"}, Records: []string{"UBUNTU-CVE-2026-2"}},
 			}},
 		},
 		NotMatched: []vulnmatch.NotMatched{{ID: "CVE-2026-4", Package: "nodejs", Installed: "1:20.1-1.module+el9", Reason: "a module build"}},
@@ -57,9 +58,9 @@ func TestVulnerabilitiesTab(t *testing.T) {
 		rows = append(rows, r.Title+" | "+r.Subtitle+" | "+strings.Join(r.Filters, ","))
 	}
 	want := []string{
-		"CVE-2026-1  openssl | fix 3.0.2-2 | fix available,high",
+		"CVE-2026-1  openssl | fix 3.0.2-2  Important | fix available,high",
 		"CVE-2026-3  bash | unfixed | unfixed,none stated",
-		"CVE-2026-2  openssl | unfixed | unfixed,low",
+		"CVE-2026-2  openssl | unfixed  low | unfixed,low",
 		"CVE-2026-4  nodejs | not matched | not matched,none stated",
 	}
 	if !slices.Equal(rows, want) {
@@ -77,7 +78,8 @@ func TestVulnerabilitiesTab(t *testing.T) {
 		"installed packages built from it": "libssl3, openssl",
 		"installed":                        "3.0.2-1",
 		"fixed in":                         "3.0.2-2",
-		"scores, as the records give them": "Ubuntu: high\nCVSS_V3: CVSS:3.1/AV:N",
+		"severity":                         "Important, placed with high (advisory rating)",
+		"scores, as the records give them": "CVSS_V3: CVSS:3.1/AV:N",
 		"records":                          "UBUNTU-CVE-2026-1, USN-1-1",
 		"matched against":                  "osv-ubuntu, Ubuntu:22.04, data of 2026-11-24, current",
 	} {
@@ -104,24 +106,18 @@ func TestVulnerabilitiesTabOpensAndNotes(t *testing.T) {
 	}
 }
 
-// A severity label is a score that is one word, as a distribution's own
-// labels are; a CVSS vector is not one, and records that state two different
-// labels state none the tab can show as theirs.
-func TestSeverityLabel(t *testing.T) {
-	for want, scores := range map[string][]osv.Severity{
-		"medium":      {{Type: "Ubuntu", Score: "medium"}, {Type: "CVSS_V3", Score: "CVSS:3.1/AV:N"}},
-		"none stated": {{Type: "CVSS_V3", Score: "CVSS:3.1/AV:N"}},
-		"high":        {{Type: "Ubuntu", Score: "High"}},
+// A severity is shown with what it rests on, and with the level it is placed
+// at when the source's word is another; with none stated it says so.
+func TestSeverityText(t *testing.T) {
+	for want, s := range map[string]vulnmatch.Severity{
+		"medium (Ubuntu priority)":                       {Label: "medium", Level: vulnmatch.LevelMedium, Basis: "Ubuntu priority"},
+		"Moderate, placed with medium (advisory rating)": {Label: "Moderate", Level: vulnmatch.LevelMedium, Basis: "advisory rating"},
+		"high (CVSS v3.1 base 7.1)":                      {Label: "high", Level: vulnmatch.LevelHigh, Basis: "CVSS v3.1 base 7.1"},
+		"none stated":                                    {Level: vulnmatch.LevelNone},
 	} {
-		if got := severityLabel(scores); got != want {
-			t.Errorf("%+v: %q, want %q", scores, got, want)
+		if got := severityText(s); got != want {
+			t.Errorf("%+v: %q, want %q", s, got, want)
 		}
-	}
-	if got := severityLabel([]osv.Severity{{Type: "A", Score: "low"}, {Type: "B", Score: "high"}}); got != noSeverity {
-		t.Errorf("two labels gave %q", got)
-	}
-	if got := severityLabel(nil); got != noSeverity {
-		t.Errorf("no score gave %q", got)
 	}
 }
 

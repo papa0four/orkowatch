@@ -5,7 +5,6 @@ package vulnmatch
 import (
 	"fmt"
 	"io"
-	"strings"
 
 	"github.com/papa0four/orkowatch/internal/dataset/osv"
 	"github.com/papa0four/orkowatch/internal/render"
@@ -78,13 +77,14 @@ type PackageMatches struct {
 
 // Vulnerability is one vulnerability of a package: its identifier, a CVE or,
 // for a record that names none, the record's own; whether a fix is available,
-// and the version that fixes it; its scores as the records give them; and the
-// records that name it.
+// and the version that fixes it; its severity and what that rests on; its
+// scores as the records give them; and the records that name it.
 type Vulnerability struct {
 	ID       string         `json:"id" yaml:"id"`
 	Status   string         `json:"status" yaml:"status"`
 	Fixed    string         `json:"fixed,omitempty" yaml:"fixed,omitempty"`
-	Severity []osv.Severity `json:"severity,omitempty" yaml:"severity,omitempty"`
+	Severity Severity       `json:"severity" yaml:"severity"`
+	Scores   []osv.Severity `json:"scores,omitempty" yaml:"scores,omitempty"`
 	Records  []string       `json:"records" yaml:"records"`
 }
 
@@ -128,7 +128,8 @@ func (p PackageMatches) counts() (fixable, unfixed int) {
 
 // WriteText writes v as the vulnerabilities section of a text report: the
 // dataset, or why no match was made; the counts; every vulnerability with a
-// fix available, one a line; and for the unfixed, a count for each package.
+// fix available, one a line led by its severity, the most severe of a package
+// first; and for the unfixed, a count for each package.
 // Every match is in the JSON and YAML reports and the results browser; the
 // unfixed are counted here, since a release can carry thousands. This is the
 // one text renderer of a match.
@@ -151,7 +152,7 @@ func WriteText(w io.Writer, v View) error {
 		for _, pkg := range v.Packages {
 			for _, found := range pkg.Vulnerabilities {
 				if found.Status == StatusFixAvailable {
-					ew.Printf("  %s\n", render.HostText(fmt.Sprintf("%-20s %s %s, fixed in %s%s", found.ID, pkg.Package, pkg.Installed, found.Fixed, scores(found.Severity))))
+					ew.Printf("  %s\n", render.HostText(fmt.Sprintf("%-11s %-20s %s %s, fixed in %s", severityWord(found.Severity), found.ID, pkg.Package, pkg.Installed, found.Fixed)))
 				}
 			}
 		}
@@ -174,15 +175,11 @@ func WriteText(w io.Writer, v View) error {
 	return ew.Err()
 }
 
-// scores writes a match's scores as the records give them, each labeled with
-// its type.
-func scores(severity []osv.Severity) string {
-	if len(severity) == 0 {
-		return ""
+// severityWord is a severity as a line of the text report leads with it: the
+// source's label, or a dash where none is stated.
+func severityWord(s Severity) string {
+	if s.Label == "" {
+		return "-"
 	}
-	parts := make([]string, 0, len(severity))
-	for _, s := range severity {
-		parts = append(parts, s.Type+" "+s.Score)
-	}
-	return " [" + strings.Join(parts, "; ") + "]"
+	return s.Label
 }
