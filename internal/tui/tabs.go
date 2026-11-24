@@ -16,12 +16,13 @@ import (
 // Tab identifiers. A tab's identifier fixes the key that jumps to it, so a
 // source has the same letter in every run.
 const (
-	TabFindings = "findings"
-	TabSystem   = "system"
-	TabSoftware = "software"
-	TabSockets  = "sockets"
-	TabAttack   = "attack"
-	TabDatasets = "datasets"
+	TabFindings        = "findings"
+	TabSystem          = "system"
+	TabSoftware        = "software"
+	TabVulnerabilities = "vulnerabilities"
+	TabSockets         = "sockets"
+	TabAttack          = "attack"
+	TabDatasets        = "datasets"
 
 	// The headings of the source table in the left pane, and the gap between
 	// its two columns.
@@ -124,12 +125,13 @@ func (g *filterGroup) option() string {
 var (
 	// tabLetters is the single key that jumps to each tab.
 	tabLetters = map[string]string{
-		TabFindings: "f",
-		TabSystem:   "o",
-		TabSoftware: "s",
-		TabSockets:  "l",
-		TabAttack:   "m",
-		TabDatasets: "d",
+		TabFindings:        "f",
+		TabSystem:          "o",
+		TabSoftware:        "s",
+		TabVulnerabilities: "v",
+		TabSockets:         "l",
+		TabAttack:          "m",
+		TabDatasets:        "d",
 	}
 
 	// detailKeys is the viewport's key map. Its defaults bind j, k, h, l, f,

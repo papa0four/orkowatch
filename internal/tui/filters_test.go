@@ -131,6 +131,16 @@ func TestFindingsFilters(t *testing.T) {
 	}
 }
 
+// v opens the Vulnerabilities tab.
+func TestVulnerabilitiesKey(t *testing.T) {
+	report := filteredReport()
+	report.Tabs[0].ID = TabVulnerabilities
+	b := press(sized(newBrowser(report), 120, 40), "2")
+	if b = press(b, "v"); b.tabs[b.active].id != TabVulnerabilities {
+		t.Errorf("v opened %q", b.tabs[b.active].id)
+	}
+}
+
 // A tab with no filters shows that the left pane has none for it, as before.
 func TestRecordTabWithoutFilters(t *testing.T) {
 	b := sized(newBrowser(filteredReport()), 120, 40)

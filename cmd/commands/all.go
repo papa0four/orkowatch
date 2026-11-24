@@ -512,6 +512,7 @@ func allSource(title string, v allResult, text string) security.BrowserSource {
 		System:   v.System,
 		Software: v.Software,
 		Sockets:  v.Sockets,
+		Vulns:    v.Vulns,
 		Datasets: v.Datasets,
 		Modules:  moduleNotes(v.Modules),
 		Text:     text,

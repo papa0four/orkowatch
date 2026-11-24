@@ -18,18 +18,20 @@ import (
 	"github.com/papa0four/orkowatch/internal/sockets"
 	"github.com/papa0four/orkowatch/internal/softwarelist"
 	"github.com/papa0four/orkowatch/internal/tui"
+	"github.com/papa0four/orkowatch/internal/vulnmatch"
 )
 
 // BrowserSource is what a finished run holds for the browser to show. Audit,
-// System, Software, Sockets, and Datasets are the projections a saved report
-// carries, so a live run and a saved file are shown from the same data. Modules says how each
-// module of an all run ended, which is what a tab with no data explains
-// itself with; the audit command has none.
+// System, Software, Vulns, Sockets, and Datasets are the projections a saved
+// report carries, so a live run and a saved file are shown from the same data.
+// Modules says how each module of an all run ended, which is what a tab with
+// no data explains itself with; the audit command has none.
 type BrowserSource struct {
 	Title    string
 	Audit    *audit.View
 	System   *osfingerprint.SystemView
 	Software *softwarelist.SoftwareView
+	Vulns    *vulnmatch.View
 	Sockets  *sockets.View
 	Datasets *dataset.View
 	Modules  []ModuleNote
@@ -96,6 +98,13 @@ func sourceTabs(src BrowserSource) []tui.Tab {
 		tabs = append(tabs, softwareTab(*src.Software))
 	} else {
 		tabs = append(tabs, tui.Tab{ID: tui.TabSoftware, Name: "Software", Note: notRun(src.Modules, selection.NameSoftware)})
+	}
+
+	// The vulnerabilities are offered by a report whose software was
+	// matched, which says why when no match was made; a report from before
+	// matching opens as it did.
+	if src.Vulns != nil {
+		tabs = append(tabs, vulnerabilitiesTab(*src.Vulns))
 	}
 
 	if src.Sockets != nil {

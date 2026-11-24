@@ -9,11 +9,13 @@ import (
 	"errors"
 	"io"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/papa0four/orkowatch/cmd/commands/delivery"
+	"github.com/papa0four/orkowatch/cmd/commands/security"
 	"github.com/papa0four/orkowatch/internal/dataset"
 	"github.com/papa0four/orkowatch/internal/dataset/datasettest"
 	"github.com/papa0four/orkowatch/internal/dataset/osv"
@@ -22,6 +24,7 @@ import (
 	"github.com/papa0four/orkowatch/internal/security/finding"
 	"github.com/papa0four/orkowatch/internal/selection"
 	"github.com/papa0four/orkowatch/internal/softwarelist"
+	"github.com/papa0four/orkowatch/internal/tui"
 )
 
 // testRecords is the test dataset as a source of records for Debian hosts:
@@ -155,6 +158,20 @@ func TestVulnerabilitiesInTheReports(t *testing.T) {
 	report, err := decodeReport("saved.json", delivery.FormatJSON, delivery.FormatText, data)
 	if err != nil || !strings.Contains(report.Text, "fixed in 3.0.15-1") {
 		t.Errorf("a saved report read back %q, %v", report.Text, err)
+	}
+
+	// The saved report opens to the Vulnerabilities tab the live run showed.
+	tabOf := func(r tui.Report) tui.Tab {
+		for _, tab := range r.Tabs {
+			if tab.ID == tui.TabVulnerabilities {
+				return tab
+			}
+		}
+		return tui.Tab{}
+	}
+	live := tabOf(security.BrowserReport(allSource("live", view, "")))
+	if saved := tabOf(report); len(live.Records) != 1 || !reflect.DeepEqual(live.Records, saved.Records) || !reflect.DeepEqual(live.Filters, saved.Filters) {
+		t.Errorf("the live tab %+v and the saved one %+v differ", live, saved)
 	}
 }
 
