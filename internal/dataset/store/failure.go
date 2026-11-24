@@ -103,7 +103,8 @@ func readFailure(dir string) (rec failure, found bool, err error) {
 // its record says, with the command to run again, or an install that did not
 // finish, which leaves a file the dataset's manifest does not name. Either
 // command installs, so where the record cannot say which one ran, both are
-// named.
+// named. A reason that ends a sentence of its own, as Windows writes its
+// errors, loses that period here, where the sentence goes on.
 func attention(dir string) string {
 	rec, found, err := readFailure(dir)
 	switch {
@@ -111,7 +112,7 @@ func attention(dir string) string {
 		return "the record of a failed import or refresh cannot be read (" + err.Error() + "); resolve it and run owatch data refresh or owatch data import again"
 	case found:
 		return fmt.Sprintf("the %s at %s failed after %s: %s; resolve the cause and run owatch data %s again",
-			rec.Operation, rec.At.UTC().Format(time.RFC3339), render.Count(rec.Attempts, "attempt", "attempts"), rec.Reason, rec.Operation)
+			rec.Operation, rec.At.UTC().Format(time.RFC3339), render.Count(rec.Attempts, "attempt", "attempts"), strings.TrimSuffix(rec.Reason, "."), rec.Operation)
 	}
 	if strays(dir) {
 		return "an install of this dataset did not finish; run owatch data refresh or owatch data import again to complete it"

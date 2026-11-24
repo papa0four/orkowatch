@@ -216,6 +216,20 @@ func wantFailureOf(t *testing.T, attention string, op operation) {
 	}
 }
 
+// A reason that ends in a period, as Windows writes its errors, is shown
+// without it where the sentence goes on.
+func TestFailureReasonEndingInAPeriod(t *testing.T) {
+	s, _ := stores(t)
+	put(t, s, wanted, content, now.Add(-48*time.Hour), nil)
+	record := `{"operation":"refresh","attempts":3,"reason":"the target machine actively refused it.","at":"2026-11-22T12:00:00Z"}`
+	if err := os.WriteFile(filepath.Join(s.dir("wanted"), failureName), []byte(record), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if row := rowOf(t, s, known, "wanted"); !strings.Contains(row.Attention, "actively refused it; resolve the cause") {
+		t.Errorf("attention %q, want the reason's period dropped before the advice", row.Attention)
+	}
+}
+
 // A record that names an operation owatch does not know is refused as any
 // unreadable record is, and status says to run either command.
 func TestFailureRecordWithAnUnknownOperation(t *testing.T) {
