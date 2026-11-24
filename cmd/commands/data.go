@@ -14,6 +14,7 @@ import (
 
 	"github.com/papa0four/orkowatch/cmd/commands/cliargs"
 	"github.com/papa0four/orkowatch/internal/dataset"
+	"github.com/papa0four/orkowatch/internal/dataset/epss"
 	"github.com/papa0four/orkowatch/internal/dataset/kev"
 	"github.com/papa0four/orkowatch/internal/dataset/store"
 	"github.com/papa0four/orkowatch/internal/elevation"
@@ -39,9 +40,10 @@ type dataCmd struct {
 
 // knownDatasets lists the datasets this version of owatch knows. A source is
 // added here as a type that satisfies dataset.Dataset; the commands and the
-// store read every source through that interface and name none.
+// store read every source through that interface and name none. They are
+// listed in name order, which is the order status shows them in.
 func knownDatasets() []dataset.Dataset {
-	return []dataset.Dataset{kev.Catalog{}}
+	return []dataset.Dataset{epss.Scores{}, kev.Catalog{}}
 }
 
 // newDataCmd returns the owatch data command and its subcommands, reading the
