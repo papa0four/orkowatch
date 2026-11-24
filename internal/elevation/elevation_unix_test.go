@@ -44,6 +44,33 @@ func TestInvokingOperator(t *testing.T) {
 			t.Errorf("SUDO_USER=%q gave the operator %+v", name, invoker)
 		}
 	}
+
+	// doas names its user in DOAS_USER, and sudo's is read first.
+	t.Setenv("SUDO_USER", "")
+	t.Setenv("DOAS_USER", me.Username)
+	if invoker, ok := InvokingOperator(); !ok || invoker.uid != uint32(os.Getuid()) || invoker.Home != me.HomeDir {
+		t.Errorf("DOAS_USER=%s gave %+v, %v, want the current account", me.Username, invoker, ok)
+	}
+	t.Setenv("SUDO_USER", "no-such-account-owatch")
+	if invoker, ok := InvokingOperator(); ok {
+		t.Errorf("with SUDO_USER naming no account, DOAS_USER gave the operator %+v", invoker)
+	}
+}
+
+// The operator owns an open file whose owner is the operator's account, and
+// no other.
+func TestOperatorOwns(t *testing.T) {
+	f, err := os.Create(filepath.Join(t.TempDir(), "file"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close() //nolint:errcheck // a test's own file, read for its owner only
+	uid := uint32(os.Getuid())
+	for owner, want := range map[uint32]bool{uid: true, uid + 1: false} {
+		if got, err := (Operator{uid: owner}).Owns(f); err != nil || got != want {
+			t.Errorf("an operator with uid %d owns a file of uid %d: %v, %v", owner, uid, got, err)
+		}
+	}
 }
 
 // A directory is exposed by an owner, a writing group or a writing world that

@@ -84,6 +84,49 @@ func TestInvokingOperator(t *testing.T) {
 	}
 }
 
+// The operator owns an open file whose owner is the account running the
+// process, and not one given to the administrators, which takes an elevated
+// process to do; where the test is not one, that part is skipped and says so.
+func TestOperatorOwns(t *testing.T) {
+	operator, ok := InvokingOperator()
+	if !ok {
+		t.Fatal("no operator")
+	}
+	owns := func(path string) bool {
+		t.Helper()
+		f, err := os.Open(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer f.Close() //nolint:errcheck // a test's own file, read for its owner only
+		got, err := operator.Owns(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return got
+	}
+	setOwner := func(path, sid string) ([]byte, error) {
+		return exec.Command(systemProgram(t, "icacls.exe"), path, "/setowner", "*"+sid).CombinedOutput()
+	}
+
+	path := filepath.Join(t.TempDir(), "file")
+	if err := os.WriteFile(path, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := setOwner(path, operator.sid.String()); err != nil {
+		t.Fatalf("icacls: %v: %s", err, out)
+	}
+	if !owns(path) {
+		t.Error("the operator does not own a file of the account's own")
+	}
+	if out, err := setOwner(path, administratorsSID); err != nil {
+		t.Skipf("the file could not be given to the administrators, which takes an elevated process: %v: %s", err, out)
+	}
+	if owns(path) {
+		t.Error("the operator owns a file of the administrators'")
+	}
+}
+
 // A directory owned by the administrators, which the system and they alone
 // may change, is not open beyond them. One the account made and owns is, as
 // is one Everyone may change, and a file is not a directory. Giving a
