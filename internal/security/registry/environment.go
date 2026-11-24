@@ -416,7 +416,7 @@ func (y ruleYield) unmodifiedReason(baseline v4.Vector) string {
 			recorded = append(recorded, fmt.Sprintf("%s on %d", value, y.counts[value]))
 		}
 		return fmt.Sprintf("%s on the %s is %s, which no case of the rule modifies, so %s stands",
-			y.rule.Fact, subjects, listOf(recorded), kept)
+			y.rule.Fact, subjects, render.List(recorded), kept)
 	}
 	supported := make([]string, 0, len(y.values)+1)
 	for _, value := range y.values {
@@ -425,17 +425,5 @@ func (y ruleYield) unmodifiedReason(baseline v4.Vector) string {
 		}
 	}
 	supported = append(supported, fmt.Sprintf("%s on %d", kept, y.carried[notDefined]))
-	return fmt.Sprintf("of the %s, %s; %s scores higher, so it stands", subjects, listOf(supported), kept)
-}
-
-// listOf joins items as a sentence lists them: "a", "a and b", or "a, b, and
-// c", with the serial comma.
-func listOf(items []string) string {
-	switch len(items) {
-	case 0, 1:
-		return strings.Join(items, "")
-	case 2:
-		return items[0] + " and " + items[1]
-	}
-	return strings.Join(items[:len(items)-1], ", ") + ", and " + items[len(items)-1]
+	return fmt.Sprintf("of the %s, %s; %s scores higher, so it stands", subjects, render.List(supported), kept)
 }

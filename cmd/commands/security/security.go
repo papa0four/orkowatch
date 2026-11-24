@@ -268,7 +268,9 @@ func (c *auditCmd) validateArgs(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// buildMask composes a CheckMask from the active flag values
+// buildMask composes a CheckMask from the active flag values. A check named in
+// --skip-checks that the selection flags left out is refused, since skipping
+// it cannot change the run and the operator meant something else.
 func (c *auditCmd) buildMask() (selection.CheckMask, error) {
 	mask := EveryCheck
 
@@ -285,6 +287,14 @@ func (c *auditCmd) buildMask() (selection.CheckMask, error) {
 		}
 		if c.checkFilePerms {
 			mask |= selection.CheckPerms
+		}
+		if outside := c.audit.SkipMask() &^ mask; outside != 0 {
+			flags := selection.CheckFlags(mask)
+			for i, flag := range flags {
+				flags[i] = "--" + flag
+			}
+			return 0, fmt.Errorf("--skip-checks names %s, not among the checks selected by %s",
+				render.List(selection.EnabledChecks(outside)), render.List(flags))
 		}
 	}
 

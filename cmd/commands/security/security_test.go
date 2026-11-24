@@ -79,7 +79,11 @@ func TestFilePermsSelection(t *testing.T) {
 		{"the check selected and skipped", []string{"--fperms", "--skip-checks", "permissions"}, 0, "", "all available checks were skipped"},
 		{"a list a shell split on its comma", []string{"--ssh", "--fwall", "--users", "--skip-checks", "ssh", "fwall"}, selection.CheckUsers, "", ""},
 		{"a list a shell split after its comma", []string{"--ssh", "--users", "--skip-checks", "ssh,", "users", "--fwall"}, selection.CheckFirewall, "", ""},
-		{"a path after a list", []string{"--fperms", "--skip-checks", "ssh", dir}, selection.CheckPerms, dir, ""},
+		{"a path after a list", []string{"--fperms", "--ssh", "--skip-checks", "ssh", dir}, selection.CheckPerms, dir, ""},
+		{"a check skipped that was not selected", []string{"--ssh", "--skip-checks", "ssh,users"}, 0, "",
+			"--skip-checks names users, not among the checks selected by --ssh"},
+		{"two checks skipped that were not selected", []string{"--fperms", "--ssh", "--skip-checks", "users", "fwall"}, 0, "",
+			"--skip-checks names firewall and users, not among the checks selected by --fperms and --ssh"},
 	}
 
 	for _, tt := range tests {
@@ -154,8 +158,6 @@ func TestUnselectedSaysWhy(t *testing.T) {
 			map[string]string{"ssh": reasonSkipped, "users": reasonSkipped}},
 		{"two selected and one of them skipped", []string{"--fperms", "--ssh", "--skip-checks", "ssh"},
 			map[string]string{"firewall": reasonNotSelected, "ssh": reasonSkipped, "users": reasonNotSelected}},
-		{"a check both unselected and skipped", []string{"--fperms", "--skip-checks", "users"},
-			map[string]string{"firewall": reasonNotSelected, "ssh": reasonNotSelected, "users": reasonSkipped}},
 	}
 
 	for _, tt := range tests {

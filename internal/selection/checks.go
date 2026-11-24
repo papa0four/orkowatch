@@ -348,6 +348,18 @@ func buildChecksByName() map[string]registryEntry {
 	return byName
 }
 
+// CheckFlags returns the flag names of the checks enabled in mask, in registry
+// order, as the audit's flags that select a check spell them.
+func CheckFlags(mask CheckMask) []string {
+	var flags []string
+	for _, e := range registry {
+		if e.category == CategoryCheck && mask&e.bit != 0 {
+			flags = append(flags, e.flag)
+		}
+	}
+	return flags
+}
+
 // AcceptedNames returns every name MaskFromNames resolves within category:
 // each entry's canonical name, and its flag name where that differs. A
 // command reads it to tell a name a shell split off a list from an argument.
