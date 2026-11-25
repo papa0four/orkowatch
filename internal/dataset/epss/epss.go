@@ -75,6 +75,33 @@ var (
 // Scores is the daily EPSS scores file as a dataset.
 type Scores struct{}
 
+// Prediction is what the file gives a CVE: its score, the probability of
+// exploitation EPSS estimates, and its percentile among every CVE scored.
+type Prediction struct {
+	Score      float64 `json:"score" yaml:"score"`
+	Percentile float64 `json:"percentile" yaml:"percentile"`
+}
+
+// Index is the predictions of the CVEs a read was asked to keep.
+type Index struct {
+	predictions map[string]Prediction
+}
+
+// Prediction is the file's prediction for cve, and whether the read kept one.
+func (x Index) Prediction(cve string) (Prediction, bool) {
+	p, ok := x.predictions[cve]
+	return p, ok
+}
+
+// cveKey is a CVE identifier as the read tells one from another: its year,
+// and its number with how many digits it is written in, so an identifier
+// written with a leading zero is not taken for one without. It holds what a
+// row names in a fixed size, where the identifier itself would hold a string.
+type cveKey struct {
+	year, digits int
+	number       uint64
+}
+
 // ID names the scores.
 func (Scores) ID() string { return id }
 
@@ -91,26 +118,35 @@ func (Scores) Origin() dataset.Origin {
 	return dataset.Origin{URL: feed, License: license, Attribution: attribution}
 }
 
-// Check refuses data that is not the scores file whole: one gzip member and
-// nothing after it, expanding within the limit to the comment line that gives
-// the model version and the score date, the header, and at least one row,
-// every row a CVE identifier with a score and a percentile from 0 to 1. A
-// file cut short fails gzip's own length and checksum. It gives the score
-// date as the data's date and the model version as its version. The scores
-// are the same for every host, so the host is not consulted.
+// Check refuses data that is not the scores file whole, as Read does. The
+// scores are the same for every host, so the host is not consulted.
 func (Scores) Check(data io.Reader, _ *osfingerprint.OSInfo) (dataset.Facts, error) {
-	return check(data, maxExpanded)
+	_, facts, err := read(data, maxExpanded, nil)
+	return facts, err
 }
 
-// check is Check with the most the data may expand to given, so a test can
+// Read reads the scores file whole, keeping the prediction of each CVE wanted
+// reports true for, and none when wanted is nil. A run asks for the CVEs it
+// matched, so it holds what the host needs and not the whole file. Read
+// refuses data that is not the file whole: one gzip member and nothing after
+// it, expanding within the limit to the comment line that gives the model
+// version and the score date, the header, and at least one row, every row a
+// CVE identifier no other row names with a score and a percentile from 0 to
+// 1. A file cut short fails gzip's own length and checksum. It gives the score
+// date as the data's date and the model version as its version.
+func (Scores) Read(data io.Reader, wanted func(cve string) bool) (Index, dataset.Facts, error) {
+	return read(data, maxExpanded, wanted)
+}
+
+// read is Read with the most the data may expand to given, so a test can
 // reach the limit without a file of that size.
-func check(data io.Reader, limit int64) (dataset.Facts, error) {
+func read(data io.Reader, limit int64, wanted func(cve string) bool) (Index, dataset.Facts, error) {
 	// gzip reads a byte at a time from a reader that allows it, so nothing
 	// past the member's end is taken from compressed.
 	compressed := bufio.NewReader(data)
 	expanded, err := gzip.NewReader(compressed)
 	if err != nil {
-		return dataset.Facts{}, fmt.Errorf("not a gzip file: %w", err)
+		return Index{}, dataset.Facts{}, fmt.Errorf("not a gzip file: %w", err)
 	}
 	expanded.Multistream(false)
 
@@ -121,7 +157,7 @@ func check(data io.Reader, limit int64) (dataset.Facts, error) {
 	lines.Buffer(make([]byte, 0, maxLine), maxLine)
 	lines.Split(splitLines)
 
-	facts, err := readScores(lines)
+	x, facts, err := readScores(lines, wanted)
 	damage := lines.Err()
 	if err != nil && damage == nil {
 		// A line that is not the scores' may be what damaged data expanded
@@ -131,18 +167,18 @@ func check(data io.Reader, limit int64) (dataset.Facts, error) {
 	}
 	switch {
 	case allowed.N == 0:
-		return dataset.Facts{}, fmt.Errorf("it expands past the %d MiB the scores may hold", limit>>20)
+		return Index{}, dataset.Facts{}, fmt.Errorf("it expands past the %d MiB the scores may hold", limit>>20)
 	case errors.Is(damage, bufio.ErrTooLong):
-		return dataset.Facts{}, fmt.Errorf("a line holds more than %d bytes", maxLine)
+		return Index{}, dataset.Facts{}, fmt.Errorf("a line holds more than %d bytes", maxLine)
 	case damage != nil:
-		return dataset.Facts{}, fmt.Errorf("the compressed data is damaged or cut short: %w", damage)
+		return Index{}, dataset.Facts{}, fmt.Errorf("the compressed data is damaged or cut short: %w", damage)
 	case err != nil:
-		return dataset.Facts{}, err
+		return Index{}, dataset.Facts{}, err
 	}
 	if _, err := compressed.ReadByte(); !errors.Is(err, io.EOF) {
-		return dataset.Facts{}, errors.New("data follows the compressed scores")
+		return Index{}, dataset.Facts{}, errors.New("data follows the compressed scores")
 	}
-	return facts, nil
+	return x, facts, nil
 }
 
 // splitLines parts lines at a line feed and nowhere else. The file ends its
@@ -158,32 +194,59 @@ func splitLines(data []byte, atEOF bool) (advance int, line []byte, err error) {
 	return 0, nil, nil
 }
 
-// readScores reads the comment line, the header, and every row from lines. It
-// stops at the first line that is not what the file holds there; a read that
-// failed ends the lines early and is the caller's to report from lines.Err.
-func readScores(lines *bufio.Scanner) (dataset.Facts, error) {
+// readScores reads the comment line, the header, and every row from lines,
+// keeping the predictions wanted asks for. It stops at the first line that is
+// not what the file holds there; a read that failed ends the lines early and
+// is the caller's to report from lines.Err. Every CVE named is remembered
+// until the read ends, so one named twice is refused; the file is not in CVE
+// order, so an earlier row cannot be ruled out any other way.
+func readScores(lines *bufio.Scanner, wanted func(cve string) bool) (Index, dataset.Facts, error) {
 	if !lines.Scan() {
-		return dataset.Facts{}, errors.New("it is empty")
+		return Index{}, dataset.Facts{}, errors.New("it is empty")
 	}
 	facts, err := readComment(lines.Text())
 	if err != nil {
-		return dataset.Facts{}, err
+		return Index{}, dataset.Facts{}, err
 	}
 	if !lines.Scan() || lines.Text() != header {
-		return dataset.Facts{}, fmt.Errorf("its second line is not the header %q", header)
+		return Index{}, dataset.Facts{}, fmt.Errorf("its second line is not the header %q", header)
 	}
 
+	x := Index{predictions: make(map[string]Prediction)}
+	seen := make(map[cveKey]struct{})
 	rows := 0
 	for lines.Scan() {
 		rows++
-		if err := checkRow(lines.Text()); err != nil {
-			return dataset.Facts{}, fmt.Errorf("row %d %w", rows, err)
+		cve, p, err := readRow(lines.Text())
+		if err != nil {
+			return Index{}, dataset.Facts{}, fmt.Errorf("row %d %w", rows, err)
+		}
+		key := keyOf(cve)
+		if _, named := seen[key]; named {
+			return Index{}, dataset.Facts{}, fmt.Errorf("row %d names %s, which an earlier row names", rows, cve)
+		}
+		seen[key] = struct{}{}
+		if wanted != nil && wanted(cve) {
+			x.predictions[cve] = p
 		}
 	}
 	if rows == 0 {
-		return dataset.Facts{}, errors.New("it holds no rows")
+		return Index{}, dataset.Facts{}, errors.New("it holds no rows")
 	}
-	return facts, nil
+	return x, facts, nil
+}
+
+// keyOf is the key of cve, a valid CVE identifier.
+func keyOf(cve string) cveKey {
+	const yearAt, numberAt = len("CVE-"), len("CVE-0000-")
+	k := cveKey{digits: len(cve) - numberAt}
+	for i := yearAt; i < numberAt-1; i++ {
+		k.year = k.year*10 + int(cve[i]-'0')
+	}
+	for i := numberAt; i < len(cve); i++ {
+		k.number = k.number*10 + uint64(cve[i]-'0')
+	}
+	return k
 }
 
 // readComment reads the model version and the score date from the file's
@@ -204,30 +267,34 @@ func readComment(line string) (dataset.Facts, error) {
 	return dataset.Facts{Date: scored, Version: version}, nil
 }
 
-// checkRow refuses a row that is not a CVE identifier, a score, and a
-// percentile. The error completes "row N".
-func checkRow(row string) error {
+// readRow reads a row's CVE identifier, score, and percentile, refusing a row
+// that is not those three. The error completes "row N".
+func readRow(row string) (string, Prediction, error) {
 	cve, rest, _ := strings.Cut(row, fieldSeparator)
 	score, percentile, parted := strings.Cut(rest, fieldSeparator)
-	switch {
-	case !parted || strings.Contains(percentile, fieldSeparator):
-		return errors.New("does not hold three fields")
-	case !dataset.ValidCVE(cve):
-		return fmt.Errorf("names %q, which is not a CVE identifier", cve)
-	case !isProbability(score):
-		return fmt.Errorf("gives the score %q, which is not a number from 0 to 1", score)
-	case !isProbability(percentile):
-		return fmt.Errorf("gives the percentile %q, which is not a number from 0 to 1", percentile)
+	if !parted || strings.Contains(percentile, fieldSeparator) {
+		return "", Prediction{}, errors.New("does not hold three fields")
 	}
-	return nil
+	if !dataset.ValidCVE(cve) {
+		return "", Prediction{}, fmt.Errorf("names %q, which is not a CVE identifier", cve)
+	}
+	var p Prediction
+	var ok bool
+	if p.Score, ok = probabilityOf(score); !ok {
+		return "", Prediction{}, fmt.Errorf("gives the score %q, which is not a number from 0 to 1", score)
+	}
+	if p.Percentile, ok = probabilityOf(percentile); !ok {
+		return "", Prediction{}, fmt.Errorf("gives the percentile %q, which is not a number from 0 to 1", percentile)
+	}
+	return cve, p, nil
 }
 
-// isProbability reports whether s is a number from 0 to 1 as the file writes
-// one.
-func isProbability(s string) bool {
+// probabilityOf is s as a number, and whether it is one from 0 to 1 as the
+// file writes one.
+func probabilityOf(s string) (float64, bool) {
 	if !probability.MatchString(s) {
-		return false
+		return 0, false
 	}
 	v, err := strconv.ParseFloat(s, floatBits)
-	return err == nil && v >= 0 && v <= 1
+	return v, err == nil && v >= 0 && v <= 1
 }
