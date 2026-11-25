@@ -32,6 +32,30 @@ func importFrom(t *testing.T, s, src Store) []Outcome {
 	return outcomes
 }
 
+// installedWanted reports whether o is the dataset wanted installed. An
+// install may take more than one attempt where another process holds a new
+// file open for a moment, as a virus scanner on Windows does, and the store
+// tries it again by design, so any number of attempts the store allows is an
+// install.
+func installedWanted(o Outcome) bool {
+	return o.ID == "wanted" && o.Result == Installed && o.Reason == "" && o.Attempts >= 1 && o.Attempts <= maxAttempts
+}
+
+// An install the store had to try again is still an install, and an outcome
+// that is not one is not.
+func TestInstalledWanted(t *testing.T) {
+	for _, o := range []Outcome{{ID: "wanted", Result: Installed, Attempts: 1}, {ID: "wanted", Result: Installed, Attempts: maxAttempts}} {
+		if !installedWanted(o) {
+			t.Errorf("%+v is not taken for an install", o)
+		}
+	}
+	for _, o := range []Outcome{{ID: "wanted", Result: Failed, Attempts: 1}, {ID: "other", Result: Installed, Attempts: 1}, {ID: "wanted", Result: Installed, Attempts: maxAttempts + 1}} {
+		if installedWanted(o) {
+			t.Errorf("%+v is taken for an install", o)
+		}
+	}
+}
+
 // stores returns an empty store and an empty directory to import from.
 func stores(t *testing.T) (Store, Store) {
 	t.Helper()
@@ -59,7 +83,7 @@ func TestImportInstalls(t *testing.T) {
 	put(t, src, wanted, content, now.Add(-time.Hour), nil)
 
 	got := importFrom(t, s, src)
-	if len(got) != 1 || got[0] != (Outcome{ID: "wanted", Result: Installed, Attempts: 1}) {
+	if len(got) != 1 || !installedWanted(got[0]) {
 		t.Fatalf("outcomes %+v", got)
 	}
 	if row := rowOf(t, s, known, "wanted"); row.State != dataset.StateCurrent || row.DataDate != "2026-11-20" || row.Attention != "" {

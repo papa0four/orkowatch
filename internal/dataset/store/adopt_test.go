@@ -61,7 +61,7 @@ func TestAdoptInstallsWhatIsNewer(t *testing.T) {
 	}
 
 	put(t, from, wanted, content, now.Add(-2*time.Hour), nil)
-	if got := adopt(t, s, from, ownerOf{}); len(got) != 1 || got[0] != (Outcome{ID: "wanted", Result: Installed, Attempts: 1}) {
+	if got := adopt(t, s, from, ownerOf{}); len(got) != 1 || !installedWanted(got[0]) {
 		t.Fatalf("a dataset the store lacks: %+v", got)
 	}
 	if row := rowOf(t, s, known, "wanted"); row.State != dataset.StateCurrent || row.DataDate != "2026-11-20" {
