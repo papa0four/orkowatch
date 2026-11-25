@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/papa0four/orkowatch/internal/dataset"
+	"github.com/papa0four/orkowatch/internal/dataset/epss"
 	"github.com/papa0four/orkowatch/internal/dataset/kev"
 	"github.com/papa0four/orkowatch/internal/dataset/osv"
 	"github.com/papa0four/orkowatch/internal/tui"
@@ -60,8 +61,8 @@ func TestVulnerabilitiesTab(t *testing.T) {
 		rows = append(rows, r.Title+" | "+r.Subtitle+" | "+r.Filters[0][0]+","+r.Filters[1][0])
 	}
 	want := []string{
-		"CVE-2026-1  openssl | fix 3.0.2-2  Important | fix available,high",
-		"CVE-2026-2  openssl | unfixed  low | unfixed,low",
+		"CVE-2026-1  openssl | Important  fix 3.0.2-2 | fix available,high",
+		"CVE-2026-2  openssl | low  unfixed | unfixed,low",
 		"CVE-2026-3  bash | unfixed | unfixed,none stated",
 		"CVE-2026-4  nodejs | not matched | not matched,none stated",
 	}
@@ -111,9 +112,9 @@ func TestVulnerabilitiesTabKnownExploited(t *testing.T) {
 		rows = append(rows, r.Band+" | "+r.Title+" | "+r.Subtitle+" | "+r.Filters[2][0])
 	}
 	want := []string{
-		"known exploited | CVE-2026-1  openssl | exploited  fix 3.0.2-2  Important | known exploited",
+		"known exploited | CVE-2026-1  openssl | exploited  Important  fix 3.0.2-2 | known exploited",
 		"known exploited | CVE-2026-3  bash | exploited  unfixed | known exploited",
-		"not in the catalog | CVE-2026-2  openssl | unfixed  low | not in the catalog",
+		"not in the catalog | CVE-2026-2  openssl | low  unfixed | not in the catalog",
 		"not in the catalog | CVE-2026-4  nodejs | not matched | not in the catalog",
 	}
 	if !slices.Equal(rows, want) {
@@ -138,6 +139,46 @@ func TestVulnerabilitiesTabKnownExploited(t *testing.T) {
 	tab = vulnerabilitiesTab(v)
 	if len(tab.Filters) != 2 || tab.Records[0].Band != "" || tab.Alert != "" || tab.Filters[0].Spares != "" || field(tab.Records[0], "known exploitation") != "not read: kev is not held" {
 		t.Errorf("with the catalog not read: filters %+v, band %q, detail %q", tab.Filters, tab.Records[0].Band, field(tab.Records[0], "known exploitation"))
+	}
+}
+
+// With the scores read, each row carries its EPSS score after its severity,
+// or a dash where the file gives none, and the detail gives a scored
+// vulnerability's score and percentile as FIRST defines them, and every
+// record names the file. With the scores not read no row carries a score and
+// the detail says why.
+func TestVulnerabilitiesTabPredicted(t *testing.T) {
+	v := matchedView()
+	v.Packages[1].Vulnerabilities[0].ExploitPrediction = &epss.Prediction{Score: 0.00043, Percentile: 0.12345}
+	v.ExploitPrediction = &dataset.Use{Provenance: dataset.Provenance{ID: "epss", Version: "v2026.06.15", DataDate: "2026-11-23", State: dataset.StateCurrent, Attribution: "As FIRST asks."}}
+	tab := vulnerabilitiesTab(v)
+
+	var rows []string
+	for _, r := range tab.Records {
+		rows = append(rows, r.Title+" | "+r.Subtitle)
+	}
+	want := []string{
+		"CVE-2026-1  openssl | Important  EPSS 0.043%  fix 3.0.2-2",
+		"CVE-2026-2  openssl | low  EPSS -  unfixed",
+		"CVE-2026-3  bash | EPSS -  unfixed",
+		"CVE-2026-4  nodejs | not matched",
+	}
+	if !slices.Equal(rows, want) {
+		t.Errorf("rows\n%s\nwant\n%s", strings.Join(rows, "\n"), strings.Join(want, "\n"))
+	}
+	if got := field(tab.Records[0], "exploit prediction"); got != "score 0.043%, the probability that it will be exploited in the wild in the next 30 days\n"+
+		"percentile 12.3%, the proportion of all scored vulnerabilities with the same score or lower" {
+		t.Errorf("the prediction reads %q", got)
+	}
+	if got := field(tab.Records[1], "exploit prediction data"); got != "epss, v2026.06.15, data of 2026-11-23, current\nAs FIRST asks." || field(tab.Records[1], "exploit prediction") != "" {
+		t.Errorf("a vulnerability the file does not score reads %q", got)
+	}
+
+	v = matchedView()
+	v.ExploitPrediction = &dataset.Use{Provenance: dataset.Provenance{ID: "epss"}, NotDone: "epss is not held"}
+	tab = vulnerabilitiesTab(v)
+	if strings.Contains(tab.Records[0].Subtitle, "EPSS") || field(tab.Records[0], "exploit prediction data") != "not read: epss is not held" {
+		t.Errorf("with the scores not read: subtitle %q, detail %q", tab.Records[0].Subtitle, field(tab.Records[0], "exploit prediction data"))
 	}
 }
 
