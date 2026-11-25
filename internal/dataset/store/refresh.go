@@ -85,7 +85,11 @@ func (s Store) stageAll(ctx context.Context, fetch Fetch, datasets []dataset.Dat
 	var failed []Outcome
 	for _, d := range datasets {
 		dir := filepath.Join(staging, d.ID())
-		attempts, ferr := retry(ctx, func() error { return stage(ctx, fetch, d, dir, host, now) })
+		attempt := 0
+		attempts, ferr := retry(ctx, func() error {
+			attempt++
+			return stage(ctx, s.report(), attempt, fetch, d, dir, host, now)
+		})
 		if ferr == nil {
 			continue
 		}
@@ -134,14 +138,15 @@ func (s Store) clearStaging() error {
 	return nil
 }
 
-// stage fetches d into dir as a dataset in the store's layout. Whatever an
+// stage fetches d into dir as a dataset in the store's layout, as the
+// attempt-th try, telling p of the download and of what is kept. Whatever an
 // earlier attempt left in dir is removed first. The download is counted and
 // hashed as it is written, and refused past what d's origin may serve
 // whatever the fetch itself allows, since the limit is the store's to keep.
 // A dataset that keeps less than it fetches has what it keeps for host
 // written from the download, which is then deleted, and the manifest records
 // the download beside what was kept.
-func stage(ctx context.Context, fetch Fetch, d dataset.Dataset, dir string, host *osfingerprint.OSInfo, now time.Time) error {
+func stage(ctx context.Context, p Progress, attempt int, fetch Fetch, d dataset.Dataset, dir string, host *osfingerprint.OSInfo, now time.Time) error {
 	if err := os.RemoveAll(dir); err != nil {
 		return err
 	}
@@ -150,10 +155,16 @@ func stage(ctx context.Context, fetch Fetch, d dataset.Dataset, dir string, host
 	}
 
 	download := filepath.Join(dir, downloadName)
-	sum, size, err := writeCounted(download, dataset.FetchLimit(d), func(out io.Writer) error {
-		return fetch(ctx, d, out)
-	})
-	if err != nil {
+	var (
+		sum  string
+		size int64
+	)
+	if err := step(p, d.ID(), StepDownload, attempt, func() (err error) {
+		sum, size, err = writeCounted(download, dataset.FetchLimit(d), func(out io.Writer) error {
+			return fetch(ctx, d, &receiving{w: out, p: p, id: d.ID()})
+		})
+		return err
+	}); err != nil {
 		return err
 	}
 
@@ -172,7 +183,10 @@ func stage(ctx context.Context, fetch Fetch, d dataset.Dataset, dir string, host
 	if k, ok := d.(dataset.Keeper); ok {
 		m.OriginSHA256, m.OriginSize = sum, size
 		data = filepath.Join(dir, keptName)
-		if m.SHA256, m.Size, err = keep(k, download, data, host); err != nil {
+		if err := step(p, d.ID(), StepKeep, 1, func() (err error) {
+			m.SHA256, m.Size, err = keep(k, download, data, host)
+			return err
+		}); err != nil {
 			return err
 		}
 		if err := os.Remove(download); err != nil {
