@@ -33,6 +33,11 @@ const (
 	// tabBarLines is the line the tab bar takes when there is more than one
 	// tab to choose between.
 	tabBarLines = 1
+
+	// ruleChar draws every rule in the browser, and ruleLead is the stretch
+	// of a band's rule ahead of the band's name.
+	ruleChar = "─"
+	ruleLead = ruleChar + ruleChar
 )
 
 type (
@@ -58,6 +63,11 @@ type (
 		// Switch, when it names a key, is a key that moves one of the
 		// filters between two of its options from the list.
 		Switch Switch
+
+		// Alert names the band whose heading and records are drawn in the
+		// critical color, so the records that most need attention stand apart
+		// from the rest.
+		Alert string
 	}
 
 	// Switch is a key that moves the filter named Filter between its
@@ -72,11 +82,14 @@ type (
 
 	// Filter is a group of options the left pane narrows a tab's records
 	// by: its name, its options in the order shown, and the option the tab
-	// opens on. An option named All admits every record.
+	// opens on. An option named All admits every record. Spares names a band
+	// whose records the filter does not narrow, so they stay listed
+	// whichever option is chosen.
 	Filter struct {
 		Name    string
 		Options []string
 		Start   string
+		Spares  string
 	}
 
 	// Record is one row of a tab. Its fields are shown in the detail pane in
@@ -93,10 +106,12 @@ type (
 		Band     string
 	}
 
-	// listLine is one line of a record tab's list: the heading of a band, or
-	// the visible record at row.
+	// listLine is one line of a record tab's list: the heading of a band with
+	// how many of the visible records are in it, or the visible record at
+	// row.
 	listLine struct {
 		heading string
+		count   int
 		row     int
 	}
 
@@ -128,14 +143,16 @@ type (
 
 	// filterGroup is a group of filter options as the left pane draws and
 	// walks it: its name, its options and the label each is shown with,
-	// which is chosen, and how many records of the whole tab fall under each
-	// option, or none where the tab does not count them.
+	// which is chosen, how many records of the whole tab fall under each
+	// option, or none where the tab does not count them, and the band whose
+	// records it does not narrow.
 	filterGroup struct {
 		name    string
 		options []string
 		labels  []string
 		chosen  int
 		counts  []int
+		spares  string
 	}
 )
 
@@ -219,7 +236,7 @@ func newRecordPane(tab Tab) *recordPane {
 		p.index[i] = strings.ToLower(text.String())
 	}
 	for at, f := range tab.Filters {
-		g := &filterGroup{name: f.Name, options: f.Options, labels: f.Options, counts: make([]int, len(f.Options))}
+		g := &filterGroup{name: f.Name, options: f.Options, labels: f.Options, counts: make([]int, len(f.Options)), spares: f.Spares}
 		g.chosen = max(slices.Index(f.Options, f.Start), 0)
 		for i, option := range f.Options {
 			for _, r := range tab.Records {
@@ -234,10 +251,13 @@ func newRecordPane(tab Tab) *recordPane {
 }
 
 // admits reports whether record i falls under the option chosen in each of
-// the pane's filters.
+// the pane's filters that narrows its band.
 func (p *recordPane) admits(i int) bool {
 	record := p.tab.Records[i]
 	for at, g := range p.groups {
+		if g.spares != "" && record.Band == g.spares {
+			continue
+		}
 		if option := g.option(); option != "" && (at >= len(record.Filters) || !slices.Contains(record.Filters[at], option)) {
 			return false
 		}
@@ -262,12 +282,16 @@ func (p *recordPane) refilter(needle string) {
 		}
 	}
 	p.lines, p.lineOf = p.lines[:0], p.lineOf[:0]
-	band := ""
+	band, heading := "", -1
 	for row, i := range p.visible {
 		if b := p.tab.Records[i].Band; b != "" && b != band {
+			heading = len(p.lines)
 			p.lines = append(p.lines, listLine{heading: b, row: -1})
 		}
 		band = p.tab.Records[i].Band
+		if band != "" && heading >= 0 {
+			p.lines[heading].count++
+		}
 		p.lineOf = append(p.lineOf, len(p.lines))
 		p.lines = append(p.lines, listLine{row: row})
 	}
@@ -361,8 +385,13 @@ func (p *recordPane) onListKey(key string, rows int) bool {
 func (p *recordPane) listView(rows, width int, selected bool) string {
 	lines := make([]string, 0, rows)
 	for _, at := range p.lines[min(p.listTop, len(p.lines)):min(p.listTop+rows, len(p.lines))] {
+		band := at.heading
+		if at.row >= 0 {
+			band = p.tab.Records[p.visible[at.row]].Band
+		}
+		style := p.bandStyle(band)
 		if at.row < 0 {
-			lines = append(lines, styleMuted.Bold(true).Render(truncate(at.heading, width)))
+			lines = append(lines, style.Bold(true).Render(bandRule(at.heading, at.count, width)))
 			continue
 		}
 		row := at.row
@@ -375,7 +404,7 @@ func (p *recordPane) listView(rows, width int, selected bool) string {
 		if row == p.cursor && selected {
 			line = styleSelected.Render(fmt.Sprintf("%-*s", width, line))
 		} else {
-			line = styleText.Render(line)
+			line = style.Render(line)
 		}
 		lines = append(lines, line)
 	}
@@ -383,6 +412,22 @@ func (p *recordPane) listView(rows, width int, selected bool) string {
 		lines = append(lines, "")
 	}
 	return strings.Join(lines, "\n")
+}
+
+// bandStyle is how the list draws a line of band: in the critical color when
+// it is the tab's alert band, as plain text otherwise.
+func (p *recordPane) bandStyle(band string) lipgloss.Style {
+	if band != "" && band == p.tab.Alert {
+		return styleAlert
+	}
+	return styleText
+}
+
+// bandRule is the heading of a band as a rule across the list: the band's
+// name and how many records are in it, between lines drawn to width.
+func bandRule(name string, count, width int) string {
+	label := truncate(fmt.Sprintf("%s %s (%d) ", ruleLead, name, count), width)
+	return label + strings.Repeat(ruleChar, max(width-lipgloss.Width(label), 0))
 }
 
 // recordText renders one record for the detail pane: its title, its
@@ -503,7 +548,7 @@ func (b browser) recordBody(p *recordPane) string {
 	main := lipgloss.JoinVertical(lipgloss.Left,
 		b.queryLine(status),
 		p.listView(b.listHeight(), b.mainWidth(), true),
-		styleMuted.Render(strings.Repeat("─", b.mainWidth())),
+		styleMuted.Render(strings.Repeat(ruleChar, b.mainWidth())),
 		p.detail.View(),
 	)
 	return fitPane(main, b.mainWidth(), b.bodyHeight())

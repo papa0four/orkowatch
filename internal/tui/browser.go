@@ -781,7 +781,7 @@ func (b browser) render() string {
 		main := lipgloss.JoinVertical(lipgloss.Left,
 			b.searchView(),
 			b.listView(),
-			styleMuted.Render(strings.Repeat("─", b.mainWidth())),
+			styleMuted.Render(strings.Repeat(ruleChar, b.mainWidth())),
 			b.detail.View(),
 		)
 		body = fitPane(main, b.mainWidth(), b.bodyHeight())
@@ -839,7 +839,7 @@ func readableTime(stamp string) string {
 
 // sourcesRule closes the left pane's table of sources, so the part of the
 // pane that switches sources is set apart from the filters and summary below.
-func sourcesRule() string { return styleMuted.Render(strings.Repeat("─", filterWidth)) }
+func sourcesRule() string { return styleMuted.Render(strings.Repeat(ruleChar, filterWidth)) }
 
 // divider is the rule between the left pane and the main one, joined to the
 // sources rule where that is on screen.
@@ -862,9 +862,9 @@ func (b browser) divider() string {
 func (b browser) headerRule() string {
 	width := max(b.width, 1)
 	if b.showText || !b.sidebarShown() {
-		return styleMuted.Render(strings.Repeat("─", width))
+		return styleMuted.Render(strings.Repeat(ruleChar, width))
 	}
-	return styleMuted.Render(strings.Repeat("─", filterWidth) + "┬" + strings.Repeat("─", max(width-filterWidth-paneRule, 0)))
+	return styleMuted.Render(strings.Repeat(ruleChar, filterWidth) + "┬" + strings.Repeat(ruleChar, max(width-filterWidth-paneRule, 0)))
 }
 
 // fitPane pads or clips text to exactly width columns and height lines.

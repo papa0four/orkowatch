@@ -318,11 +318,12 @@ unfixed, with the worst severity among them, its detail lists them, and its
 filter chooses all, the affected packages, or those with a fix available;
 Vulnerabilities, when the software was
 matched, lists each CVE of each affected package, those known to be exploited
-first under a heading of their own, marked on their rows and the most severe
-first, then the rest under theirs, those with a fix available first, and opens
-filtered to those with a fix available: its filters choose fix available, unfixed,
-not matched, or all, a severity, and known exploited, not in the catalog, or all,
-each option with how many fall under it,
+first in red under a red rule that counts them, marked on their rows and the most
+severe first, then the rest under a rule of their own, those with a fix available
+first, and opens filtered to those with a fix available: its filters choose fix
+available, unfixed, not matched, or all, a severity, and known exploited, not in
+the catalog, or all, each option with how many fall under it, and the known
+exploited stay listed whichever status is chosen,
 and `/` searches within them; the detail gives the package and what was built
 from it, the installed and fixed versions, the severity and its basis, the
 scores as the records give them, the catalog's entry for a CVE known to be

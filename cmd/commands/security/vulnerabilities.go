@@ -25,11 +25,12 @@ const (
 // vulnerabilitiesTab is the software's match against its dataset: one record
 // per vulnerability of each affected package, then those that could not be
 // judged. When the catalog of known-exploited vulnerabilities was read, those
-// it lists come first, under their own heading, the most severe first, and
-// the tab filters by it; the rest follow in their order, those with a fix
-// available first, then the unfixed, then those not judged. It opens on
-// those with a fix available, or on all when none has one, and filters by
-// the severity the match gives each. With no match made it says why.
+// it lists come first, under their own heading and in the critical color,
+// the most severe first, listed whichever status is chosen, and the tab
+// filters by it; the rest follow in their order, those with a fix available
+// first, then the unfixed, then those not judged. It opens on those with a
+// fix available, or on all when none has one, and filters by the severity
+// the match gives each. With no match made it says why.
 func vulnerabilitiesTab(v vulnmatch.View) tui.Tab {
 	tab := tui.Tab{ID: tui.TabVulnerabilities, Name: "Vulnerabilities", Noun: "vulnerabilities"}
 	if v.NotDone != "" {
@@ -80,6 +81,8 @@ func vulnerabilitiesTab(v vulnmatch.View) tui.Tab {
 		{Name: "severity", Options: severities, Start: tui.All},
 	}
 	if banded {
+		tab.Alert = knownExploited
+		tab.Filters[0].Spares = knownExploited
 		tab.Filters = append(tab.Filters, tui.Filter{Name: "known exploitation", Options: []string{tui.All, knownExploited, notKnownExploited}, Start: tui.All})
 	}
 	return tab

@@ -7,6 +7,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"charm.land/lipgloss/v2"
 )
 
 // filteredReport has a record tab whose records fall under one status each,
@@ -178,18 +180,25 @@ func TestFilterFocus(t *testing.T) {
 	}
 }
 
-// A tab's records in bands are listed under the heading of each band, drawn
-// where the band changes; a search that leaves one band shows its heading
-// alone; and a record scrolled up to that is its band's first is shown under
-// its heading.
+// A tab's records in bands are listed under the heading of each band, a rule
+// across the list naming the band and how many of the visible records are in
+// it, drawn where the band changes; a search that leaves one band shows its
+// heading alone; a record scrolled up to that is its band's first is shown
+// under its heading; and the tab's alert band is drawn in the critical color.
 func TestRecordBands(t *testing.T) {
 	record := func(title, band string) Record { return Record{Title: title, Band: band} }
-	p := newRecordPane(Tab{ID: TabVulnerabilities, Name: "Vulnerabilities", Records: []Record{
+	p := newRecordPane(Tab{ID: TabVulnerabilities, Name: "Vulnerabilities", Alert: "first", Records: []Record{
 		record("alpha", "first"), record("bravo", "first"), record("charlie", "second"), record("delta", "second"), record("echo", "second")}})
 	listed := func(rows int) string {
 		p.show(rows, 40)
 		var lines []string
 		for _, line := range strings.Split(plain(p.listView(rows, 40, true)), "\n") {
+			if strings.HasPrefix(line, ruleLead) {
+				if lipgloss.Width(line) != 40 {
+					t.Errorf("the rule %q does not run across the list", line)
+				}
+				line = strings.Trim(line, ruleChar+" ")
+			}
 			if line = strings.TrimSpace(line); line != "" {
 				lines = append(lines, line)
 			}
@@ -198,7 +207,7 @@ func TestRecordBands(t *testing.T) {
 	}
 
 	p.refilter("")
-	if got := listed(10); got != "first,alpha,bravo,second,charlie,delta,echo" {
+	if got := listed(10); got != "first (2),alpha,bravo,second (3),charlie,delta,echo" {
 		t.Errorf("the list is %q, want each band under its heading", got)
 	}
 	p.cursor = len(p.visible) - 1
@@ -206,12 +215,41 @@ func TestRecordBands(t *testing.T) {
 		t.Errorf("at the end the list shows %q", got)
 	}
 	p.cursor = 2
-	if got := listed(2); got != "second,charlie" {
+	if got := listed(2); got != "second (3),charlie" {
 		t.Errorf("scrolled up to the band's first, the list shows %q, want it under its heading", got)
 	}
 	p.refilter("delta")
-	if got := listed(10); got != "second,delta" {
+	if got := listed(10); got != "second (1),delta" {
 		t.Errorf("a search within one band shows %q", got)
+	}
+	if p.bandStyle("first").GetForeground() != colorCritical || p.bandStyle("second").GetForeground() == colorCritical || p.bandStyle("").GetForeground() == colorCritical {
+		t.Error("the alert band is not the one drawn in the critical color")
+	}
+}
+
+// A filter does not narrow the band it spares: its records stay listed
+// whichever option is chosen, and the other filters still narrow them.
+func TestFilterSparesABand(t *testing.T) {
+	record := func(title, band, status, severity string) Record {
+		return Record{Title: title, Band: band, Filters: [][]string{{status}, {severity}}}
+	}
+	report := Report{Title: "owatch software", Tabs: []Tab{
+		{ID: TabVulnerabilities, Name: "Vulnerabilities",
+			Filters: []Filter{
+				{Name: "status", Options: []string{All, "fix available", "unfixed"}, Start: "fix available", Spares: "exploited"},
+				{Name: "severity", Options: []string{All, "high", "low"}, Start: All},
+			},
+			Records: []Record{record("alpha", "exploited", "unfixed", "high"), record("bravo", "exploited", "fix available", "low"),
+				record("charlie", "rest", "fix available", "high"), record("delta", "rest", "unfixed", "low")}},
+		{ID: TabSystem, Name: "System", Note: "system note"},
+	}}
+	b := sized(newBrowser(report), 120, 40)
+	if got := strings.Join(visibleTitles(b), ","); got != "alpha,bravo,charlie" {
+		t.Errorf("opened on fix available the list is %q, want the spared band whole and the rest narrowed", got)
+	}
+	b = apply(b, 5)
+	if got := strings.Join(visibleTitles(b), ","); got != "bravo" {
+		t.Errorf("with low chosen the list is %q, want the severity to narrow the spared band too", got)
 	}
 }
 

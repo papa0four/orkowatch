@@ -34,6 +34,10 @@ var (
 	styleText   = lipgloss.NewStyle().Foreground(colorText)
 	styleNotice = lipgloss.NewStyle().Foreground(colorWarning).Bold(true)
 
+	// styleAlert draws the records a tab sets apart as most needing
+	// attention.
+	styleAlert = lipgloss.NewStyle().Foreground(colorCritical)
+
 	// styleSelected marks the row the keyboard is on.
 	styleSelected = lipgloss.NewStyle().Reverse(true)
 )

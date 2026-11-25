@@ -122,6 +122,10 @@ func TestVulnerabilitiesTabKnownExploited(t *testing.T) {
 	if len(tab.Filters) != 3 || !slices.Equal(tab.Filters[2].Options, []string{tui.All, "known exploited", "not in the catalog"}) || tab.Filters[2].Start != tui.All {
 		t.Errorf("filters %+v", tab.Filters)
 	}
+	if tab.Alert != "known exploited" || tab.Filters[0].Spares != "known exploited" || tab.Filters[1].Spares != "" || tab.Filters[2].Spares != "" {
+		t.Errorf("the tab sets apart %q, and its filters spare %q, %q, %q; want the status filter alone to spare the known exploited",
+			tab.Alert, tab.Filters[0].Spares, tab.Filters[1].Spares, tab.Filters[2].Spares)
+	}
 	if got := field(tab.Records[0], "known to be exploited"); got != "added to the catalog 2026-11-20\ndue date 2026-12-11\nransomware use Known" {
 		t.Errorf("the entry reads %q", got)
 	}
@@ -132,7 +136,7 @@ func TestVulnerabilitiesTabKnownExploited(t *testing.T) {
 	v = matchedView()
 	v.KnownExploited = &dataset.Use{Provenance: dataset.Provenance{ID: "kev"}, NotDone: "kev is not held"}
 	tab = vulnerabilitiesTab(v)
-	if len(tab.Filters) != 2 || tab.Records[0].Band != "" || field(tab.Records[0], "known exploitation") != "not read: kev is not held" {
+	if len(tab.Filters) != 2 || tab.Records[0].Band != "" || tab.Alert != "" || tab.Filters[0].Spares != "" || field(tab.Records[0], "known exploitation") != "not read: kev is not held" {
 		t.Errorf("with the catalog not read: filters %+v, band %q, detail %q", tab.Filters, tab.Records[0].Band, field(tab.Records[0], "known exploitation"))
 	}
 }
