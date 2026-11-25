@@ -357,3 +357,25 @@ func TestFilterSwitch(t *testing.T) {
 		t.Errorf("the counts are wrong:\n%s", joined)
 	}
 }
+
+// A tab's note that is longer than the detail pane is wide wraps within it,
+// so the end of the reason it gives is not cut off at the pane's edge.
+func TestNoteWrapsInTheDetail(t *testing.T) {
+	const width = 60
+	note := "Matching was not done: no dataset owatch knows covers this host's packages; " +
+		"matching covers AlmaLinux, Alpine, Red Hat Enterprise Linux, Rocky Linux, and Ubuntu"
+	p := newRecordPane(Tab{ID: TabVulnerabilities, Name: "Vulnerabilities", Note: note})
+	p.refilter("")
+	p.detail.SetWidth(width)
+	p.detail.SetHeight(10)
+	p.show(10, width)
+	view := plain(p.detail.View())
+	if got := strings.Join(strings.Fields(view), " "); !strings.Contains(got, "Rocky Linux, and Ubuntu") {
+		t.Errorf("the note reads %q, want it whole", got)
+	}
+	for _, line := range strings.Split(view, "\n") {
+		if lipgloss.Width(line) > width {
+			t.Errorf("the line %q is wider than the pane", line)
+		}
+	}
+}

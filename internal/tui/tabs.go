@@ -339,7 +339,7 @@ func (p *recordPane) show(rows, width int) {
 		if message == "" {
 			message = "nothing matches the search"
 		}
-		p.detail.SetContent(styleMuted.Render(message))
+		p.detail.SetContent(styleMuted.Render(detailWrap(width).Render(message)))
 		return
 	}
 	index := p.visible[p.cursor]
@@ -446,10 +446,17 @@ func bandRule(name string, count, width int) string {
 	return label + strings.Repeat(ruleChar, max(width-lipgloss.Width(label), 0))
 }
 
+// detailWrap wraps text to a detail pane width columns wide: one column
+// narrower than the pane, and never narrower than minWidth, so no line of a
+// detail is cut off at the pane's edge.
+func detailWrap(width int) lipgloss.Style {
+	return lipgloss.NewStyle().Width(max(width-1, minWidth))
+}
+
 // recordText renders one record for the detail pane: its title, its
 // subtitle, and each field under its label.
 func recordText(r Record, width int) string {
-	wrap := lipgloss.NewStyle().Width(max(width-1, minWidth))
+	wrap := detailWrap(width)
 	var out strings.Builder
 	out.WriteString(styleText.Bold(true).Render(wrap.Render(r.Title)) + "\n")
 	if r.Subtitle != "" {

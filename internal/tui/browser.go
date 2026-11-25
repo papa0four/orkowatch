@@ -1294,7 +1294,7 @@ func triggerText(item Item) string {
 // Evidence longer than the preview says under its heading how much is shown
 // and what x shows instead, so the line x moves the pane to says what changed.
 func (b browser) detailText(item Item) (string, int) {
-	wrap := lipgloss.NewStyle().Width(max(b.mainWidth()-1, minWidth))
+	wrap := detailWrap(b.mainWidth())
 	var out strings.Builder
 
 	heading := string(item.Result)
