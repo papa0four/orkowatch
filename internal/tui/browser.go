@@ -1122,11 +1122,14 @@ func (b browser) sidebarLines() (lines []string, cursorLine int) {
 			line = "> " + label
 		}
 		style := styleMuted
-		switch {
-		case b.focus == focusFilters && b.filterCursor == index:
-			style = styleSelected
-		case selected:
+		if selected {
 			style = styleText
+		}
+		if index < len(b.tabs) {
+			style = b.tabs[index].nameStyle(style)
+		}
+		if b.focus == focusFilters && b.filterCursor == index {
+			style = styleSelected
 		}
 		if b.filterCursor == index {
 			cursorLine = len(lines)

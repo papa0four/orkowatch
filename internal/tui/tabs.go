@@ -68,6 +68,11 @@ type (
 		// critical color, so the records that most need attention stand apart
 		// from the rest.
 		Alert string
+
+		// Attention marks a tab holding what the operator must act on, so its
+		// name stands out in the critical color wherever the sources are
+		// listed, whichever tab is open.
+		Attention bool
 	}
 
 	// Switch is a key that moves the filter named Filter between its
@@ -117,9 +122,10 @@ type (
 
 	// tabDef is a tab as the tab bar knows it.
 	tabDef struct {
-		id     string
-		name   string
-		letter string
+		id        string
+		name      string
+		letter    string
+		attention bool
 	}
 
 	// recordPane is the list and detail of one record tab. Its state is
@@ -201,9 +207,19 @@ func buildTabs(report Report) []tabDef {
 		tabs = append(tabs, tabDef{id: TabFindings, name: "Findings", letter: tabLetters[TabFindings]})
 	}
 	for _, t := range report.Tabs {
-		tabs = append(tabs, tabDef{id: t.ID, name: t.Name, letter: tabLetters[t.ID]})
+		tabs = append(tabs, tabDef{id: t.ID, name: t.Name, letter: tabLetters[t.ID], attention: t.Attention})
 	}
 	return tabs
+}
+
+// nameStyle is how the source list and the tab bar draw t's name where the
+// keyboard is not on it: in the critical color when the tab needs attention,
+// in plain otherwise.
+func (t tabDef) nameStyle(plain lipgloss.Style) lipgloss.Style {
+	if t.attention {
+		return styleAlert
+	}
+	return plain
 }
 
 // buildPanes returns one pane per tab, parallel to tabs: nil for the
@@ -489,7 +505,7 @@ func (b browser) tabBar() string {
 		if t.letter != "" {
 			label = t.letter + " " + t.name
 		}
-		style := styleMuted
+		style := t.nameStyle(styleMuted)
 		if i == b.active {
 			style = styleSelected
 		}

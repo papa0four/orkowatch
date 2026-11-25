@@ -227,6 +227,31 @@ func TestRecordBands(t *testing.T) {
 	}
 }
 
+// A tab that needs attention has its name drawn in the critical color in the
+// source list, open or not, and in the tab bar a narrow window shows instead;
+// a tab that does not is drawn as before.
+func TestAttentionTabStandsOut(t *testing.T) {
+	alert := strings.SplitN(styleAlert.Render("x"), "x", 2)[0]
+	b := newBrowser(Report{Title: "owatch all", Tabs: []Tab{
+		{ID: TabSystem, Name: "System", Note: "nothing"},
+		{ID: TabDatasets, Name: "Datasets", Note: "nothing", Attention: true},
+	}})
+	for _, active := range []int{0, 1} {
+		b.active = active
+		lines, _ := b.sidebarLines()
+		if strings.HasPrefix(lines[1], alert) || !strings.HasPrefix(lines[2], alert) || !strings.Contains(plain(lines[2]), "Datasets") {
+			t.Errorf("with tab %d open, the sources are drawn %q", active, lines[1:3])
+		}
+	}
+
+	b.active = 0
+	b.width = filterWidth
+	bar := b.tabBar()
+	if !strings.Contains(bar, alert+" d Datasets ") || strings.Contains(bar, alert+" o System ") {
+		t.Errorf("the tab bar is drawn %q", bar)
+	}
+}
+
 // A filter does not narrow the band it spares: its records stay listed
 // whichever option is chosen, and the other filters still narrow them.
 func TestFilterSparesABand(t *testing.T) {
