@@ -33,7 +33,9 @@ and open an issue against this doc.
   `owatch all` match installed packages on AlmaLinux, Alpine, Red Hat
   Enterprise Linux, Rocky Linux, and Ubuntu against the OSV dataset held for
   the host, shown in the results browser's Vulnerabilities tab. The operating
-  system and kernel as such are not matched, and findings carry no CVE data.
+  system and kernel as such are not matched. A finding names no CVE of its own;
+  it gives how many vulnerabilities in CISA's Known Exploited Vulnerabilities
+  catalog are of its weakness class.
   There is no `--enrich` flag; passing it fails as an unknown flag.
 - **There is no `--mitre` flag.** MITRE ATT&CK® mapping is registry data shown
   by default; see MITRE ATT&CK below. Passing `--mitre` fails as an unknown flag.
@@ -190,13 +192,27 @@ placed with high and Moderate with medium. A CVSS v3.0 vector has the metrics of
 v3.1 one and is scored with the v3.1 base equations, and is named as v3.0. A
 vulnerability whose records give nothing that can be read has none stated.
 
-The text report gives the counts, every vulnerability with a fix available led by its
-severity, and the unfixed counted by package, since a release can carry thousands; the
+A matched vulnerability that CISA's Known Exploited Vulnerabilities catalog lists
+is known to be exploited, and is marked with the date CISA added it, the date by
+which CISA directs US federal agencies to act on it, and whether its use in
+ransomware campaigns is known, each as the catalog writes it. A vulnerability
+exploited now outranks its score, so those known to be exploited come first, the
+most severe first and whether fixed or not, then the rest in their order. With the
+catalog not held, or not usable, the section says known exploitation was not read,
+why, and what to run.
+
+The text report gives the counts, every vulnerability known to be exploited in a
+block of its own under the catalog's data and attribution, every other
+vulnerability with a fix available led by its severity, and the unfixed counted by
+package, since a release can carry thousands; the
 JSON and YAML reports hold every match under `vulnerabilities.packages`, each affected
 package once with its installed version and the binaries built from it, and its
-vulnerabilities under it with their status, fixed version, `severity` (its label,
-level, and basis), `scores` as the records give them, and the records that name them,
-beside `not_matched` and `counts`. The section names the dataset it was matched
+vulnerabilities under it, those known to be exploited first, with their status,
+fixed version, `severity` (its label, level, and basis), `scores` as the records
+give them, the records that name them, and `known_exploited` (`date_added`,
+`due_date`, `known_ransomware_use`) where the catalog lists them, beside
+`not_matched`, `counts` (with `known_exploited`), and `known_exploited_data`, the
+catalog read or why it was not. The section names the dataset it was matched
 against with the keys `owatch data status` uses: `id`, `version` (the release its
 records are of), `source`, `data_date`, `fetched`, `state`, `license`, and
 `attribution`. With no dataset held, or one that cannot be used, the section says matching was not done,
@@ -301,13 +317,19 @@ package's row gives how many of its CVEs have a fix available and how many are
 unfixed, with the worst severity among them, its detail lists them, and its
 filter chooses all, the affected packages, or those with a fix available;
 Vulnerabilities, when the software was
-matched, lists each CVE of each affected package, those with a fix available
-first, and opens filtered to them: its filters choose fix available, unfixed,
-not matched, or all, and a severity, each option with how many fall under it,
+matched, lists each CVE of each affected package, those known to be exploited
+first under a heading of their own, marked on their rows and the most severe
+first, then the rest under theirs, those with a fix available first, and opens
+filtered to those with a fix available: its filters choose fix available, unfixed,
+not matched, or all, a severity, and known exploited, not in the catalog, or all,
+each option with how many fall under it,
 and `/` searches within them; the detail gives the package and what was built
 from it, the installed and fixed versions, the severity and its basis, the
-scores as the records give them, the records that name the CVE, and the
-dataset; Sockets lists each socket with its state, ends,
+scores as the records give them, the catalog's entry for a CVE known to be
+exploited, the records that name the CVE, the
+dataset, and the catalog's data or why it was not read; a finding's detail in
+Findings gives how many vulnerabilities known to be exploited are of its
+weakness class, and the summary names the catalog's data; Sockets lists each socket with its state, ends,
 scope and the processes holding it, or why they could not be read; MITRE ATT&CK® groups the findings by the
 technique each makes available, with the finding, rule and evidence behind each. A source a command did not run, or a module
 that was skipped or failed, is still listed and says so. A run opens on
@@ -420,6 +442,16 @@ no entry describes a finding, which is the case for a disabled SELinux, the find
 says so and gives the reason (`no_weakness`) rather than naming a weakness that does
 not fit.
 
+Beside its weakness, a finding gives how many vulnerabilities in CISA's Known
+Exploited Vulnerabilities catalog are of that CWE entry (`known_exploited_in_class`),
+counted from the catalog the store holds, each catalog entry once and the entries
+beneath it in its lineage not included. It is a count of the weakness class, how
+often that class is exploited in practice, and says nothing of this host's
+exposure. It is absent where the catalog holds none of that class. The audit names
+the catalog it counted from once, in a line ahead of its checks in the text report,
+in the browser's summary, and as `known_exploited_data` in JSON and YAML (under
+`security` in a report of `owatch all`), or says it was not read and why.
+
 Every finding shows two CVSS v4.0 scores, each labeled with FIRST's nomenclature.
 The baseline (`cvss`) is CVSS-B, a base score for the condition in general, and its
 label says it is not measured on the host. The score on this host (`host_score`) is
@@ -509,7 +541,9 @@ CISA or DHS.
 
 owatch holds those that apply to the host and reports their state, with the date
 and version of each. `owatch software` and `owatch all` match installed packages
-against the OSV dataset; no report reads KEV's or EPSS's entries yet.
+against the OSV dataset and mark the matches the KEV catalog lists, and the audit
+counts the catalog's entries by weakness class; no report reads EPSS's entries
+yet.
 
 ```bash
 # Fetch the datasets this host needs, over HTTPS
