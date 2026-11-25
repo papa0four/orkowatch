@@ -476,3 +476,24 @@ func TestWriteTextPredicted(t *testing.T) {
 		t.Errorf("the scores not read wrote %q, %v", b.String(), err)
 	}
 }
+
+// The match states itself on one line: the dataset and what was found, the
+// known exploited counted only when the catalog was read, or why no match
+// was made.
+func TestSummary(t *testing.T) {
+	v := exploitedView()
+	if got, want := v.Summary(), "matched against osv-ubuntu: 3 vulnerabilities with a fix available, 1 unfixed"; got != want {
+		t.Errorf("with no catalog read: %q, want %q", got, want)
+	}
+	v.MarkExploited(catalog{"CVE-2026-3": {}}, kevData)
+	if got, want := v.Summary(), "matched against osv-ubuntu: 3 vulnerabilities with a fix available, 1 unfixed, 1 known exploited"; got != want {
+		t.Errorf("with the catalog read: %q, want %q", got, want)
+	}
+	v.MarkExploited(catalog{}, dataset.Use{Provenance: dataset.Provenance{ID: "kev"}, NotDone: "kev is not held"})
+	if got, want := v.Summary(), "matched against osv-ubuntu: 3 vulnerabilities with a fix available, 1 unfixed"; got != want {
+		t.Errorf("with the catalog not read: %q, want %q", got, want)
+	}
+	if got, want := (View{Use: dataset.Use{NotDone: "osv-ubuntu is not held"}}).Summary(), "matching was not done: osv-ubuntu is not held"; got != want {
+		t.Errorf("a match not made: %q, want %q", got, want)
+	}
+}

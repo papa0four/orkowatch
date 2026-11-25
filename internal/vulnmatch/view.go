@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"slices"
+	"strings"
 
 	"github.com/papa0four/orkowatch/internal/dataset"
 	"github.com/papa0four/orkowatch/internal/dataset/epss"
@@ -237,6 +238,24 @@ func WriteText(w io.Writer, v View) error {
 	}
 	ew.Printf("\nEvery match, the unfixed included, is in the JSON and YAML reports and the results browser.\n")
 	return ew.Err()
+}
+
+// Summary is the match on one line, as a run's account of its modules states
+// it: the dataset matched against and what was found, the known exploited
+// counted only when the catalog was read; or why no match was made.
+func (v View) Summary() string {
+	if v.NotDone != "" {
+		return "matching was not done: " + v.NotDone
+	}
+	c := v.Counts
+	found := []string{
+		render.Count(c.FixAvailable, "vulnerability", "vulnerabilities") + " with a fix available",
+		render.Count(c.Unfixed, "unfixed", "unfixed"),
+	}
+	if v.KnownExploited != nil && v.KnownExploited.NotDone == "" {
+		found = append(found, render.Count(c.KnownExploited, "known exploited", "known exploited"))
+	}
+	return "matched against " + v.ID + ": " + strings.Join(found, ", ")
 }
 
 // Listed is one vulnerability of an affected package.

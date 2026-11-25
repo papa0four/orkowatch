@@ -27,6 +27,7 @@ import (
 	"github.com/papa0four/orkowatch/internal/selection"
 	"github.com/papa0four/orkowatch/internal/softwarelist"
 	"github.com/papa0four/orkowatch/internal/tui"
+	"github.com/papa0four/orkowatch/internal/vulnmatch"
 )
 
 // testRecords is the test dataset as a source of records for Debian hosts:
@@ -241,5 +242,23 @@ func TestSoftwareModuleMatches(t *testing.T) {
 	}
 	if result.Vulns == nil || (result.Vulns.NotDone == "" && result.Vulns.ID == "") {
 		t.Errorf("the software module's run carries %+v", result.Vulns)
+	}
+}
+
+// The software module's row is an inventory's, neither passing nor failing,
+// and says what the match of it found, or why no match was made, as the
+// match states itself.
+func TestSoftwareModuleStatesTheMatch(t *testing.T) {
+	m, reads, s := matching(t)
+	datasettest.Put(t, s.Root(), datasettest.Dataset{Name: "records"}, datasettest.Content, dataNow.Add(-time.Hour), nil)
+	matched := m.run(context.Background(), reads, debian, installed("3.0.11-1"))
+	for _, v := range []*vulnmatch.View{matched, notDone("records", "records is not held")} {
+		row := softwareModule(v)
+		if row.Name != selection.NameSoftware || row.Result != finding.ResultInformational || row.Reason != "inventory, "+v.Summary() {
+			t.Errorf("the row is %+v for the match %q", row, v.Summary())
+		}
+	}
+	if !strings.HasPrefix(matched.Summary(), "matched against records: ") {
+		t.Errorf("the match states itself as %q", matched.Summary())
 	}
 }

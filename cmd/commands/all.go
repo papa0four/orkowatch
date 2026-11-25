@@ -412,7 +412,7 @@ func collectSoftware(ctx context.Context, data *held.Run, result *ScanResult) {
 	}
 	result.Software = software
 	result.Vulns = hostMatching().run(ctx, data, result.OSInfo, software)
-	result.Modules = append(result.Modules, inventoryModule(selection.NameSoftware))
+	result.Modules = append(result.Modules, softwareModule(result.Vulns))
 }
 
 // collectListeners runs the sockets module and records how it ended in
@@ -453,6 +453,13 @@ func erroredModule(name string, err error) moduleRun {
 // host. It produces no compliance judgment, so it can neither pass nor fail.
 func inventoryModule(name string) moduleRun {
 	return moduleRun{Name: name, Result: finding.ResultInformational, Reason: "inventory, not a compliance judgment"}
+}
+
+// softwareModule is the row for the software module: an inventory, so it
+// neither passes nor fails, and the match made of it as the match states
+// itself, so a run whose match was not made says why.
+func softwareModule(v *vulnmatch.View) moduleRun {
+	return moduleRun{Name: selection.NameSoftware, Result: finding.ResultInformational, Reason: "inventory, " + v.Summary()}
 }
 
 // auditModule is the row for the audit, whose result is the aggregate of the
