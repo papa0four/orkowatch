@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/papa0four/orkowatch/internal/dataset"
 	"github.com/papa0four/orkowatch/internal/osfingerprint"
 	"github.com/papa0four/orkowatch/internal/security/checker"
 	"github.com/papa0four/orkowatch/internal/security/finding"
@@ -61,6 +62,19 @@ type (
 		// checks record how far a service can be reached. Nil means the
 		// audit reads them itself, once, when a check first needs them.
 		Sockets *sockets.View
+
+		// KnownExploited reads, for the host the audit ran on, how many
+		// vulnerabilities known to be exploited are of each weakness class,
+		// with the data that says so or why it was not read. Each finding
+		// is given the count of its own class. Nil means the audit does not
+		// consult it.
+		KnownExploited func(ctx context.Context, host *osfingerprint.OSInfo) (ClassCounts, dataset.Use)
+	}
+
+	// ClassCounts is how many vulnerabilities known to be exploited are of
+	// each weakness class, by its CWE identifier.
+	ClassCounts interface {
+		ClassCount(cwe string) int
 	}
 
 	// listenerSource reads the host's sockets for the checks once, unless the
@@ -79,6 +93,11 @@ type (
 	// one failed. The audit does not depend on it and runs regardless; the
 	// report then carries no system block, and the caller decides whether to
 	// say why.
+	//
+	// KnownExploited is the data the counts of known-exploited
+	// vulnerabilities by weakness class were read from, or why they were
+	// not, when the audit was given them to consult; classCounts are the
+	// counts.
 	Result struct {
 		FingerprintError error
 		StartTime        time.Time
@@ -89,6 +108,9 @@ type (
 		HostInfo         *osfingerprint.OSInfo
 		Summary          Summary
 		CWEs             []string
+		KnownExploited   *dataset.Use
+
+		classCounts ClassCounts
 	}
 
 	// Summary counts a completed audit at three levels: checks by their
@@ -278,6 +300,10 @@ func (sa *SecurityAuditor) RunAudit(ctx context.Context) (*Result, error) {
 	}
 
 	finalize(result)
+	if read := sa.options.KnownExploited; read != nil {
+		counts, use := read(ctx, fingerprint)
+		result.KnownExploited, result.classCounts = &use, counts
+	}
 	return result, nil
 }
 

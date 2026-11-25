@@ -124,6 +124,20 @@ type Use struct {
 	NotDone string `json:"not_done,omitempty" yaml:"not_done,omitempty"`
 }
 
+// Lines are what a report says of the data a result was read from: the data
+// named on one line, then the attribution its source asks for, when it asks
+// for one; or that it was not read, and why.
+func (u Use) Lines() []string {
+	if u.NotDone != "" {
+		return []string{"not read: " + u.NotDone}
+	}
+	lines := []string{u.About()}
+	if u.Attribution != "" {
+		lines = append(lines, u.Attribution)
+	}
+	return lines
+}
+
 // Row is one dataset as status shows it: its provenance and, for one that is
 // not read, the reason or its size.
 type Row struct {

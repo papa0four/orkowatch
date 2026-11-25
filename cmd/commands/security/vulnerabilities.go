@@ -122,20 +122,13 @@ func listedInOrder(v vulnmatch.View) []listed {
 }
 
 // exploitationText names the catalog of known-exploited vulnerabilities a
-// match was marked from, its date, its state, and its attribution, or says
-// why it was not read; it is empty for a match that predates the catalog.
+// match was marked from and its attribution, or says why it was not read; it
+// is empty for a match that predates the catalog.
 func exploitationText(use *dataset.Use) string {
-	switch {
-	case use == nil:
+	if use == nil {
 		return ""
-	case use.NotDone != "":
-		return safeLines("not read: " + use.NotDone)
 	}
-	text := use.About()
-	if use.Attribution != "" {
-		text += "\n" + use.Attribution
-	}
-	return safeLines(text)
+	return safeLines(strings.Join(use.Lines(), "\n"))
 }
 
 // matchedAgainst names the dataset a match was made against, its release, its

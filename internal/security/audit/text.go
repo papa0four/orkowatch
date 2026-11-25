@@ -30,6 +30,15 @@ func WriteViewText(w io.Writer, v View) error {
 		minSeverity = finding.SeverityNone
 	}
 
+	if v.KnownExploited != nil {
+		lines := v.KnownExploited.Lines()
+		ew.Printf("%s\n", render.HostText("Known exploited, counted by weakness class: "+lines[0]))
+		for _, line := range lines[1:] {
+			ew.Printf("  %s\n", render.HostText(line))
+		}
+		ew.Printf("\n")
+	}
+
 	for _, check := range v.Results {
 		if err := writeCheck(ew, check, minSeverity); err != nil {
 			return err
@@ -156,6 +165,9 @@ func writeWeaknessAndCVSS(ew *render.ErrWriter, def *FindingView) {
 	} else if def.NoWeakness != "" {
 		ew.Printf("  Weakness: none. %s\n", def.NoWeakness)
 	}
+	if text := ClassExploitedText(*def); text != "" {
+		ew.Printf("  Known exploited in its class: %s\n", text)
+	}
 	if def.CVSS == nil {
 		return
 	}
@@ -216,6 +228,18 @@ func writeDetails(ew *render.ErrWriter, details []string) {
 		}
 		ew.Printf("  %s\n", render.HostText(detail))
 	}
+}
+
+// ClassExploitedText says how many vulnerabilities known to be exploited are
+// of a finding's weakness class, as every view of a finding words it: a count
+// of the class, never a statement about this host. It is empty where there
+// are none, or they were not read.
+func ClassExploitedText(def FindingView) string {
+	if def.Weakness == nil || def.KnownExploitedInClass == 0 {
+		return ""
+	}
+	return fmt.Sprintf("%s of %s, this finding's weakness class. This counts the class, not this host's exposure.",
+		render.Count(def.KnownExploitedInClass, "vulnerability known to be exploited is", "vulnerabilities known to be exploited are"), def.Weakness.ID)
 }
 
 // WeaknessLines renders the CWE entry a finding maps to as its identifier and

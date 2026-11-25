@@ -119,22 +119,24 @@ type (
 		Categories []string
 
 		// Weakness is the CWE entry the finding maps to, with MITRE's
-		// description of it, or the reason none fits. CVSS is the registry's
-		// baseline and HostCVSS the score on this host with what it rests on,
-		// each labeled with what it is a statement about. SeverityBasis says
-		// which of them Severity is.
-		Weakness      string
-		WeaknessAbout string
-		CVSS          string
-		HostCVSS      string
-		SeverityBasis string
-		Description   string
-		Impact        string
-		Resolution    string
-		References    []string
-		Techniques    []string
-		Mitigations   []string
-		Evidence      []string
+		// description of it, or the reason none fits, and ClassExploited how
+		// many vulnerabilities known to be exploited are of that class. CVSS
+		// is the registry's baseline and HostCVSS the score on this host with
+		// what it rests on, each labeled with what it is a statement about.
+		// SeverityBasis says which of them Severity is.
+		Weakness       string
+		WeaknessAbout  string
+		ClassExploited string
+		CVSS           string
+		HostCVSS       string
+		SeverityBasis  string
+		Description    string
+		Impact         string
+		Resolution     string
+		References     []string
+		Techniques     []string
+		Mitigations    []string
+		Evidence       []string
 	}
 
 	// itemIndex is an item's searchable text, lower-cased once when the
@@ -287,7 +289,7 @@ func buildIndex(items []Item) []itemIndex {
 	index := make([]itemIndex, len(items))
 	for i, item := range items {
 		fields := []string{item.Title, item.Key, item.Check, item.Reason, item.Description,
-			item.Impact, item.Resolution, item.Weakness, item.WeaknessAbout,
+			item.Impact, item.Resolution, item.Weakness, item.WeaknessAbout, item.ClassExploited,
 			item.CVSS, item.HostCVSS, item.SeverityBasis}
 		fields = append(fields, item.Categories...)
 		fields = append(fields, item.References...)
@@ -1293,6 +1295,7 @@ func (b browser) detailText(item Item) (string, int) {
 		section("triggered by", triggerText(item))
 	}
 	section("weakness", strings.TrimSpace(item.Weakness+"\n"+item.WeaknessAbout))
+	section("known exploited in its class", item.ClassExploited)
 	section("CVSS baseline", item.CVSS)
 	section("CVSS on this host", item.HostCVSS)
 	section("categories", strings.Join(item.Categories, ", "))

@@ -19,6 +19,8 @@ import (
 
 	"github.com/papa0four/orkowatch/cmd/commands/cliargs"
 	"github.com/papa0four/orkowatch/cmd/commands/delivery"
+	"github.com/papa0four/orkowatch/cmd/commands/held"
+	"github.com/papa0four/orkowatch/internal/dataset"
 	"github.com/papa0four/orkowatch/internal/osfingerprint"
 	"github.com/papa0four/orkowatch/internal/render"
 	"github.com/papa0four/orkowatch/internal/security/audit"
@@ -396,11 +398,12 @@ func (c *auditCmd) runAuditWithTimeout(cmd *cobra.Command, mask selection.CheckM
 	var result *audit.Result
 	ending, runErr := tui.Run(ctx, c.progressOptions(mask), func(ctx context.Context, reporter tui.Reporter) error {
 		auditor := audit.NewSecurityAuditor(audit.Options{
-			Observer:      Observe(reporter),
-			FilePermsPath: c.scanRoot,
-			MinSeverity:   c.audit.MinSeverity(),
-			Checks:        selection.EnabledChecks(mask),
-			Unselected:    c.audit.Unselected(mask),
+			Observer:       Observe(reporter),
+			FilePermsPath:  c.scanRoot,
+			MinSeverity:    c.audit.MinSeverity(),
+			Checks:         selection.EnabledChecks(mask),
+			Unselected:     c.audit.Unselected(mask),
+			KnownExploited: ExploitedClasses(held.ForHost()),
 		})
 		var err error
 		result, err = auditor.RunAudit(ctx)
@@ -431,6 +434,14 @@ func (c *auditCmd) runAuditWithTimeout(cmd *cobra.Command, mask selection.CheckM
 		return fmt.Errorf("%s; results shown are incomplete; rerun with a longer --timeout or %s", cause, hint)
 	}
 	return fmt.Errorf("%s; results shown are incomplete", cause)
+}
+
+// ExploitedClasses is how the audit reads, through a run's data, how many
+// vulnerabilities known to be exploited are of each weakness class.
+func ExploitedClasses(data *held.Run) func(context.Context, *osfingerprint.OSInfo) (audit.ClassCounts, dataset.Use) {
+	return func(ctx context.Context, host *osfingerprint.OSInfo) (audit.ClassCounts, dataset.Use) {
+		return data.Exploited(ctx, host)
+	}
 }
 
 // progressOptions describes this run to the progress display. The live

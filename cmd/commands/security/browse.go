@@ -461,7 +461,8 @@ func browserItem(condition audit.ConditionView) tui.Item {
 
 // setWeaknessAndCVSS fills the parts of a finding's detail that state what kind
 // of weakness it is and how it is scored: the CWE entry with MITRE's
-// description, or the reason none fits, the registry's baseline, the score on
+// description, or the reason none fits, how many vulnerabilities known to be
+// exploited are of that class, the registry's baseline, the score on
 // this host with what it rests on, and which of them the severity is. The
 // scores are rendered as the text report renders them.
 func setWeaknessAndCVSS(item *tui.Item, def *audit.FindingView) {
@@ -473,6 +474,7 @@ func setWeaknessAndCVSS(item *tui.Item, def *audit.FindingView) {
 		item.Weakness = "none"
 		item.WeaknessAbout = safeLines(def.NoWeakness)
 	}
+	item.ClassExploited = safeLines(audit.ClassExploitedText(*def))
 	item.SeverityBasis = audit.SeverityBasis(def)
 	if def.CVSS != nil {
 		item.CVSS = safeLines(strings.Join(audit.ScoreLines(*def.CVSS), "\n"))
@@ -481,7 +483,9 @@ func setWeaknessAndCVSS(item *tui.Item, def *audit.FindingView) {
 }
 
 // summaryLines lists the run's figures as the audit already counted them:
-// checks by result, conditions, findings by severity, and duration.
+// checks by result, conditions, findings by severity, the data the counts of
+// known-exploited vulnerabilities by weakness class were read from, and
+// duration.
 func summaryLines(view *audit.View) []tui.SummaryLine {
 	summary := view.Summary
 	lines := []tui.SummaryLine{{Label: "checks", Value: strconv.Itoa(summary.TotalChecks)}}
@@ -503,6 +507,9 @@ func summaryLines(view *audit.View) []tui.SummaryLine {
 	}
 	if view.FindingsSuppressed > 0 {
 		lines = append(lines, tui.SummaryLine{Label: "suppressed", Value: fmt.Sprintf("%d below %s", view.FindingsSuppressed, view.MinSeverityApplied)})
+	}
+	if view.KnownExploited != nil {
+		lines = append(lines, tui.SummaryLine{Label: "known exploited", Value: safeLines(view.KnownExploited.Lines()[0])})
 	}
 	return append(lines, tui.SummaryLine{Label: "duration", Value: shortDuration(view.Duration)})
 }

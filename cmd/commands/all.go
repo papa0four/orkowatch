@@ -361,7 +361,7 @@ func (c *allCmd) runModules(ctx context.Context, data *held.Run, mask selection.
 		result.Modules = append(result.Modules, skippedModule(selection.NameAudit))
 		return
 	}
-	securityResult, err := c.runSecurityAuditModule(ctx, mask, result.OSInfo, result.Sockets, reporter)
+	securityResult, err := c.runSecurityAuditModule(ctx, data, mask, result.OSInfo, result.Sockets, reporter)
 	if err != nil {
 		result.Errors = append(result.Errors, fmt.Sprintf("Security audit error: %v", err))
 		result.Modules = append(result.Modules, erroredModule(selection.NameAudit, err))
@@ -482,15 +482,17 @@ func incompleteDetail(result *ScanResult) string {
 }
 
 // runSecurityAuditModule runs the audit with what the modules before it read,
-// so the host is fingerprinted and its sockets read once for the whole run.
-func (c *allCmd) runSecurityAuditModule(ctx context.Context, mask selection.CheckMask, hostInfo *osfingerprint.OSInfo, hostSockets *sockets.View, reporter tui.Reporter) (*audit.Result, error) {
+// so the host is fingerprinted, its sockets read, and the dataset store opened
+// once for the whole run.
+func (c *allCmd) runSecurityAuditModule(ctx context.Context, data *held.Run, mask selection.CheckMask, hostInfo *osfingerprint.OSInfo, hostSockets *sockets.View, reporter tui.Reporter) (*audit.Result, error) {
 	auditor := audit.NewSecurityAuditor(audit.Options{
-		Observer:    security.Observe(reporter),
-		MinSeverity: c.audit.MinSeverity(),
-		Checks:      selection.EnabledChecks(mask),
-		Unselected:  c.audit.Unselected(mask),
-		HostInfo:    hostInfo,
-		Sockets:     hostSockets,
+		Observer:       security.Observe(reporter),
+		MinSeverity:    c.audit.MinSeverity(),
+		Checks:         selection.EnabledChecks(mask),
+		Unselected:     c.audit.Unselected(mask),
+		HostInfo:       hostInfo,
+		Sockets:        hostSockets,
+		KnownExploited: security.ExploitedClasses(data),
 	})
 	return auditor.RunAudit(ctx)
 }

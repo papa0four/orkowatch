@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/papa0four/orkowatch/internal/dataset"
 	"github.com/papa0four/orkowatch/internal/osfingerprint"
 	"github.com/papa0four/orkowatch/internal/security/finding"
 )
@@ -24,6 +25,11 @@ type (
 		FindingsSuppressed int                       `json:"findings_suppressed,omitempty" yaml:"findings_suppressed,omitempty"`
 		MinSeverityApplied string                    `json:"min_severity_applied,omitempty" yaml:"min_severity_applied,omitempty"`
 		ReferenceCWEs      []string                  `json:"reference_cwes,omitempty" yaml:"reference_cwes,omitempty"`
+
+		// KnownExploited is the data each finding's count of
+		// known-exploited vulnerabilities in its weakness class was read
+		// from, or why none was.
+		KnownExploited *dataset.Use `json:"known_exploited_data,omitempty" yaml:"known_exploited_data,omitempty"`
 	}
 
 	// CheckView is the serializable projection of a single check's result.
@@ -74,6 +80,12 @@ type (
 		NoWeakness string             `json:"no_weakness,omitempty" yaml:"no_weakness,omitempty"`
 		CVSS       *finding.CVSSScore `json:"cvss,omitempty" yaml:"cvss,omitempty"`
 		Host       *finding.HostScore `json:"host_score,omitempty" yaml:"host_score,omitempty"`
+
+		// KnownExploitedInClass is how many vulnerabilities known to be
+		// exploited are of the finding's weakness class: a statement about
+		// the class, not about this host. It is absent where there are none
+		// or they were not read.
+		KnownExploitedInClass int `json:"known_exploited_in_class,omitempty" yaml:"known_exploited_in_class,omitempty"`
 	}
 )
 
@@ -84,11 +96,12 @@ type (
 // apply or could not be evaluated is not a judgment being filtered.
 func (r *Result) View(minSeverity string) View {
 	v := View{
-		Timestamp:     r.StartTime.UTC().Format(time.RFC3339),
-		Duration:      r.Duration.String(),
-		MinSeverity:   strings.ToUpper(minSeverity),
-		Summary:       r.Summary,
-		ReferenceCWEs: r.CWEs,
+		Timestamp:      r.StartTime.UTC().Format(time.RFC3339),
+		Duration:       r.Duration.String(),
+		MinSeverity:    strings.ToUpper(minSeverity),
+		Summary:        r.Summary,
+		ReferenceCWEs:  r.CWEs,
+		KnownExploited: r.KnownExploited,
 	}
 
 	if r.HostInfo != nil {
@@ -110,7 +123,7 @@ func (r *Result) View(minSeverity string) View {
 		}
 
 		for _, condition := range check.Conditions {
-			view, shown := conditionView(condition, minSeverity)
+			view, shown := conditionView(condition, minSeverity, r.classCounts)
 			if !shown {
 				v.FindingsSuppressed++
 				continue
@@ -129,8 +142,9 @@ func (r *Result) View(minSeverity string) View {
 }
 
 // conditionView projects one condition, reporting false when it is a
-// finding the severity threshold suppresses.
-func conditionView(condition finding.Condition, minSeverity string) (ConditionView, bool) {
+// finding the severity threshold suppresses. A finding with a weakness is
+// given its class's count from counts, when there are counts.
+func conditionView(condition finding.Condition, minSeverity string, counts ClassCounts) (ConditionView, bool) {
 	view := ConditionView{
 		Key:      condition.Key,
 		Result:   condition.Result,
@@ -159,6 +173,9 @@ func conditionView(condition finding.Condition, minSeverity string) (ConditionVi
 		NoWeakness:  condition.Finding.NoWeakness,
 		CVSS:        condition.Finding.CVSS,
 		Host:        condition.Finding.Host,
+	}
+	if w := condition.Finding.Weakness; w != nil && counts != nil {
+		view.Finding.KnownExploitedInClass = counts.ClassCount(string(w.ID))
 	}
 	return view, true
 }

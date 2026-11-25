@@ -131,6 +131,14 @@ func TestBrowserItemCarriesWeaknessAndCVSS(t *testing.T) {
 	if !strings.Contains(item.HostCVSS, "no rule of this finding reads the host") || item.SeverityBasis != "the registry's rating for this rule" {
 		t.Errorf("a finding with no rule shows host score %q and severity basis %q", item.HostCVSS, item.SeverityBasis)
 	}
+	if item.ClassExploited != "" {
+		t.Errorf("a finding whose class has no count shows %q", item.ClassExploited)
+	}
+	cond.Finding.KnownExploitedInClass = 3
+	if item = browserItem(cond); item.ClassExploited != audit.ClassExploitedText(*cond.Finding) || !strings.Contains(item.ClassExploited, "3 vulnerabilities known to be exploited are of CWE-732") {
+		t.Errorf("a finding whose class counts 3 shows %q", item.ClassExploited)
+	}
+	cond.Finding.KnownExploitedInClass = 0
 
 	cond.Finding.Host = &finding.HostScore{
 		CVSS: &finding.CVSSScore{Version: "4.0", Vector: "CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:H/VI:H/VA:N/SC:N/SI:N/SA:N/MPR:H", Score: 6.9,
@@ -156,6 +164,31 @@ func TestBrowserItemCarriesWeaknessAndCVSS(t *testing.T) {
 	item = browserItem(cond)
 	if item.Weakness != "none" || item.WeaknessAbout != "No entry describes this." {
 		t.Errorf("a finding with no weakness shows %q / %q", item.Weakness, item.WeaknessAbout)
+	}
+}
+
+// The summary names the data the counts of known-exploited vulnerabilities by
+// weakness class were read from, or why they were not read, and nothing for
+// an audit not given them.
+func TestSummaryNamesTheCatalog(t *testing.T) {
+	value := func(view audit.View) string {
+		for _, line := range summaryLines(&view) {
+			if line.Label == "known exploited" {
+				return line.Value
+			}
+		}
+		return ""
+	}
+	read := dataset.Use{Provenance: dataset.Provenance{ID: "kev", Version: "2026.11.21", DataDate: "2026-11-21", State: dataset.StateCurrent}}
+	notRead := dataset.Use{Provenance: dataset.Provenance{ID: "kev"}, NotDone: "kev is not held"}
+	for want, view := range map[string]audit.View{
+		"kev, 2026.11.21, data of 2026-11-21, current": {KnownExploited: &read},
+		"not read: kev is not held":                    {KnownExploited: &notRead},
+		"":                                             {},
+	} {
+		if got := value(view); got != want {
+			t.Errorf("the summary says %q, want %q", got, want)
+		}
 	}
 }
 
