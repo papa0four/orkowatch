@@ -357,7 +357,7 @@ func (c *auditCmd) runE(cmd *cobra.Command, _ []string) error {
 	}
 	c.logVerboseConfig(mask)
 
-	return c.runAuditWithTimeout(cmd, mask)
+	return c.runAuditWithTimeout(cmd, mask, held.ForHost())
 }
 
 // validateScanRoot rejects a scan root that cannot be read, before any check
@@ -397,13 +397,13 @@ func (c *auditCmd) logVerboseConfig(mask selection.CheckMask) {
 // started is left running. Whatever finished is reported before the error
 // that says the run was cut short, and whether it was is settled when the
 // audit returns: the time the results browser then stays open is not the
-// audit's.
-func (c *auditCmd) runAuditWithTimeout(cmd *cobra.Command, mask selection.CheckMask) error {
+// audit's. The audit reads its datasets through data, and the report states
+// what opening the store installed.
+func (c *auditCmd) runAuditWithTimeout(cmd *cobra.Command, mask selection.CheckMask, data *held.Run) error {
 	ctx, cancel := context.WithTimeout(cmd.Context(), c.timeout)
 	defer cancel()
 
 	var result *audit.Result
-	data := held.ForHost()
 	ending, runErr := tui.Run(ctx, c.progressOptions(mask), func(ctx context.Context, reporter tui.Reporter) error {
 		auditor := audit.NewSecurityAuditor(audit.Options{
 			Observer:       Observe(reporter),
