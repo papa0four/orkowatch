@@ -117,6 +117,29 @@ func TestExploitedRefusedAfterReading(t *testing.T) {
 	}
 }
 
+// A run says what it installed from the operator's store once it has opened
+// its store, and nothing before; a read is what opens it.
+func TestOperatorIsWhatOpeningInstalled(t *testing.T) {
+	s := store.At(filepath.Join(t.TempDir(), "store"))
+	run := New(func(context.Context, []dataset.Dataset, *osfingerprint.OSInfo, time.Time) (store.Store, store.Adoption, error) {
+		return s, store.Adoption{From: "/home/a/store", Outcomes: []store.Outcome{
+			{ID: "held", Result: store.Installed},
+			{ID: "missing", Result: store.Refused, Reason: "it is a link"},
+		}}, nil
+	}, []dataset.Dataset{held, missing}, now)
+
+	if o := run.Operator(); o != nil {
+		t.Fatalf("before opening, the run says %+v", o)
+	}
+	run.Read(context.Background(), missing, host, check(missing))
+	o := run.Operator()
+	if o == nil || o.Store != "/home/a/store" || len(o.Installed) != 1 || o.Installed[0] != "held" ||
+		len(o.Refused) != 1 || o.Refused[0] != (dataset.Refusal{ID: "missing", Reason: "it is a link"}) ||
+		o.Advice != "To install what was not installed, as a deliberate act, run owatch data import /home/a/store" {
+		t.Errorf("after reading, the run says %+v", o)
+	}
+}
+
 // What cannot be read says why and what to run: a dataset not held, one its
 // reader refuses, and every dataset of a run whose store cannot be opened,
 // which is tried once.

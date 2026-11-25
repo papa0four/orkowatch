@@ -40,11 +40,19 @@ func testData(t *testing.T, interactive bool, answer string) (*dataCmd, store.St
 	}
 	// The store is read as it is opened, with nothing installed on the way,
 	// unless a test gives its own.
-	d.read = func(ctx context.Context, _ []dataset.Dataset, _ *osfingerprint.OSInfo, _ time.Time) (store.Store, store.Adoption, error) {
-		opened, err := d.open(ctx)
-		return opened, store.Adoption{}, err
-	}
+	installing(d, store.Adoption{})
 	return d, s
+}
+
+// installing makes status read d's store through a run that, on opening it,
+// did what adoption says with the operator's datasets.
+func installing(d *dataCmd, adoption store.Adoption) {
+	d.run = func() *held.Run {
+		return held.New(func(ctx context.Context, _ []dataset.Dataset, _ *osfingerprint.OSInfo, _ time.Time) (store.Store, store.Adoption, error) {
+			opened, err := d.open(ctx)
+			return opened, adoption, err
+		}, d.known, dataNow)
+	}
 }
 
 // run executes owatch data with args over d and returns what it printed.
@@ -172,7 +180,7 @@ func TestDataStatusReport(t *testing.T) {
 	}
 }
 
-// Status reads the store through the opener for reading, and says what an
+// Status reads the store through the run's store, and says what an
 // elevated run installed from the operator's store on the way, what it left
 // alone with the command that installs it deliberately, and, with no one
 // behind the run, how datasets reach the host. A run that installed and
@@ -193,10 +201,8 @@ func TestDataStatusSaysWhatWasInstalled(t *testing.T) {
 		"no operator":  {store.Adoption{NoOperator: true}, []string{"No account is behind this elevated run", "owatch data import <directory> here."}, "Installed from"},
 		"not elevated": {store.Adoption{}, nil, "elevated"},
 	} {
-		d, s := testData(t, false, "")
-		d.read = func(context.Context, []dataset.Dataset, *osfingerprint.OSInfo, time.Time) (store.Store, store.Adoption, error) {
-			return s, tt.adoption, nil
-		}
+		d, _ := testData(t, false, "")
+		installing(d, tt.adoption)
 		dir := t.TempDir()
 		if _, err := run(d, "status", "-o", "text", "--report-file", dir); err != nil {
 			t.Fatal(err)

@@ -38,14 +38,15 @@ func newInventoryCmd(m standaloneModule) *cobra.Command {
 	if at < 0 {
 		panic("cmd: no inventory module is named " + m.use)
 	}
-	return newModuleCmd(m, modules[at], m.use)
+	return newModuleCmd(m, modules[at], m.use, held.ForHost)
 }
 
 // newModuleCmd builds the command that runs module alone and delivers its
 // report as all would deliver a report of that one module. name is how the
 // command is invoked after owatch, which titles the report and prefixes an
-// error. owatch data status is built here with a module all does not run.
-func newModuleCmd(m standaloneModule, module inventory, name string) *cobra.Command {
+// error, and data gives the run the module reads datasets through. owatch
+// data status is built here with a module all does not run.
+func newModuleCmd(m standaloneModule, module inventory, name string, data func() *held.Run) *cobra.Command {
 	var out *delivery.Flags
 	cmd := &cobra.Command{
 		Use:     m.use,
@@ -59,7 +60,7 @@ func newModuleCmd(m standaloneModule, module inventory, name string) *cobra.Comm
 			}
 			started := time.Now()
 			result := &ScanResult{Timestamp: started, Errors: make([]string, 0)}
-			module.collect(cmd.Context(), held.ForHost(), result)
+			module.collect(cmd.Context(), data(), result)
 			if ran := result.Modules[len(result.Modules)-1]; ran.Result == finding.ResultError {
 				return fmt.Errorf("%s: %s", name, ran.Reason)
 			}

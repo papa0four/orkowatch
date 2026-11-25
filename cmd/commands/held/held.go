@@ -28,7 +28,8 @@ import (
 type Opener func(ctx context.Context, known []dataset.Dataset, host *osfingerprint.OSInfo, now time.Time) (store.Store, store.Adoption, error)
 
 // Run is the datasets one run reads: the store, opened the first time a
-// dataset is read and kept for the rest of the run, and the time the run
+// dataset is read and kept for the rest of the run, what an elevated run
+// installed from the operator's store on opening it, and the time the run
 // reads it at. A run's modules read one after another, so it is not made
 // safe for concurrent use.
 type Run struct {
@@ -36,9 +37,10 @@ type Run struct {
 	known []dataset.Dataset
 	now   time.Time
 
-	opened bool
-	store  store.Store
-	err    error
+	opened   bool
+	store    store.Store
+	operator *dataset.Operator
+	err      error
 
 	// exploited is the catalog of known-exploited vulnerabilities, read the
 	// first time it is asked for, since the software module and the audit
@@ -66,21 +68,64 @@ func New(open Opener, known []dataset.Dataset, now time.Time) *Run {
 	return &Run{open: open, known: known, now: now}
 }
 
+// Open is the run's store, opened for host the first time it is asked for and
+// kept for the rest of the run, so an elevated run installs the operator's
+// datasets once and Operator can say what it did.
+func (r *Run) Open(ctx context.Context, host *osfingerprint.OSInfo) (store.Store, error) {
+	if !r.opened {
+		var adoption store.Adoption
+		r.store, adoption, r.err = r.open(ctx, r.known, host, r.now)
+		r.operator = operatorOf(adoption)
+		r.opened = true
+	}
+	return r.store, r.err
+}
+
+// Operator is what the run, elevated, did with the operator's datasets on
+// opening its store: which it installed, which it left alone and why, and
+// what to run. It is nil when there is nothing to say, as for a run that is
+// not elevated, found nothing newer, or never opened its store.
+func (r *Run) Operator() *dataset.Operator { return r.operator }
+
+// noOperatorAdvice is what an elevated run with no one behind it is told,
+// since it has no account's store to install from and never fetches itself.
+const noOperatorAdvice = "No account is behind this elevated run, so no dataset was installed from one. " +
+	"Fetch as an ordinary account with owatch data refresh --to <directory>, then run owatch data import <directory> here."
+
+// operatorOf is what a report says of adoption, or nil when it says nothing.
+func operatorOf(a store.Adoption) *dataset.Operator {
+	if a.NoOperator {
+		return &dataset.Operator{Advice: noOperatorAdvice}
+	}
+	o := dataset.Operator{Store: a.From}
+	for _, outcome := range a.Outcomes {
+		switch {
+		case outcome.Result == store.Installed:
+			o.Installed = append(o.Installed, outcome.ID)
+		case outcome.NeedsAttention():
+			o.Refused = append(o.Refused, dataset.Refusal{ID: outcome.ID, Reason: outcome.Reason})
+		}
+	}
+	switch {
+	case len(o.Refused) > 0:
+		o.Advice = "To install what was not installed, as a deliberate act, run owatch data import " + a.From
+	case len(o.Installed) == 0:
+		return nil
+	}
+	return &o
+}
+
 // Read reads d for host from the run's store with consume, which gives the
 // facts of the data it read, and says what was read or why nothing was. A
 // store that cannot be opened, a dataset that is not held, and one whose data
 // consume refuses are each a reason with what to run, never an error of the
 // module reading it.
 func (r *Run) Read(ctx context.Context, d dataset.Dataset, host *osfingerprint.OSInfo, consume func(io.Reader) (dataset.Facts, error)) dataset.Use {
-	if !r.opened {
-		r.store, _, r.err = r.open(ctx, r.known, host, r.now)
-		r.opened = true
-	}
 	notDone := func(reason string) dataset.Use {
 		return dataset.Use{Provenance: dataset.Provenance{ID: d.ID()}, NotDone: reason}
 	}
-	if r.err != nil {
-		return notDone("the dataset store could not be read: " + r.err.Error())
+	if _, err := r.Open(ctx, host); err != nil {
+		return notDone("the dataset store could not be read: " + err.Error())
 	}
 
 	var facts dataset.Facts
