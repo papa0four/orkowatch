@@ -28,13 +28,10 @@ const (
 // that could not be judged, and the counts. This is the one shape the
 // vulnerabilities section has in every report.
 type View struct {
-	// Provenance is the dataset matched against, whose version is the
-	// release its records are of.
-	dataset.Provenance `yaml:",inline"`
-
-	// NotDone says why no match was made, and what to do; a view that has
-	// it has nothing else of a match.
-	NotDone string `json:"not_done,omitempty" yaml:"not_done,omitempty"`
+	// Use is the dataset matched against, whose version is the release its
+	// records are of, or why no match was made and what to do; a view that
+	// was not done has nothing else of a match.
+	dataset.Use `yaml:",inline"`
 
 	// Order is the version order the packages were compared in.
 	Order string `json:"version_order,omitempty" yaml:"version_order,omitempty"`

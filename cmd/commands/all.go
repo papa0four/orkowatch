@@ -15,6 +15,7 @@ import (
 
 	"github.com/papa0four/orkowatch/cmd/commands/cliargs"
 	"github.com/papa0four/orkowatch/cmd/commands/delivery"
+	"github.com/papa0four/orkowatch/cmd/commands/held"
 	"github.com/papa0four/orkowatch/cmd/commands/security"
 	"github.com/papa0four/orkowatch/internal/dataset"
 	"github.com/papa0four/orkowatch/internal/osfingerprint"
@@ -274,7 +275,7 @@ func (c *allCmd) runAllScans(cmd *cobra.Command, args []string) error {
 		Interactive: interactive,
 		Verbose:     c.verbose,
 	}, func(ctx context.Context, reporter tui.Reporter) error {
-		c.runModules(ctx, mask, result, reporter)
+		c.runModules(ctx, held.ForHost(), mask, result, reporter)
 		return nil
 	})
 	if err != nil {
@@ -302,12 +303,13 @@ func (c *allCmd) runAllScans(cmd *cobra.Command, args []string) error {
 // inventory is a module that enumerates facts about the host: its name, as
 // --skip-modules, the progress display and its row in the report spell it,
 // the bit that selects it, its label in the progress display, and the
-// function that runs it and records how it ended.
+// function that runs it, reading any dataset through the run's data, and
+// records how it ended.
 type inventory struct {
 	name    string
 	mask    selection.CheckMask
 	label   string
-	collect func(ctx context.Context, result *ScanResult)
+	collect func(ctx context.Context, data *held.Run, result *ScanResult)
 }
 
 // inventoryModules lists the inventory modules in the order all runs them,
@@ -342,15 +344,16 @@ func (c *allCmd) tasks(mask selection.CheckMask) []tui.Task {
 }
 
 // runModules runs each module that was not skipped, recording its outcome in
-// result and reporting it to the display as it happens.
-func (c *allCmd) runModules(ctx context.Context, mask selection.CheckMask, result *ScanResult, reporter tui.Reporter) {
+// result and reporting it to the display as it happens. The modules read
+// datasets through data, so the run opens the store once.
+func (c *allCmd) runModules(ctx context.Context, data *held.Run, mask selection.CheckMask, result *ScanResult, reporter tui.Reporter) {
 	for _, module := range inventoryModules() {
 		if c.isModuleSkipped(module.name) {
 			result.Modules = append(result.Modules, skippedModule(module.name))
 			continue
 		}
 		reporter.Start(module.name)
-		module.collect(ctx, result)
+		module.collect(ctx, data, result)
 		reporter.Finish(module.name, moduleOutcome(result.Modules))
 	}
 
@@ -370,8 +373,9 @@ func (c *allCmd) runModules(ctx context.Context, mask selection.CheckMask, resul
 
 // collectOSInfo runs the OS fingerprint module and records how it ended in
 // result, whether the module returned or failed. The fingerprint is read
-// without a context, so the one every module is given goes unused.
-func collectOSInfo(_ context.Context, result *ScanResult) {
+// without a context, so the one every module is given goes unused, as does
+// the run's data.
+func collectOSInfo(_ context.Context, _ *held.Run, result *ScanResult) {
 	osInfo, err := osfingerprint.GetOSFingerprint()
 	if err != nil {
 		result.Errors = append(result.Errors, fmt.Sprintf("OS fingerprint error: %v", err))
@@ -384,9 +388,9 @@ func collectOSInfo(_ context.Context, result *ScanResult) {
 
 // collectSoftware runs the software inventory module and records how it ended
 // in result, as collectOSInfo does. The inventory is then matched against the
-// vulnerability dataset of the host's distribution, with the fingerprint the
-// run read or, when it read none, one read here.
-func collectSoftware(ctx context.Context, result *ScanResult) {
+// vulnerability dataset of the host's distribution as data reads it, with the
+// fingerprint the run read or, when it read none, one read here.
+func collectSoftware(ctx context.Context, data *held.Run, result *ScanResult) {
 	software, err := softwarelist.GetInstalledSoftwareList(ctx)
 	if err != nil {
 		result.Errors = append(result.Errors, fmt.Sprintf("Software inventory error: %v", err))
@@ -394,14 +398,15 @@ func collectSoftware(ctx context.Context, result *ScanResult) {
 		return
 	}
 	result.Software = software
-	result.Vulns = hostMatching().run(ctx, result.OSInfo, software)
+	result.Vulns = hostMatching().run(ctx, data, result.OSInfo, software)
 	result.Modules = append(result.Modules, inventoryModule(selection.NameSoftware))
 }
 
 // collectListeners runs the sockets module and records how it ended in
 // result, as collectOSInfo does. A platform whose sockets are not read is not
-// an error: the module does not apply there, and its row says so.
-func collectListeners(ctx context.Context, result *ScanResult) {
+// an error: the module does not apply there, and its row says so. It reads
+// no dataset.
+func collectListeners(ctx context.Context, _ *held.Run, result *ScanResult) {
 	view, err := sockets.Read(ctx)
 	switch {
 	case errors.Is(err, sockets.ErrUnsupported):

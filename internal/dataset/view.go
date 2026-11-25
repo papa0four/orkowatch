@@ -107,6 +107,16 @@ func ProvenanceOf(id string, m Manifest, facts Facts, now time.Time) Provenance 
 	}
 }
 
+// Use is what a result was read from, or why it read nothing: the dataset
+// named, its provenance when it was read, and otherwise the reason and what
+// to run. A use with NotDone has nothing of a reading but the dataset's name,
+// and that only when one was chosen.
+type Use struct {
+	Provenance `yaml:",inline"`
+
+	NotDone string `json:"not_done,omitempty" yaml:"not_done,omitempty"`
+}
+
 // Row is one dataset as status shows it: its provenance and, for one that is
 // not read, the reason or its size.
 type Row struct {

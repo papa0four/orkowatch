@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/papa0four/orkowatch/cmd/commands/delivery"
+	"github.com/papa0four/orkowatch/cmd/commands/held"
 	"github.com/papa0four/orkowatch/internal/dataset"
 	"github.com/papa0four/orkowatch/internal/dataset/datasettest"
 	"github.com/papa0four/orkowatch/internal/dataset/store"
@@ -237,7 +238,7 @@ func TestDataStatusRefusesAnOpenStore(t *testing.T) {
 func TestKnownDatasets(t *testing.T) {
 	seen := map[string]bool{}
 	var ids []string
-	for _, k := range knownDatasets() {
+	for _, k := range held.Known() {
 		id := k.ID()
 		if !dataset.ValidID(id) || seen[id] {
 			t.Errorf("%q is not a name one dataset can have", id)
@@ -261,7 +262,7 @@ func TestKnownDatasets(t *testing.T) {
 	}
 
 	d, _ := testData(t, false, "")
-	d.known = knownDatasets()
+	d.known = held.Known()
 	dir := t.TempDir()
 	if _, err := run(d, "status", "-o", "text", "--report-file", dir); err != nil {
 		t.Fatal(err)

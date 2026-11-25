@@ -13,10 +13,8 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/papa0four/orkowatch/cmd/commands/cliargs"
+	"github.com/papa0four/orkowatch/cmd/commands/held"
 	"github.com/papa0four/orkowatch/internal/dataset"
-	"github.com/papa0four/orkowatch/internal/dataset/epss"
-	"github.com/papa0four/orkowatch/internal/dataset/kev"
-	"github.com/papa0four/orkowatch/internal/dataset/osv"
 	"github.com/papa0four/orkowatch/internal/dataset/store"
 	"github.com/papa0four/orkowatch/internal/elevation"
 	"github.com/papa0four/orkowatch/internal/osfingerprint"
@@ -41,19 +39,11 @@ type dataCmd struct {
 	fetcher     func() (fetcher, error)
 }
 
-// knownDatasets lists the datasets this version of owatch knows. A source is
-// added here as a type that satisfies dataset.Dataset; the commands and the
-// store read every source through that interface and name none. They are
-// listed in name order, which is the order status shows them in.
-func knownDatasets() []dataset.Dataset {
-	return append([]dataset.Dataset{epss.Scores{}, kev.Catalog{}}, osv.Datasets()...)
-}
-
 // newDataCmd returns the owatch data command and its subcommands, reading the
 // host itself.
 func newDataCmd() *cobra.Command {
 	return dataCommand(&dataCmd{
-		known:       knownDatasets(),
+		known:       held.Known(),
 		open:        store.ForProcess,
 		read:        store.ForReading,
 		host:        osfingerprint.GetOSFingerprint,
@@ -137,8 +127,9 @@ audit.`,
 }
 
 // collectStatus reads the store's state and records how it ended in result,
-// as each of all's modules does.
-func (d *dataCmd) collectStatus(ctx context.Context, result *ScanResult) {
+// as each of all's modules does. It opens the store itself, since it reports
+// what an elevated run installed on the way, which a run's reading does not.
+func (d *dataCmd) collectStatus(ctx context.Context, _ *held.Run, result *ScanResult) {
 	view, err := d.status(ctx)
 	if err != nil {
 		result.Errors = append(result.Errors, fmt.Sprintf("Datasets error: %v", err))

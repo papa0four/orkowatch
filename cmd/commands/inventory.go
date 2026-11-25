@@ -11,6 +11,7 @@ import (
 
 	"github.com/papa0four/orkowatch/cmd/commands/cliargs"
 	"github.com/papa0four/orkowatch/cmd/commands/delivery"
+	"github.com/papa0four/orkowatch/cmd/commands/held"
 	"github.com/papa0four/orkowatch/internal/security/finding"
 )
 
@@ -58,7 +59,7 @@ func newModuleCmd(m standaloneModule, module inventory, name string) *cobra.Comm
 			}
 			started := time.Now()
 			result := &ScanResult{Timestamp: started, Errors: make([]string, 0)}
-			module.collect(cmd.Context(), result)
+			module.collect(cmd.Context(), held.ForHost(), result)
 			if ran := result.Modules[len(result.Modules)-1]; ran.Result == finding.ResultError {
 				return fmt.Errorf("%s: %s", name, ran.Reason)
 			}

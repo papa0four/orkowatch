@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/papa0four/orkowatch/cmd/commands/delivery"
+	"github.com/papa0four/orkowatch/cmd/commands/held"
 	"github.com/papa0four/orkowatch/cmd/commands/security"
 	"github.com/papa0four/orkowatch/internal/dataset"
 	"github.com/papa0four/orkowatch/internal/dataset/datasettest"
@@ -46,22 +47,24 @@ func (r testRecords) Records(data io.Reader, host *osfingerprint.OSInfo, each fu
 
 var debian = &osfingerprint.OSInfo{OS: "linux", Platform: "debian", PlatformVersion: "12"}
 
-// matching is inventoryMatching over a store in a temporary directory that
-// knows the test records, at dataNow.
-func matching(t *testing.T) (inventoryMatching, store.Store) {
+// matching is inventoryMatching that knows the test records, with a run's
+// data over a store in a temporary directory, read at dataNow.
+func matching(t *testing.T) (inventoryMatching, *held.Run, store.Store) {
 	t.Helper()
 	s := store.At(filepath.Join(t.TempDir(), "store"))
 	records := testRecords{datasettest.Dataset{Name: "records", Applies: true}}
 	return inventoryMatching{
-		host: func() (*osfingerprint.OSInfo, error) { return debian, nil },
-		read: func(context.Context, []dataset.Dataset, *osfingerprint.OSInfo, time.Time) (store.Store, store.Adoption, error) {
-			return s, store.Adoption{}, nil
-		},
-		now:      func() time.Time { return dataNow },
+		host:     func() (*osfingerprint.OSInfo, error) { return debian, nil },
 		matched:  []dataset.Dataset{records},
-		known:    []dataset.Dataset{records},
 		coverage: "Debian",
-	}, s
+	}, heldIn(s, records), s
+}
+
+// heldIn is a run's data that reads s, knowing known, at dataNow.
+func heldIn(s store.Store, known ...dataset.Dataset) *held.Run {
+	return held.New(func(context.Context, []dataset.Dataset, *osfingerprint.OSInfo, time.Time) (store.Store, store.Adoption, error) {
+		return s, store.Adoption{}, nil
+	}, known, dataNow)
 }
 
 // installed is a host with openssl at version installed.
@@ -73,17 +76,17 @@ func installed(version string) []softwarelist.SoftwareEntry {
 // dataset, its release, its date, and its state; read when the run did not
 // read the host.
 func TestMatchingHeld(t *testing.T) {
-	m, s := matching(t)
+	m, data, s := matching(t)
 	datasettest.Put(t, s.Root(), datasettest.Dataset{Name: "records"}, datasettest.Content, dataNow.Add(-9*24*time.Hour), nil)
 
-	v := m.run(context.Background(), nil, installed("3.0.11-1"))
+	v := m.run(context.Background(), data, nil, installed("3.0.11-1"))
 	if v.NotDone != "" || v.ID != "records" || v.Version != "Debian:12" || v.DataDate != "2026-11-20" || v.State != dataset.StateOutOfSync || v.Source == "" {
 		t.Fatalf("view %+v", v)
 	}
 	if len(v.Packages) != 1 || len(v.Packages[0].Vulnerabilities) != 1 || v.Packages[0].Vulnerabilities[0].ID != "CVE-2026-1" || v.Packages[0].Vulnerabilities[0].Fixed != "3.0.15-1" {
 		t.Errorf("packages %+v", v.Packages)
 	}
-	if v := m.run(context.Background(), debian, installed("3.0.15-1")); v.NotDone != "" || len(v.Packages) != 0 {
+	if v := m.run(context.Background(), data, debian, installed("3.0.15-1")); v.NotDone != "" || len(v.Packages) != 0 {
 		t.Errorf("the fixed version gave %+v", v)
 	}
 }
@@ -93,29 +96,29 @@ func TestMatchingHeld(t *testing.T) {
 // read, and a store that cannot be read.
 func TestMatchingNotDone(t *testing.T) {
 	for name, tt := range map[string]struct {
-		change func(*inventoryMatching, store.Store)
+		change func(*inventoryMatching, **held.Run, store.Store)
 		host   *osfingerprint.OSInfo
 		reason string
 	}{
 		"no dataset for the host": {nil, &osfingerprint.OSInfo{OS: "linux", Platform: "arch"}, "matching covers Debian"},
 		"not held":                {nil, debian, "records is not held; fetch it with owatch data refresh"},
-		"unusable": {func(_ *inventoryMatching, s store.Store) {
+		"unusable": {func(_ *inventoryMatching, _ **held.Run, s store.Store) {
 			datasettest.Put(t, s.Root(), datasettest.Dataset{Name: "records"}, "not the test dataset\n", dataNow.Add(-time.Hour), nil)
 		}, debian, "records cannot be used"},
-		"no host": {func(m *inventoryMatching, _ store.Store) {
+		"no host": {func(m *inventoryMatching, _ **held.Run, _ store.Store) {
 			m.host = func() (*osfingerprint.OSInfo, error) { return nil, errors.New("no host") }
 		}, nil, "the host could not be identified: no host"},
-		"no store": {func(m *inventoryMatching, _ store.Store) {
-			m.read = func(context.Context, []dataset.Dataset, *osfingerprint.OSInfo, time.Time) (store.Store, store.Adoption, error) {
+		"no store": {func(_ *inventoryMatching, data **held.Run, _ store.Store) {
+			*data = held.New(func(context.Context, []dataset.Dataset, *osfingerprint.OSInfo, time.Time) (store.Store, store.Adoption, error) {
 				return store.Store{}, store.Adoption{}, errors.New("locked")
-			}
+			}, nil, dataNow)
 		}, debian, "the dataset store could not be read: locked"},
 	} {
-		m, s := matching(t)
+		m, data, s := matching(t)
 		if tt.change != nil {
-			tt.change(&m, s)
+			tt.change(&m, &data, s)
 		}
-		v := m.run(context.Background(), tt.host, installed("3.0.11-1"))
+		v := m.run(context.Background(), data, tt.host, installed("3.0.11-1"))
 		if !strings.Contains(v.NotDone, tt.reason) || len(v.Packages) != 0 || v.Packages == nil {
 			t.Errorf("%s: %+v, want not done naming %q", name, v, tt.reason)
 		}
@@ -126,13 +129,13 @@ func TestMatchingNotDone(t *testing.T) {
 // carry it under vulnerabilities, the text of all and of software alone show
 // it, and a saved report reads it back.
 func TestVulnerabilitiesInTheReports(t *testing.T) {
-	m, s := matching(t)
+	m, reads, s := matching(t)
 	datasettest.Put(t, s.Root(), datasettest.Dataset{Name: "records"}, datasettest.Content, dataNow.Add(-time.Hour), nil)
 	result := &ScanResult{
 		Timestamp: dataNow,
 		Modules:   []moduleRun{{Name: selection.NameSoftware, Result: finding.ResultInformational}},
 		Software:  installed("3.0.11-1"),
-		Vulns:     m.run(context.Background(), debian, installed("3.0.11-1")),
+		Vulns:     m.run(context.Background(), reads, debian, installed("3.0.11-1")),
 	}
 	view := toAllResult(result, "")
 	data, err := json.Marshal(view)
@@ -183,7 +186,7 @@ func TestVulnerabilitiesInTheReports(t *testing.T) {
 // made.
 func TestSoftwareModuleMatches(t *testing.T) {
 	result := &ScanResult{}
-	collectSoftware(context.Background(), result)
+	collectSoftware(context.Background(), held.ForHost(), result)
 	if ran := result.Modules[len(result.Modules)-1]; ran.Result == finding.ResultError {
 		t.Skipf("this host's inventory cannot be read: %s", ran.Reason)
 	}

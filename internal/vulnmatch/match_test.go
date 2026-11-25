@@ -216,7 +216,7 @@ func TestMatchCannotCompare(t *testing.T) {
 // the unfixed counted by package, and those not matched; with no match made,
 // why.
 func TestWriteText(t *testing.T) {
-	v := View{Provenance: dataset.Provenance{ID: "osv-ubuntu", Version: "Ubuntu:22.04", DataDate: "2026-11-24", State: dataset.StateCurrent}, Order: "dpkg",
+	v := View{Use: dataset.Use{Provenance: dataset.Provenance{ID: "osv-ubuntu", Version: "Ubuntu:22.04", DataDate: "2026-11-24", State: dataset.StateCurrent}}, Order: "dpkg",
 		Packages: []PackageMatches{{Package: "openssl", Installed: "3.0.2-1", Vulnerabilities: []Vulnerability{
 			{ID: "CVE-2026-1", Status: StatusFixAvailable, Fixed: "3.0.2-2", Severity: Severity{Label: "medium", Level: LevelMedium, Basis: "Ubuntu priority"}},
 			{ID: "CVE-2026-2", Status: StatusUnfixed},
@@ -245,7 +245,7 @@ func TestWriteText(t *testing.T) {
 	}
 
 	b.Reset()
-	if err := WriteText(&b, View{NotDone: "no OSV dataset is held for this host; run owatch data refresh"}); err != nil || !strings.HasPrefix(b.String(), "Matching was not done: no OSV dataset") {
+	if err := WriteText(&b, View{Use: dataset.Use{NotDone: "no OSV dataset is held for this host; run owatch data refresh"}}); err != nil || !strings.HasPrefix(b.String(), "Matching was not done: no OSV dataset") {
 		t.Errorf("a match not made wrote %q, %v", b.String(), err)
 	}
 }
