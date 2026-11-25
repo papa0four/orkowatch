@@ -195,11 +195,12 @@ func (p PackageMatches) counts() (fixable, unfixed, known int) {
 }
 
 // WriteText writes v as the vulnerabilities section of a text report: the
-// dataset, or why no match was made; the counts; every vulnerability known to
-// be exploited, fixed or not, or why that was not read; the rest of those with
-// a fix available, one a line led by its severity; and for the unfixed, a
-// count for each package. Both lists are in the order every view lists
-// vulnerabilities.
+// dataset, or why no match was made; the counts; the EPSS scores file, or why
+// it was not read; every vulnerability known to be exploited, fixed or not, or
+// why that was not read; the rest of those with a fix available, one a line
+// led by its severity and, when the scores were read, its EPSS score; and for
+// the unfixed, a count for each package. Both lists are in the order every
+// view lists vulnerabilities.
 // Every match is in the JSON and YAML reports and the results browser; the
 // unfixed are counted here, since a release can carry thousands. This is the
 // one text renderer of a match.
@@ -217,6 +218,7 @@ func WriteText(w io.Writer, v View) error {
 		render.Count(c.Unfixed, "unfixed", "unfixed"), render.Count(c.PackagesWithUnfixed, "package", "packages"),
 		render.Count(c.NotMatched, "pair", "pairs"), render.Count(c.NotCovered, "package", "packages"))))
 
+	writePredicted(ew, v)
 	writeKnownExploited(ew, v)
 	writeFixAvailable(ew, v)
 	if c.Unfixed > 0 {
@@ -264,7 +266,7 @@ func writeFixAvailable(ew *render.ErrWriter, v View) {
 	var lines []string
 	for _, l := range v.InOrder() {
 		if found := l.Vulnerability; found.Status == StatusFixAvailable && found.KnownExploited == nil {
-			lines = append(lines, fmt.Sprintf("%-11s %-20s %s %s, fixed in %s", severityWord(found.Severity), found.ID, l.Package.Package, l.Package.Installed, found.Fixed))
+			lines = append(lines, fmt.Sprintf("%-11s %s%-20s %s %s, fixed in %s", severityWord(found.Severity), predictionWord(v, found), found.ID, l.Package.Package, l.Package.Installed, found.Fixed))
 		}
 	}
 	if len(lines) == 0 {
@@ -304,12 +306,44 @@ func writeKnownExploited(ew *render.ErrWriter, v View) {
 		if found.Status == StatusFixAvailable {
 			state = "fixed in " + found.Fixed
 		}
-		ew.Printf("  %s\n", render.HostText(fmt.Sprintf("%-11s %-20s %s %s, %s; added %s, ransomware use %s",
-			severityWord(found.Severity), found.ID, l.Package.Package, l.Package.Installed, state, found.KnownExploited.Added, found.KnownExploited.Ransomware)))
+		ew.Printf("  %s\n", render.HostText(fmt.Sprintf("%-11s %s%-20s %s %s, %s; added %s, ransomware use %s",
+			severityWord(found.Severity), predictionWord(v, found), found.ID, l.Package.Package, l.Package.Installed, state, found.KnownExploited.Added, found.KnownExploited.Ransomware)))
 	}
 	if catalog.Attribution != "" {
 		ew.Printf("  %s\n", render.HostText(catalog.Attribution))
 	}
+}
+
+// writePredicted writes the EPSS scores file v was scored from, with the
+// attribution FIRST asks for, or why it was not read.
+func writePredicted(ew *render.ErrWriter, v View) {
+	scores := v.ExploitPrediction
+	switch {
+	case scores == nil:
+		return
+	case scores.NotDone != "":
+		ew.Printf("\n%s\n", render.HostText("Exploit prediction was not read: "+scores.NotDone))
+		return
+	}
+	ew.Printf("\n%s\n", render.HostText("Exploit prediction scored by "+scores.About()+"."))
+	if scores.Attribution != "" {
+		ew.Printf("  %s\n", render.HostText(scores.Attribution))
+	}
+}
+
+// predictionWord is the EPSS column of a line of the text report, with its
+// trailing space: the score, or a dash where the file gives none. It is empty
+// when no scores were read, so that a file not read is not taken for one that
+// scores nothing.
+func predictionWord(v View, found Vulnerability) string {
+	if v.ExploitPrediction == nil || v.ExploitPrediction.NotDone != "" {
+		return ""
+	}
+	word := "EPSS -"
+	if found.ExploitPrediction != nil {
+		word = "EPSS " + found.ExploitPrediction.ScorePercent()
+	}
+	return fmt.Sprintf("%-12s ", word)
 }
 
 // severityWord is a severity as a line of the text report leads with it: the

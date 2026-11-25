@@ -392,8 +392,8 @@ func TestOnePrecedence(t *testing.T) {
 	}
 	var listed []string
 	for _, line := range strings.Split(b.String(), "\n") {
-		if fields := strings.Fields(line); len(fields) > 1 && strings.HasPrefix(fields[1], "CVE-") {
-			listed = append(listed, fields[1])
+		if at := slices.IndexFunc(strings.Fields(line), func(f string) bool { return strings.HasPrefix(f, "CVE-") }); at >= 0 {
+			listed = append(listed, strings.Fields(line)[at])
 		}
 	}
 	if got, want := strings.Join(listed, ","), "CVE-2026-32,CVE-2026-13,CVE-2026-31,CVE-2026-22,CVE-2026-21,CVE-2026-20"; got != want {
@@ -442,5 +442,37 @@ func TestWriteTextKnownExploited(t *testing.T) {
 		if err := WriteText(&b, v); err != nil || !strings.Contains(b.String(), c.want) || !strings.Contains(b.String(), "high        CVE-2026-1") {
 			t.Errorf("%s: wrote %q, %v, want %q", name, b.String(), err, c.want)
 		}
+	}
+}
+
+// With the scores read, the text names the file and its attribution, and each
+// listed vulnerability carries its EPSS score after its severity, or a dash
+// where the file gives none. With the scores not read, it says why, and no
+// line carries the column, since a file not read scores nothing.
+func TestWriteTextPredicted(t *testing.T) {
+	v := exploitedView()
+	v.MarkExploited(catalog{"CVE-2026-3": {Added: "2026-11-21", Ransomware: "Unknown"}}, kevData)
+	v.MarkPredicted(predictions{"CVE-2026-3": {Score: 0.94321}, "CVE-2026-1": {Score: 0.00043}}, epssData)
+	var b strings.Builder
+	if err := WriteText(&b, v); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"\nExploit prediction scored by epss, v2026.06.15, data of 2026-11-23, current.\n  Attributed as FIRST asks.\n",
+		"  critical    EPSS 94.3%   CVE-2026-3           openssl 3.0.2-1, unfixed; added 2026-11-21, ransomware use Unknown\n",
+		"  high        EPSS 0.043%  CVE-2026-1           openssl 3.0.2-1, fixed in 3.0.2-2\n",
+		"  medium      EPSS -       CVE-2026-10          bash 5.1, fixed in 5.2\n",
+	} {
+		if !strings.Contains(b.String(), want) {
+			t.Errorf("the text lacks %q:\n%s", want, b.String())
+		}
+	}
+
+	v = exploitedView()
+	v.MarkPredicted(predictions{}, dataset.Use{Provenance: dataset.Provenance{ID: "epss"}, NotDone: "epss is not held"})
+	b.Reset()
+	if err := WriteText(&b, v); err != nil || !strings.Contains(b.String(), "\nExploit prediction was not read: epss is not held\n") ||
+		strings.Contains(b.String(), "EPSS") || !strings.Contains(b.String(), "  high        CVE-2026-1") {
+		t.Errorf("the scores not read wrote %q, %v", b.String(), err)
 	}
 }
