@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"slices"
+	"strings"
 
 	"github.com/papa0four/orkowatch/internal/dataset"
 	"github.com/papa0four/orkowatch/internal/dataset/kev"
@@ -202,16 +203,46 @@ func WriteText(w io.Writer, v View) error {
 	return ew.Err()
 }
 
+// Listed is one vulnerability of an affected package.
+type Listed struct {
+	Package       PackageMatches
+	Vulnerability Vulnerability
+}
+
+// InOrder is every vulnerability of v's affected packages in the order every
+// view lists them across packages: those known to be exploited first, the
+// most severe first, then the rest with a fix available ahead of the unfixed,
+// each keeping the order of its package and the order within it.
+func (v View) InOrder() []Listed {
+	var all []Listed
+	for _, pkg := range v.Packages {
+		for _, found := range pkg.Vulnerabilities {
+			all = append(all, Listed{pkg, found})
+		}
+	}
+	slices.SortStableFunc(all, func(a, b Listed) int {
+		aKnown, bKnown := a.Vulnerability.KnownExploited != nil, b.Vulnerability.KnownExploited != nil
+		switch {
+		case aKnown != bKnown && aKnown:
+			return -1
+		case aKnown != bKnown:
+			return 1
+		case aKnown:
+			return cmp.Compare(rank(a.Vulnerability.Severity.Level), rank(b.Vulnerability.Severity.Level))
+		}
+		return strings.Compare(statusOrder[a.Vulnerability.Status], statusOrder[b.Vulnerability.Status])
+	})
+	return all
+}
+
 // writeFixAvailable writes the vulnerabilities of v with a fix available that
 // are not known to be exploited, which are listed before them, one a line led
 // by its severity, the most severe of a package first.
 func writeFixAvailable(ew *render.ErrWriter, v View) {
 	var lines []string
-	for _, pkg := range v.Packages {
-		for _, found := range pkg.Vulnerabilities {
-			if found.Status == StatusFixAvailable && found.KnownExploited == nil {
-				lines = append(lines, fmt.Sprintf("%-11s %-20s %s %s, fixed in %s", severityWord(found.Severity), found.ID, pkg.Package, pkg.Installed, found.Fixed))
-			}
+	for _, l := range v.InOrder() {
+		if found := l.Vulnerability; found.Status == StatusFixAvailable && found.KnownExploited == nil {
+			lines = append(lines, fmt.Sprintf("%-11s %-20s %s %s, fixed in %s", severityWord(found.Severity), found.ID, l.Package.Package, l.Package.Installed, found.Fixed))
 		}
 	}
 	if len(lines) == 0 {
@@ -240,30 +271,19 @@ func writeKnownExploited(ew *render.ErrWriter, v View) {
 		return
 	}
 
-	type listed struct {
-		pkg   PackageMatches
-		found Vulnerability
-	}
-	var known []listed
-	for _, pkg := range v.Packages {
-		for _, found := range pkg.Vulnerabilities {
-			if found.KnownExploited != nil {
-				known = append(known, listed{pkg, found})
-			}
-		}
-	}
-	slices.SortStableFunc(known, func(a, b listed) int { return cmp.Compare(rank(a.found.Severity.Level), rank(b.found.Severity.Level)) })
-
 	ew.Printf("\n%s\n", render.HostText(fmt.Sprintf("%s, by %s:",
-		render.Count(len(known), "vulnerability known to be exploited", "vulnerabilities known to be exploited"), catalog.About())))
-	for _, k := range known {
-		state := "unfixed"
-		if k.found.Status == StatusFixAvailable {
-			state = "fixed in " + k.found.Fixed
+		render.Count(v.Counts.KnownExploited, "vulnerability known to be exploited", "vulnerabilities known to be exploited"), catalog.About())))
+	for _, l := range v.InOrder() {
+		found := l.Vulnerability
+		if found.KnownExploited == nil {
+			break
 		}
-		entry := k.found.KnownExploited
+		state := "unfixed"
+		if found.Status == StatusFixAvailable {
+			state = "fixed in " + found.Fixed
+		}
 		ew.Printf("  %s\n", render.HostText(fmt.Sprintf("%-11s %-20s %s %s, %s; added %s, ransomware use %s",
-			severityWord(k.found.Severity), k.found.ID, k.pkg.Package, k.pkg.Installed, state, entry.Added, entry.Ransomware)))
+			severityWord(found.Severity), found.ID, l.Package.Package, l.Package.Installed, state, found.KnownExploited.Added, found.KnownExploited.Ransomware)))
 	}
 	if catalog.Attribution != "" {
 		ew.Printf("  %s\n", render.HostText(catalog.Attribution))

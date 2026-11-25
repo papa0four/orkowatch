@@ -43,8 +43,9 @@ type Run struct {
 	// exploited is the catalog of known-exploited vulnerabilities, read the
 	// first time it is asked for, since the software module and the audit
 	// both consult it.
-	exploited    *kev.Index
-	exploitedUse dataset.Use
+	exploitedRead bool
+	exploited     kev.Index
+	exploitedUse  dataset.Use
 }
 
 // Known lists the datasets this version of owatch knows. A source is added
@@ -101,17 +102,16 @@ func (r *Run) Read(ctx context.Context, d dataset.Dataset, host *osfingerprint.O
 // read it for host, read once however often it is asked for: its index, empty
 // when it was not read, and what was read or why nothing was.
 func (r *Run) Exploited(ctx context.Context, host *osfingerprint.OSInfo) (kev.Index, dataset.Use) {
-	if r.exploited == nil {
-		var x kev.Index
+	if !r.exploitedRead {
 		catalog := kev.Catalog{}
 		r.exploitedUse = r.Read(ctx, catalog, host, func(data io.Reader) (facts dataset.Facts, err error) {
-			x, facts, err = catalog.Read(data, host)
+			r.exploited, facts, err = catalog.Read(data, host)
 			return facts, err
 		})
 		if r.exploitedUse.NotDone != "" {
-			x = kev.Index{}
+			r.exploited = kev.Index{}
 		}
-		r.exploited = &x
+		r.exploitedRead = true
 	}
-	return *r.exploited, r.exploitedUse
+	return r.exploited, r.exploitedUse
 }

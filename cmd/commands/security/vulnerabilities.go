@@ -3,9 +3,7 @@
 package security
 
 import (
-	"cmp"
 	"fmt"
-	"slices"
 	"strings"
 
 	"github.com/papa0four/orkowatch/internal/dataset"
@@ -42,9 +40,9 @@ func vulnerabilitiesTab(v vulnmatch.View) tui.Tab {
 	banded := v.KnownExploited != nil && v.KnownExploited.NotDone == ""
 
 	present := map[string]bool{}
-	for _, l := range listedInOrder(v) {
-		present[l.found.Severity.Level] = true
-		tab.Records = append(tab.Records, vulnerabilityRecord(l.pkg, l.found, against, exploitation, banded))
+	for _, l := range v.InOrder() {
+		present[l.Vulnerability.Severity.Level] = true
+		tab.Records = append(tab.Records, vulnerabilityRecord(l.Package, l.Vulnerability, against, exploitation, banded))
 	}
 	for _, n := range v.NotMatched {
 		present[vulnmatch.LevelNone] = true
@@ -86,42 +84,6 @@ func vulnerabilitiesTab(v vulnmatch.View) tui.Tab {
 		tab.Filters = append(tab.Filters, tui.Filter{Name: "known exploitation", Options: []string{tui.All, knownExploited, notKnownExploited}, Start: tui.All})
 	}
 	return tab
-}
-
-// listed is one vulnerability of an affected package.
-type listed struct {
-	pkg   vulnmatch.PackageMatches
-	found vulnmatch.Vulnerability
-}
-
-// listedInOrder is every vulnerability of v's affected packages in the order
-// the tab lists them: those known to be exploited first, the most severe
-// first, then the rest with a fix available ahead of the unfixed, each in the
-// order of its package and within it.
-func listedInOrder(v vulnmatch.View) []listed {
-	var all []listed
-	for _, pkg := range v.Packages {
-		for _, found := range pkg.Vulnerabilities {
-			all = append(all, listed{pkg, found})
-		}
-	}
-	slices.SortStableFunc(all, func(a, b listed) int {
-		aKnown, bKnown := a.found.KnownExploited != nil, b.found.KnownExploited != nil
-		switch {
-		case aKnown != bKnown && aKnown:
-			return -1
-		case aKnown != bKnown:
-			return 1
-		case aKnown && a.found.Severity.Worse(b.found.Severity):
-			return -1
-		case aKnown && b.found.Severity.Worse(a.found.Severity):
-			return 1
-		case aKnown:
-			return 0
-		}
-		return cmp.Compare(statusPlace(a.found.Status), statusPlace(b.found.Status))
-	})
-	return all
 }
 
 // exploitationText names the catalog of known-exploited vulnerabilities a
@@ -210,16 +172,4 @@ func severityText(s vulnmatch.Severity) string {
 		text += ", placed with " + s.Level
 	}
 	return text + " (" + s.Basis + ")"
-}
-
-// statusPlace orders the records: a fix available, then unfixed, then not
-// matched.
-func statusPlace(status string) int {
-	switch status {
-	case vulnmatch.StatusFixAvailable:
-		return 0
-	case vulnmatch.StatusUnfixed:
-		return 1
-	}
-	return 2
 }
