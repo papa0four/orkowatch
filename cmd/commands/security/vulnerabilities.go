@@ -22,11 +22,11 @@ const (
 
 // vulnerabilitiesTab is the software's match against its dataset: one record
 // per vulnerability of each affected package, then those that could not be
-// judged. When the catalog of known-exploited vulnerabilities was read, those
-// it lists come first, under their own heading and in the critical color,
-// the most severe first, listed whichever status is chosen, and the tab
-// filters by it; the rest follow in their order, those with a fix available
-// first, then the unfixed, then those not judged. It opens on those with a
+// judged, in the order every view lists vulnerabilities. When the catalog of
+// known-exploited vulnerabilities was read, those it lists come first, under
+// their own heading and in the critical color, listed whichever status is
+// chosen, and the tab filters by it; the rest follow under theirs, then those
+// not judged. It opens on those with a
 // fix available, or on all when none has one, and filters by the severity
 // the match gives each. With no match made it says why.
 func vulnerabilitiesTab(v vulnmatch.View) tui.Tab {

@@ -284,8 +284,7 @@ func exploitedView() View {
 
 // The catalog marks what it lists and nothing else, and a package's
 // vulnerabilities known to be exploited come first, the most severe first,
-// then the rest in their order: a fix available ahead of the unfixed, the
-// most severe first within each. The counts include those known exploited.
+// then the rest. The counts include those known exploited.
 func TestMarkExploited(t *testing.T) {
 	v := exploitedView()
 	v.MarkExploited(catalog{
@@ -311,6 +310,61 @@ func TestMarkExploited(t *testing.T) {
 	}
 	if v.KnownExploited == nil || *v.KnownExploited != kevData {
 		t.Errorf("the view names the catalog's data as %+v", v.KnownExploited)
+	}
+}
+
+// Every view orders vulnerabilities by one rule, the known exploited first,
+// then severity, then a fix available ahead of the unfixed, then the
+// identifier: each package's own list, the list across packages, and the text
+// report's blocks.
+func TestOnePrecedence(t *testing.T) {
+	sev := func(level string) Severity { return Severity{Label: level, Level: level, Basis: "Ubuntu priority"} }
+	fix := func(id, level string) Vulnerability {
+		return Vulnerability{ID: id, Status: StatusFixAvailable, Fixed: "2", Severity: sev(level)}
+	}
+	unfixed := func(id, level string) Vulnerability {
+		return Vulnerability{ID: id, Status: StatusUnfixed, Severity: sev(level)}
+	}
+	v := View{Use: dataset.Use{Provenance: dataset.Provenance{ID: "osv-ubuntu"}}, Packages: []PackageMatches{
+		{Package: "a", Installed: "1", Vulnerabilities: []Vulnerability{
+			fix("CVE-2026-21", LevelHigh), unfixed("CVE-2026-12", LevelCritical), fix("CVE-2026-13", LevelLow)}},
+		{Package: "b", Installed: "1", Vulnerabilities: []Vulnerability{
+			fix("CVE-2026-31", LevelCritical), unfixed("CVE-2026-32", LevelHigh), fix("CVE-2026-22", LevelHigh)}},
+	}, Installed: 2}
+	v.MarkExploited(catalog{"CVE-2026-13": {}, "CVE-2026-32": {}}, kevData)
+
+	ids := func(vulns []Vulnerability) string {
+		var out []string
+		for _, found := range vulns {
+			out = append(out, found.ID)
+		}
+		return strings.Join(out, ",")
+	}
+	for i, want := range []string{"CVE-2026-13,CVE-2026-12,CVE-2026-21", "CVE-2026-32,CVE-2026-31,CVE-2026-22"} {
+		if got := ids(v.Packages[i].Vulnerabilities); got != want {
+			t.Errorf("package %s lists %s, want %s", v.Packages[i].Package, got, want)
+		}
+	}
+	var across []Vulnerability
+	for _, l := range v.InOrder() {
+		across = append(across, l.Vulnerability)
+	}
+	if got, want := ids(across), "CVE-2026-32,CVE-2026-13,CVE-2026-31,CVE-2026-12,CVE-2026-21,CVE-2026-22"; got != want {
+		t.Errorf("across packages %s, want %s", got, want)
+	}
+
+	var b strings.Builder
+	if err := WriteText(&b, v); err != nil {
+		t.Fatal(err)
+	}
+	var listed []string
+	for _, line := range strings.Split(b.String(), "\n") {
+		if fields := strings.Fields(line); len(fields) > 1 && strings.HasPrefix(fields[1], "CVE-") {
+			listed = append(listed, fields[1])
+		}
+	}
+	if got, want := strings.Join(listed, ","), "CVE-2026-32,CVE-2026-13,CVE-2026-31,CVE-2026-21,CVE-2026-22"; got != want {
+		t.Errorf("the text lists %s, want %s:\n%s", got, want, b.String())
 	}
 }
 

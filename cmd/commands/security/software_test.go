@@ -39,7 +39,7 @@ func recordOf(t *testing.T, tab tui.Tab, title string) tui.Record {
 
 // Each package of the manager matched shows its counts and worst severity,
 // joined to its match by the source the records name, so both binaries of
-// openssl share its vulnerabilities; its detail lists them, fixable first;
+// openssl share its vulnerabilities; its detail lists them in the match's order;
 // it falls under affected, and under fix available when one has a fix; a
 // package nothing is matched to says so without being called clean; and one
 // of another manager is left as the inventory has it.

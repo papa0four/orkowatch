@@ -196,8 +196,10 @@ A matched vulnerability that CISA's Known Exploited Vulnerabilities catalog list
 is known to be exploited, and is marked with the date CISA added it, the date by
 which CISA directs US federal agencies to act on it, and whether its use in
 ransomware campaigns is known, each as the catalog writes it. A vulnerability
-exploited now outranks its score, so those known to be exploited come first, the
-most severe first and whether fixed or not, then the rest in their order. With the
+exploited now outranks its score, so those known to be exploited come first,
+whether fixed or not, then the rest. Every report and the results browser list
+vulnerabilities by one rule: known exploited first, then the most severe, then a
+fix available ahead of the unfixed, then the identifier. With the
 catalog not held, or not usable, the section says known exploitation was not read,
 why, and what to run.
 
@@ -317,10 +319,10 @@ package's row gives how many of its CVEs have a fix available and how many are
 unfixed, with the worst severity among them, its detail lists them, and its
 filter chooses all, the affected packages, or those with a fix available;
 Vulnerabilities, when the software was
-matched, lists each CVE of each affected package, those known to be exploited
-first in red under a red rule that counts them, marked on their rows and the most
-severe first, then the rest under a rule of their own, those with a fix available
-first, and opens filtered to those with a fix available: its filters choose fix
+matched, lists each CVE of each affected package in that order, those known to be
+exploited first in red under a red rule that counts them and marked on their rows,
+then the rest under a rule of their own, and opens filtered to those with a fix
+available: its filters choose fix
 available, unfixed, not matched, or all, a severity, and known exploited, not in
 the catalog, or all, each option with how many fall under it, and the known
 exploited stay listed whichever status is chosen,

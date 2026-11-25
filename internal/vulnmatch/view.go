@@ -3,11 +3,9 @@
 package vulnmatch
 
 import (
-	"cmp"
 	"fmt"
 	"io"
 	"slices"
-	"strings"
 
 	"github.com/papa0four/orkowatch/internal/dataset"
 	"github.com/papa0four/orkowatch/internal/dataset/kev"
@@ -70,8 +68,8 @@ type Counts struct {
 
 // PackageMatches is one affected package: the package as the records name it,
 // its installed version, and the installed packages built from it, given
-// once, with each of its vulnerabilities under it, those with a fix available
-// first.
+// once, with each of its vulnerabilities under it in the order every view
+// lists them.
 type PackageMatches struct {
 	Package         string          `json:"package" yaml:"package"`
 	Installed       string          `json:"installed" yaml:"installed"`
@@ -162,10 +160,10 @@ func (p PackageMatches) counts() (fixable, unfixed, known int) {
 
 // WriteText writes v as the vulnerabilities section of a text report: the
 // dataset, or why no match was made; the counts; every vulnerability known to
-// be exploited, fixed or not, the most severe first, or why that was not
-// read; the rest of those with a fix available, one a line led by its
-// severity, the most severe of a package first; and for the unfixed, a count
-// for each package.
+// be exploited, fixed or not, or why that was not read; the rest of those with
+// a fix available, one a line led by its severity; and for the unfixed, a
+// count for each package. Both lists are in the order every view lists
+// vulnerabilities.
 // Every match is in the JSON and YAML reports and the results browser; the
 // unfixed are counted here, since a release can carry thousands. This is the
 // one text renderer of a match.
@@ -209,10 +207,9 @@ type Listed struct {
 	Vulnerability Vulnerability
 }
 
-// InOrder is every vulnerability of v's affected packages in the order every
-// view lists them across packages: those known to be exploited first, the
-// most severe first, then the rest with a fix available ahead of the unfixed,
-// each keeping the order of its package and the order within it.
+// InOrder is every vulnerability of v's affected packages across packages,
+// in the order a package lists its own; one named in several packages keeps
+// the order of its packages.
 func (v View) InOrder() []Listed {
 	var all []Listed
 	for _, pkg := range v.Packages {
@@ -220,24 +217,13 @@ func (v View) InOrder() []Listed {
 			all = append(all, Listed{pkg, found})
 		}
 	}
-	slices.SortStableFunc(all, func(a, b Listed) int {
-		aKnown, bKnown := a.Vulnerability.KnownExploited != nil, b.Vulnerability.KnownExploited != nil
-		switch {
-		case aKnown != bKnown && aKnown:
-			return -1
-		case aKnown != bKnown:
-			return 1
-		case aKnown:
-			return cmp.Compare(rank(a.Vulnerability.Severity.Level), rank(b.Vulnerability.Severity.Level))
-		}
-		return strings.Compare(statusOrder[a.Vulnerability.Status], statusOrder[b.Vulnerability.Status])
-	})
+	slices.SortStableFunc(all, func(a, b Listed) int { return vulnerabilityOrder(a.Vulnerability, b.Vulnerability) })
 	return all
 }
 
 // writeFixAvailable writes the vulnerabilities of v with a fix available that
 // are not known to be exploited, which are listed before them, one a line led
-// by its severity, the most severe of a package first.
+// by its severity.
 func writeFixAvailable(ew *render.ErrWriter, v View) {
 	var lines []string
 	for _, l := range v.InOrder() {
@@ -255,8 +241,8 @@ func writeFixAvailable(ew *render.ErrWriter, v View) {
 }
 
 // writeKnownExploited writes the vulnerabilities of v the catalog of
-// known-exploited vulnerabilities lists, fixed or not, the most severe first,
-// under the catalog's data and attribution; that none is listed; or why the
+// known-exploited vulnerabilities lists, fixed or not, under the catalog's
+// data and attribution; that none is listed; or why the
 // catalog was not read.
 func writeKnownExploited(ew *render.ErrWriter, v View) {
 	catalog := v.KnownExploited

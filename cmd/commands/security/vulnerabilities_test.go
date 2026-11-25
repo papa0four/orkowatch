@@ -45,8 +45,8 @@ func field(r tui.Record, label string) string {
 	return ""
 }
 
-// The tab lists each vulnerability of each package, fixable first, then
-// unfixed, then not matched; each record falls under its status and its
+// The tab lists each vulnerability of each package in the match's order, the
+// most severe first, then not matched; each record falls under its status and its
 // records' severity label; it opens on those with a fix available; and its
 // detail gives the package, what was built from it, the versions, the scores
 // as the records give them, the records, and the dataset.
@@ -61,8 +61,8 @@ func TestVulnerabilitiesTab(t *testing.T) {
 	}
 	want := []string{
 		"CVE-2026-1  openssl | fix 3.0.2-2  Important | fix available,high",
-		"CVE-2026-3  bash | unfixed | unfixed,none stated",
 		"CVE-2026-2  openssl | unfixed  low | unfixed,low",
+		"CVE-2026-3  bash | unfixed | unfixed,none stated",
 		"CVE-2026-4  nodejs | not matched | not matched,none stated",
 	}
 	if !slices.Equal(rows, want) {
@@ -96,8 +96,8 @@ func TestVulnerabilitiesTab(t *testing.T) {
 
 // With the catalog read, the vulnerabilities it lists come first under their
 // own band, the most severe first and whether fixed or not, marked on the row
-// with the entry and the catalog in the detail; the rest follow under theirs
-// in their order; and the tab filters by it. With the catalog not read there
+// with the entry and the catalog in the detail; the rest follow under theirs;
+// and the tab filters by it. With the catalog not read there
 // are no bands and no filter, and the detail says why.
 func TestVulnerabilitiesTabKnownExploited(t *testing.T) {
 	v := matchedView()

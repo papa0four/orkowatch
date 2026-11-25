@@ -216,10 +216,11 @@ func (m *Matcher) Result() View {
 // unfixed.
 var statusOrder = map[string]string{StatusFixAvailable: "0", StatusUnfixed: "1"}
 
-// vulnerabilityOrder is the order of a package's vulnerabilities. Those known
-// to be exploited come first, the most severe of them first, since a
-// vulnerability exploited now outranks its score. The rest follow, those with
-// a fix available ahead of the unfixed and the most severe first within each.
+// vulnerabilityOrder is the one order every view lists vulnerabilities in,
+// within a package and across packages. Those known to be exploited come
+// first, since a vulnerability exploited now outranks its score; then, in
+// each part alike, the most severe first, a fix available ahead of the
+// unfixed, and the identifier.
 func vulnerabilityOrder(a, b Vulnerability) int {
 	known := func(v Vulnerability) int {
 		if v.KnownExploited != nil {
@@ -227,15 +228,11 @@ func vulnerabilityOrder(a, b Vulnerability) int {
 		}
 		return 1
 	}
-	if c := cmp.Compare(known(a), known(b)); c != 0 {
-		return c
-	}
-	severity := cmp.Compare(rank(a.Severity.Level), rank(b.Severity.Level))
-	status := strings.Compare(statusOrder[a.Status], statusOrder[b.Status])
-	if a.KnownExploited != nil {
-		return cmp.Or(severity, status, strings.Compare(a.ID, b.ID))
-	}
-	return cmp.Or(status, severity, strings.Compare(a.ID, b.ID))
+	return cmp.Or(
+		cmp.Compare(known(a), known(b)),
+		cmp.Compare(rank(a.Severity.Level), rank(b.Severity.Level)),
+		strings.Compare(statusOrder[a.Status], statusOrder[b.Status]),
+		strings.Compare(a.ID, b.ID))
 }
 
 // unitKey is an installed package as the records name it, at one version.
