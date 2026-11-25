@@ -602,7 +602,10 @@ size and the time its download is allowed before fetching it, and asks before on
 larger than 100 MiB; `--yes` skips the question. What is fetched is checked as any
 dataset is before it replaces the copy held, a download that fails because a
 server is briefly unable to answer, or that stalls, is tried three times, and a
-dataset that could not be refreshed keeps the copy held. While it runs, each
+dataset that could not be refreshed keeps the copy held. A refresh that can make
+no connection at all, as on a host with no network, stops there, fetches nothing
+after it, and names the way to bring datasets to such a host: `--to` and `--for`
+on a host with a network, then `owatch data import` here. While it runs, each
 download shows what has been received of its size, for how long, and how fast,
 and how long nothing has come once that is five seconds, and keeping the records
 the host needs, the check, and the install are each named as they run; on a

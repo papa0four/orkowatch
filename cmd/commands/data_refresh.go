@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strconv"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -74,7 +75,10 @@ checked as any dataset is before it replaces the copy held. A download that
 fails because a server is briefly unable to answer, or that stalls, is tried
 three times; one that fails for another reason once. A dataset that could not
 be refreshed keeps the copy held, and owatch data status shows the failure
-until it is refreshed.
+until it is refreshed. A refresh that can make no connection at all, as on a
+host with no network, stops there, fetches nothing after it, and names the way
+to bring datasets to such a host: --to and --for on a host with a network, then
+owatch data import here.
 
 While it runs, each download shows what has been received of its size, for how
 long, and how fast, and how long nothing has come once that is five seconds;
@@ -148,17 +152,35 @@ func (d *dataCmd) runRefresh(ctx context.Context, out, prompt io.Writer, to, for
 	}
 	report.Start()
 	outcomes, err := dest.Reporting(report).Refresh(ctx, f.Fetch, chosen, host, d.now())
-	if err := errors.Join(err, report.Stop()); err != nil {
+	err = errors.Join(err, report.Stop())
+	unreached := errors.Is(err, store.ErrUnreachable)
+	if err != nil && !unreached {
 		return err
 	}
-	failed, err := printOutcomes(out, outcomes)
-	if err != nil {
-		return err
+	failed, perr := printOutcomes(out, outcomes)
+	if perr != nil {
+		return perr
+	}
+	if unreached {
+		return noNetwork(err, host)
 	}
 	if failed+declined > 0 {
 		return fmt.Errorf("%d of %s not refreshed", failed+declined, render.Count(len(wanted), "dataset", "datasets"))
 	}
 	return nil
+}
+
+// noNetwork is the end of a refresh that could make no connection, with the
+// route for a host with no network: a refresh on a host with one, for this
+// host, carried here and imported. A host its target cannot name is pointed
+// to the Target line owatch osinfo prints.
+func noNetwork(cause error, host *osfingerprint.OSInfo) error {
+	forHost := "<the Target line owatch osinfo prints here>"
+	if target := host.Target(); target != "" {
+		forHost = strconv.Quote(target)
+	}
+	return fmt.Errorf("%w; nothing after it was fetched. On a host with no network, run "+
+		"owatch data refresh --to <directory> --for %s on a host with one, and owatch data import <directory> here", cause, forHost)
 }
 
 // refreshTarget settles which host is fetched for and where the datasets go:

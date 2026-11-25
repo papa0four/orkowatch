@@ -96,6 +96,35 @@ func TestDataRefresh(t *testing.T) {
 	}
 }
 
+// unreachable is a fetch that could make no connection at all, as the fetch
+// package reports one on a host with no network.
+type unreachable struct{}
+
+func (unreachable) Error() string     { return "no connection could be made" }
+func (unreachable) Unreachable() bool { return true }
+
+// With no network, refresh stops at the first dataset it cannot reach, prints
+// what happened to it, says the network could not be reached, and names the
+// route for a host with no network, with this host's target for --for.
+func TestDataRefreshWithNoNetwork(t *testing.T) {
+	d, _, origins := refreshing(t, false, "")
+	d.host = func() (*osfingerprint.OSInfo, error) {
+		return &osfingerprint.OSInfo{OS: "linux", Platform: "debian", PlatformVersion: "12"}, nil
+	}
+	origins.fails["wanted"] = unreachable{}
+	out, err := run(d, "refresh")
+	if !strings.Contains(out, "wanted: failed after 1 attempt: no connection could be made") {
+		t.Errorf("refresh printed %q", out)
+	}
+	if slices.Contains(origins.fetched, "debian-data") {
+		t.Errorf("fetched %q after the network could not be reached", origins.fetched)
+	}
+	if err == nil || !errors.Is(err, store.ErrUnreachable) ||
+		!strings.Contains(err.Error(), `owatch data refresh --to <directory> --for "linux/debian/12" on a host with one, and owatch data import <directory> here`) {
+		t.Errorf("with no network refresh ended with %v", err)
+	}
+}
+
 // A dataset that could not be fetched is reported with the reason, and the
 // command ends in an error.
 func TestDataRefreshReportsAFailure(t *testing.T) {
