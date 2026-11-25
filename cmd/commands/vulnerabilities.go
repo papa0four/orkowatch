@@ -45,9 +45,10 @@ func hostMatching() inventoryMatching {
 }
 
 // run matches entries, the inventory of host, against the dataset of host's
-// distribution as data reads it, and says what it found. host is read when
-// the run did not read it. A match that cannot be made says why and what to
-// do, and is never an error of the inventory: the packages are still listed.
+// distribution as data reads it, marks the vulnerabilities known to be
+// exploited, and says what it found. host is read when the run did not read
+// it. A match that cannot be made says why and what to do, and is never an
+// error of the inventory: the packages are still listed.
 func (m inventoryMatching) run(ctx context.Context, data *held.Run, host *osfingerprint.OSInfo, entries []softwarelist.SoftwareEntry) *vulnmatch.View {
 	if host == nil {
 		var err error
@@ -76,6 +77,7 @@ func (m inventoryMatching) run(ctx context.Context, data *held.Run, host *osfing
 	}
 	v := matcher.Result()
 	v.Use = use
+	v.MarkExploited(data.Exploited(ctx, host))
 	return &v
 }
 

@@ -199,10 +199,7 @@ func (m *Matcher) Result() View {
 		}
 	}
 	for _, pkg := range affected {
-		slices.SortFunc(pkg.Vulnerabilities, func(a, b Vulnerability) int {
-			return cmp.Or(strings.Compare(statusOrder[a.Status], statusOrder[b.Status]),
-				cmp.Compare(rank(a.Severity.Level), rank(b.Severity.Level)), strings.Compare(a.ID, b.ID))
-		})
+		slices.SortFunc(pkg.Vulnerabilities, vulnerabilityOrder)
 		v.Packages = append(v.Packages, *pkg)
 	}
 	slices.SortFunc(v.Packages, func(a, b PackageMatches) int {
@@ -216,8 +213,30 @@ func (m *Matcher) Result() View {
 }
 
 // statusOrder puts the vulnerabilities with a fix available ahead of the
-// unfixed within a package; within each, the most severe come first.
+// unfixed.
 var statusOrder = map[string]string{StatusFixAvailable: "0", StatusUnfixed: "1"}
+
+// vulnerabilityOrder is the order of a package's vulnerabilities. Those known
+// to be exploited come first, the most severe of them first, since a
+// vulnerability exploited now outranks its score. The rest follow, those with
+// a fix available ahead of the unfixed and the most severe first within each.
+func vulnerabilityOrder(a, b Vulnerability) int {
+	known := func(v Vulnerability) int {
+		if v.KnownExploited != nil {
+			return 0
+		}
+		return 1
+	}
+	if c := cmp.Compare(known(a), known(b)); c != 0 {
+		return c
+	}
+	severity := cmp.Compare(rank(a.Severity.Level), rank(b.Severity.Level))
+	status := strings.Compare(statusOrder[a.Status], statusOrder[b.Status])
+	if a.KnownExploited != nil {
+		return cmp.Or(severity, status, strings.Compare(a.ID, b.ID))
+	}
+	return cmp.Or(status, severity, strings.Compare(a.ID, b.ID))
+}
 
 // unitKey is an installed package as the records name it, at one version.
 type unitKey struct {

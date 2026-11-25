@@ -3,15 +3,19 @@
 package held
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/papa0four/orkowatch/internal/dataset"
 	"github.com/papa0four/orkowatch/internal/dataset/datasettest"
+	"github.com/papa0four/orkowatch/internal/dataset/kev"
 	"github.com/papa0four/orkowatch/internal/dataset/store"
 	"github.com/papa0four/orkowatch/internal/osfingerprint"
 )
@@ -55,6 +59,61 @@ func TestReadOpensTheStoreOnce(t *testing.T) {
 	run.Read(context.Background(), held, host, check(held))
 	if *opens != 1 {
 		t.Errorf("three reads opened the store %d times, want once", *opens)
+	}
+}
+
+// The catalog of known-exploited vulnerabilities is read once a run, however
+// often the run asks for it, with its index and its provenance; one not held
+// gives an empty index and the reason.
+func TestExploitedIsReadOnce(t *testing.T) {
+	s := store.At(filepath.Join(t.TempDir(), "store"))
+	catalog := kev.Catalog{}
+	datasettest.PutCatalog(t, s.Root(), now.Add(-time.Hour),
+		`{"cveID": "CVE-2026-0001", "dateAdded": "2026-11-20", "dueDate": "2026-12-11", "knownRansomwareCampaignUse": "Known", "cwes": ["CWE-306"]}`)
+	run, _ := counted(s, nil)
+
+	x, use := run.Exploited(context.Background(), host)
+	entry, listed := x.Entry("CVE-2026-0001")
+	if use.NotDone != "" || use.ID != "kev" || use.Version != "2026.11.21" || use.Attribution != catalog.Origin().Attribution ||
+		!listed || entry.Ransomware != "Known" || x.ClassCount("CWE-306") != 1 {
+		t.Fatalf("the catalog read as %+v, %+v, %v", use, entry, listed)
+	}
+	if err := os.RemoveAll(filepath.Join(s.Root(), "kev")); err != nil {
+		t.Fatal(err)
+	}
+	if again, use := run.Exploited(context.Background(), host); again.ClassCount("CWE-306") != 1 || use.NotDone != "" {
+		t.Errorf("asked again, the run read the catalog again: %+v", use)
+	}
+
+	other, _ := counted(store.At(filepath.Join(t.TempDir(), "store")), nil)
+	x, use = other.Exploited(context.Background(), host)
+	if _, listed := x.Entry("CVE-2026-0001"); listed || x.ClassCount("CWE-306") != 0 || use.NotDone != "kev is not held; fetch it with owatch data refresh, or install it with owatch data import" {
+		t.Errorf("a catalog not held gave %+v", use)
+	}
+}
+
+// A catalog that reads as a catalog but is not the file its manifest
+// describes gives nothing it read: the store refuses it only after it was
+// read.
+func TestExploitedRefusedAfterReading(t *testing.T) {
+	s := store.At(filepath.Join(t.TempDir(), "store"))
+	datasettest.PutCatalog(t, s.Root(), now.Add(-time.Hour), `{"cveID": "CVE-2026-0001", "knownRansomwareCampaignUse": "Known", "cwes": ["CWE-306"]}`)
+	files, err := filepath.Glob(filepath.Join(s.Root(), "kev", "*.data"))
+	if err != nil || len(files) != 1 {
+		t.Fatalf("data files %v, %v", files, err)
+	}
+	data, err := os.ReadFile(files[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(files[0], bytes.Replace(data, []byte(`"Known"`), []byte(`"Knowx"`), 1), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	run, _ := counted(s, nil)
+	x, use := run.Exploited(context.Background(), host)
+	if _, listed := x.Entry("CVE-2026-0001"); listed || x.ClassCount("CWE-306") != 0 || !strings.HasPrefix(use.NotDone, "kev cannot be used") {
+		t.Errorf("a catalog its checksum refuses gave %v listed, %d of CWE-306, %+v", listed, x.ClassCount("CWE-306"), use)
 	}
 }
 

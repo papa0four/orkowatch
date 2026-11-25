@@ -41,7 +41,7 @@ func (r testRecords) Records(data io.Reader, host *osfingerprint.OSInfo, each fu
 		return facts, err
 	}
 	facts.Version = "Debian:12"
-	return facts, each(osv.Record{ID: "DSA-1", CVEs: []string{"CVE-2026-1"}, Modified: "2026-11-20T00:00:00Z",
+	return facts, each(osv.Record{ID: "DSA-1", CVEs: []string{"CVE-2026-0001"}, Modified: "2026-11-20T00:00:00Z",
 		Affected: []osv.Affected{{Package: "openssl", Ecosystem: "Debian:12", Ranges: [][]osv.Event{{{"introduced": "0"}, {"fixed": "3.0.15-1"}}}}}})
 }
 
@@ -83,11 +83,28 @@ func TestMatchingHeld(t *testing.T) {
 	if v.NotDone != "" || v.ID != "records" || v.Version != "Debian:12" || v.DataDate != "2026-11-20" || v.State != dataset.StateOutOfSync || v.Source == "" {
 		t.Fatalf("view %+v", v)
 	}
-	if len(v.Packages) != 1 || len(v.Packages[0].Vulnerabilities) != 1 || v.Packages[0].Vulnerabilities[0].ID != "CVE-2026-1" || v.Packages[0].Vulnerabilities[0].Fixed != "3.0.15-1" {
+	if len(v.Packages) != 1 || len(v.Packages[0].Vulnerabilities) != 1 || v.Packages[0].Vulnerabilities[0].ID != "CVE-2026-0001" || v.Packages[0].Vulnerabilities[0].Fixed != "3.0.15-1" {
 		t.Errorf("packages %+v", v.Packages)
 	}
 	if v := m.run(context.Background(), data, debian, installed("3.0.15-1")); v.NotDone != "" || len(v.Packages) != 0 {
 		t.Errorf("the fixed version gave %+v", v)
+	}
+	if v.KnownExploited == nil || !strings.HasPrefix(v.KnownExploited.NotDone, "kev is not held") || v.Packages[0].Vulnerabilities[0].KnownExploited != nil {
+		t.Errorf("with no catalog held the match says %+v", v.KnownExploited)
+	}
+}
+
+// A match is marked from the catalog of known-exploited vulnerabilities the
+// run's data holds.
+func TestMatchingMarksKnownExploited(t *testing.T) {
+	m, data, s := matching(t)
+	datasettest.Put(t, s.Root(), datasettest.Dataset{Name: "records"}, datasettest.Content, dataNow.Add(-time.Hour), nil)
+	datasettest.PutCatalog(t, s.Root(), dataNow.Add(-time.Hour), `{"cveID": "CVE-2026-0001", "dateAdded": "2026-11-20", "knownRansomwareCampaignUse": "Known"}`)
+
+	v := m.run(context.Background(), data, debian, installed("3.0.11-1"))
+	found := v.Packages[0].Vulnerabilities[0]
+	if found.KnownExploited == nil || found.KnownExploited.Added != "2026-11-20" || v.KnownExploited == nil || v.KnownExploited.ID != "kev" || v.Counts.KnownExploited != 1 {
+		t.Errorf("the match is marked %+v, from %+v", found.KnownExploited, v.KnownExploited)
 	}
 }
 
@@ -148,7 +165,7 @@ func TestVulnerabilitiesInTheReports(t *testing.T) {
 
 	var text bytes.Buffer
 	if err := writeAllText(&text, view); err != nil || !strings.Contains(text.String(), "\nVulnerabilities\nMatched against records, Debian:12") ||
-		!strings.Contains(text.String(), "-           CVE-2026-1           openssl 3.0.11-1, fixed in 3.0.15-1") {
+		!strings.Contains(text.String(), "-           CVE-2026-0001        openssl 3.0.11-1, fixed in 3.0.15-1") {
 		t.Errorf("software alone wrote %q, %v", text.String(), err)
 	}
 	view.Modules = append(view.Modules, moduleRun{Name: selection.NameOS, Result: finding.ResultInformational})

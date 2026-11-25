@@ -39,6 +39,12 @@ type Run struct {
 	opened bool
 	store  store.Store
 	err    error
+
+	// exploited is the catalog of known-exploited vulnerabilities, read the
+	// first time it is asked for, since the software module and the audit
+	// both consult it.
+	exploited    *kev.Index
+	exploitedUse dataset.Use
 }
 
 // Known lists the datasets this version of owatch knows. A source is added
@@ -89,4 +95,23 @@ func (r *Run) Read(ctx context.Context, d dataset.Dataset, host *osfingerprint.O
 		return notDone(fmt.Sprintf("%s cannot be used: %s; fetch it again with owatch data refresh", d.ID(), strings.TrimSpace(err.Error())))
 	}
 	return dataset.Use{Provenance: dataset.ProvenanceOf(d.ID(), manifest, facts, r.now)}
+}
+
+// Exploited is CISA's catalog of known-exploited vulnerabilities as the run
+// read it for host, read once however often it is asked for: its index, empty
+// when it was not read, and what was read or why nothing was.
+func (r *Run) Exploited(ctx context.Context, host *osfingerprint.OSInfo) (kev.Index, dataset.Use) {
+	if r.exploited == nil {
+		var x kev.Index
+		catalog := kev.Catalog{}
+		r.exploitedUse = r.Read(ctx, catalog, host, func(data io.Reader) (facts dataset.Facts, err error) {
+			x, facts, err = catalog.Read(data, host)
+			return facts, err
+		})
+		if r.exploitedUse.NotDone != "" {
+			x = kev.Index{}
+		}
+		r.exploited = &x
+	}
+	return *r.exploited, r.exploitedUse
 }

@@ -1,8 +1,9 @@
 // internal/dataset/datasettest/datasettest.go
 
-// Package datasettest holds a dataset made for tests and writes it in the
-// store's layout, so the store's tests and the commands' tests judge one
-// dataset by one set of files. Nothing outside a test imports it.
+// Package datasettest holds a dataset made for tests and writes it, or a
+// catalog of known-exploited vulnerabilities, in the store's layout, so the
+// store's tests and the commands' tests judge one dataset by one set of
+// files. Nothing outside a test imports it.
 package datasettest
 
 import (
@@ -10,6 +11,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -18,6 +20,7 @@ import (
 	"time"
 
 	"github.com/papa0four/orkowatch/internal/dataset"
+	"github.com/papa0four/orkowatch/internal/dataset/kev"
 	"github.com/papa0four/orkowatch/internal/osfingerprint"
 )
 
@@ -85,6 +88,20 @@ func (d Dataset) Check(data io.Reader, host *osfingerprint.OSInfo) (dataset.Fact
 func DataName(data string) string {
 	sum := sha256.Sum256([]byte(data))
 	return hex.EncodeToString(sum[:]) + ".data"
+}
+
+// PutCatalog writes a catalog of known-exploited vulnerabilities of version
+// 2026.11.21 in the directory root, fetched at fetched, with the manifest its
+// source states. Each entry is one catalog entry written out whole.
+func PutCatalog(t *testing.T, root string, fetched time.Time, entries ...string) {
+	t.Helper()
+	catalog := kev.Catalog{}
+	data := fmt.Sprintf(`{"catalogVersion": "2026.11.21", "dateReleased": "2026-11-21T12:00:00Z", "count": %d, "vulnerabilities": [%s]}`,
+		len(entries), strings.Join(entries, ", "))
+	Put(t, root, catalog, data, fetched, func(m *dataset.Manifest) {
+		o := catalog.Origin()
+		m.Source, m.License, m.Attribution = o.URL, o.License, o.Attribution
+	})
 }
 
 // Put writes data as the dataset d in the directory root, which is in the
