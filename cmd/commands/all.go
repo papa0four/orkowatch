@@ -15,6 +15,7 @@ import (
 
 	"github.com/papa0four/orkowatch/cmd/commands/cliargs"
 	"github.com/papa0four/orkowatch/cmd/commands/delivery"
+	"github.com/papa0four/orkowatch/cmd/commands/held"
 	"github.com/papa0four/orkowatch/cmd/commands/security"
 	"github.com/papa0four/orkowatch/internal/dataset"
 	"github.com/papa0four/orkowatch/internal/osfingerprint"
@@ -50,9 +51,15 @@ type (
 	// authoritative result type for the all command and is not shared with
 	// the audit subsystem.
 	ScanResult struct {
-		Timestamp     time.Time
-		Duration      time.Duration
-		Modules       []moduleRun
+		Timestamp time.Time
+		Duration  time.Duration
+		Modules   []moduleRun
+
+		// Operator is what the run, elevated, did with the operator's
+		// datasets when it opened its store: a fact of the run, not of any
+		// one module.
+		Operator *dataset.Operator
+
 		OSInfo        *osfingerprint.OSInfo
 		Software      []softwarelist.SoftwareEntry
 		Vulns         *vulnmatch.View
@@ -79,6 +86,7 @@ type (
 		Timestamp string                     `json:"timestamp" yaml:"timestamp"`
 		Duration  string                     `json:"duration" yaml:"duration"`
 		Modules   []moduleRun                `json:"modules" yaml:"modules"`
+		Operator  *dataset.Operator          `json:"operator,omitempty" yaml:"operator,omitempty"`
 		System    *osfingerprint.SystemView  `json:"system,omitempty" yaml:"system,omitempty"`
 		Software  *softwarelist.SoftwareView `json:"software,omitempty" yaml:"software,omitempty"`
 		Vulns     *vulnmatch.View            `json:"vulnerabilities,omitempty" yaml:"vulnerabilities,omitempty"`
@@ -115,7 +123,9 @@ func newAllCmd() *cobra.Command {
 - Security audit
 - System configuration analysis
 
-Results can be output in various formats and saved to a file.`,
+Results can be output in various formats and saved to a file.
+
+` + held.ElevatedHelp,
 		Example: `  # Run all scans with default settings
   owatch all
 
@@ -177,6 +187,7 @@ func toAllResult(result *ScanResult, minSeverity string) allResult {
 		Timestamp: result.Timestamp.UTC().Format(time.RFC3339),
 		Duration:  result.Duration.String(),
 		Modules:   result.Modules,
+		Operator:  result.Operator,
 		Errors:    result.Errors,
 	}
 
@@ -274,7 +285,7 @@ func (c *allCmd) runAllScans(cmd *cobra.Command, args []string) error {
 		Interactive: interactive,
 		Verbose:     c.verbose,
 	}, func(ctx context.Context, reporter tui.Reporter) error {
-		c.runModules(ctx, mask, result, reporter)
+		c.runModules(ctx, held.ForHost(), mask, result, reporter)
 		return nil
 	})
 	if err != nil {
@@ -302,12 +313,13 @@ func (c *allCmd) runAllScans(cmd *cobra.Command, args []string) error {
 // inventory is a module that enumerates facts about the host: its name, as
 // --skip-modules, the progress display and its row in the report spell it,
 // the bit that selects it, its label in the progress display, and the
-// function that runs it and records how it ended.
+// function that runs it, reading any dataset through the run's data, and
+// records how it ended.
 type inventory struct {
 	name    string
 	mask    selection.CheckMask
 	label   string
-	collect func(ctx context.Context, result *ScanResult)
+	collect func(ctx context.Context, data *held.Run, result *ScanResult)
 }
 
 // inventoryModules lists the inventory modules in the order all runs them,
@@ -342,15 +354,19 @@ func (c *allCmd) tasks(mask selection.CheckMask) []tui.Task {
 }
 
 // runModules runs each module that was not skipped, recording its outcome in
-// result and reporting it to the display as it happens.
-func (c *allCmd) runModules(ctx context.Context, mask selection.CheckMask, result *ScanResult, reporter tui.Reporter) {
+// result and reporting it to the display as it happens. The modules read
+// datasets through data, so the run opens the store once, and result then
+// holds what opening it did with the operator's datasets, however the
+// modules ended.
+func (c *allCmd) runModules(ctx context.Context, data *held.Run, mask selection.CheckMask, result *ScanResult, reporter tui.Reporter) {
+	defer func() { result.Operator = data.Operator() }()
 	for _, module := range inventoryModules() {
 		if c.isModuleSkipped(module.name) {
 			result.Modules = append(result.Modules, skippedModule(module.name))
 			continue
 		}
 		reporter.Start(module.name)
-		module.collect(ctx, result)
+		module.collect(ctx, data, result)
 		reporter.Finish(module.name, moduleOutcome(result.Modules))
 	}
 
@@ -358,7 +374,7 @@ func (c *allCmd) runModules(ctx context.Context, mask selection.CheckMask, resul
 		result.Modules = append(result.Modules, skippedModule(selection.NameAudit))
 		return
 	}
-	securityResult, err := c.runSecurityAuditModule(ctx, mask, result.OSInfo, result.Sockets, reporter)
+	securityResult, err := c.runSecurityAuditModule(ctx, data, mask, result.OSInfo, result.Sockets, reporter)
 	if err != nil {
 		result.Errors = append(result.Errors, fmt.Sprintf("Security audit error: %v", err))
 		result.Modules = append(result.Modules, erroredModule(selection.NameAudit, err))
@@ -370,8 +386,9 @@ func (c *allCmd) runModules(ctx context.Context, mask selection.CheckMask, resul
 
 // collectOSInfo runs the OS fingerprint module and records how it ended in
 // result, whether the module returned or failed. The fingerprint is read
-// without a context, so the one every module is given goes unused.
-func collectOSInfo(_ context.Context, result *ScanResult) {
+// without a context, so the one every module is given goes unused, as does
+// the run's data.
+func collectOSInfo(_ context.Context, _ *held.Run, result *ScanResult) {
 	osInfo, err := osfingerprint.GetOSFingerprint()
 	if err != nil {
 		result.Errors = append(result.Errors, fmt.Sprintf("OS fingerprint error: %v", err))
@@ -384,9 +401,9 @@ func collectOSInfo(_ context.Context, result *ScanResult) {
 
 // collectSoftware runs the software inventory module and records how it ended
 // in result, as collectOSInfo does. The inventory is then matched against the
-// vulnerability dataset of the host's distribution, with the fingerprint the
-// run read or, when it read none, one read here.
-func collectSoftware(ctx context.Context, result *ScanResult) {
+// vulnerability dataset of the host's distribution as data reads it, with the
+// fingerprint the run read or, when it read none, one read here.
+func collectSoftware(ctx context.Context, data *held.Run, result *ScanResult) {
 	software, err := softwarelist.GetInstalledSoftwareList(ctx)
 	if err != nil {
 		result.Errors = append(result.Errors, fmt.Sprintf("Software inventory error: %v", err))
@@ -394,14 +411,15 @@ func collectSoftware(ctx context.Context, result *ScanResult) {
 		return
 	}
 	result.Software = software
-	result.Vulns = hostMatching().run(ctx, result.OSInfo, software)
+	result.Vulns = hostMatching().run(ctx, data, result.OSInfo, software)
 	result.Modules = append(result.Modules, inventoryModule(selection.NameSoftware))
 }
 
 // collectListeners runs the sockets module and records how it ended in
 // result, as collectOSInfo does. A platform whose sockets are not read is not
-// an error: the module does not apply there, and its row says so.
-func collectListeners(ctx context.Context, result *ScanResult) {
+// an error: the module does not apply there, and its row says so. It reads
+// no dataset.
+func collectListeners(ctx context.Context, _ *held.Run, result *ScanResult) {
 	view, err := sockets.Read(ctx)
 	switch {
 	case errors.Is(err, sockets.ErrUnsupported):
@@ -477,15 +495,17 @@ func incompleteDetail(result *ScanResult) string {
 }
 
 // runSecurityAuditModule runs the audit with what the modules before it read,
-// so the host is fingerprinted and its sockets read once for the whole run.
-func (c *allCmd) runSecurityAuditModule(ctx context.Context, mask selection.CheckMask, hostInfo *osfingerprint.OSInfo, hostSockets *sockets.View, reporter tui.Reporter) (*audit.Result, error) {
+// so the host is fingerprinted, its sockets read, and the dataset store opened
+// once for the whole run.
+func (c *allCmd) runSecurityAuditModule(ctx context.Context, data *held.Run, mask selection.CheckMask, hostInfo *osfingerprint.OSInfo, hostSockets *sockets.View, reporter tui.Reporter) (*audit.Result, error) {
 	auditor := audit.NewSecurityAuditor(audit.Options{
-		Observer:    security.Observe(reporter),
-		MinSeverity: c.audit.MinSeverity(),
-		Checks:      selection.EnabledChecks(mask),
-		Unselected:  c.audit.Unselected(mask),
-		HostInfo:    hostInfo,
-		Sockets:     hostSockets,
+		Observer:       security.Observe(reporter),
+		MinSeverity:    c.audit.MinSeverity(),
+		Checks:         selection.EnabledChecks(mask),
+		Unselected:     c.audit.Unselected(mask),
+		HostInfo:       hostInfo,
+		Sockets:        hostSockets,
+		KnownExploited: security.ExploitedClasses(data),
 	})
 	return auditor.RunAudit(ctx)
 }
@@ -514,6 +534,7 @@ func allSource(title string, v allResult, text string) security.BrowserSource {
 		Sockets:  v.Sockets,
 		Vulns:    v.Vulns,
 		Datasets: v.Datasets,
+		Operator: v.Operator,
 		Modules:  moduleNotes(v.Modules),
 		Text:     text,
 	}
@@ -554,6 +575,12 @@ func writeAllText(w io.Writer, v allResult) error {
 			ew.Printf("  %-10s %s\n", m.Name, strings.ToUpper(string(m.Result)))
 		}
 		ew.Printf("\n")
+	}
+	if err := ew.Err(); err != nil {
+		return err
+	}
+	if err := dataset.WriteOperatorText(w, v.Operator); err != nil {
+		return err
 	}
 
 	// Each module that ran writes its own section under a heading; the
@@ -611,9 +638,13 @@ func writeSections(ew *render.ErrWriter, w io.Writer, sections []textSection) er
 
 // writeSingleModuleText writes the report of a command that ran one inventory
 // module, such as osinfo or owatch data status, as that module's own text with no all-report
-// heading around it. The projection holds one module row only for such a
-// command, so a saved report is rendered as the run that wrote it was.
+// heading around it, after what the run installed from the operator's store.
+// The projection holds one module row only for such a command, so a saved
+// report is rendered as the run that wrote it was.
 func writeSingleModuleText(w io.Writer, v allResult) error {
+	if err := dataset.WriteOperatorText(w, v.Operator); err != nil {
+		return err
+	}
 	switch v.Modules[0].Name {
 	case selection.NameOS:
 		if v.System != nil {

@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/papa0four/orkowatch/internal/dataset"
+	"github.com/papa0four/orkowatch/internal/dataset/kev"
 	"github.com/papa0four/orkowatch/internal/dataset/osv"
 	"github.com/papa0four/orkowatch/internal/tui"
 	"github.com/papa0four/orkowatch/internal/vulnmatch"
@@ -16,7 +18,7 @@ import (
 // fixable and labeled high by its records and one unfixed labeled low, bash
 // with one unfixed that states only a CVSS vector, and one pair not matched.
 func matchedView() vulnmatch.View {
-	v := vulnmatch.View{Dataset: "osv-ubuntu", Release: "Ubuntu:22.04", DataDate: "2026-11-24", State: "current",
+	v := vulnmatch.View{Use: dataset.Use{Provenance: dataset.Provenance{ID: "osv-ubuntu", Version: "Ubuntu:22.04", DataDate: "2026-11-24", State: dataset.StateCurrent}},
 		Packages: []vulnmatch.PackageMatches{
 			{Package: "bash", Installed: "5.1-6ubuntu1", Vulnerabilities: []vulnmatch.Vulnerability{
 				{ID: "CVE-2026-3", Status: vulnmatch.StatusUnfixed, Severity: vulnmatch.Severity{Level: vulnmatch.LevelNone}, Records: []string{"UBUNTU-CVE-2026-3"}},
@@ -92,6 +94,53 @@ func TestVulnerabilitiesTab(t *testing.T) {
 	}
 }
 
+// With the catalog read, the vulnerabilities it lists come first under their
+// own band, the most severe first and whether fixed or not, marked on the row
+// with the entry and the catalog in the detail; the rest follow under theirs
+// in their order; and the tab filters by it. With the catalog not read there
+// are no bands and no filter, and the detail says why.
+func TestVulnerabilitiesTabKnownExploited(t *testing.T) {
+	v := matchedView()
+	v.Packages[1].Vulnerabilities[0].KnownExploited = &kev.Entry{Added: "2026-11-20", Due: "2026-12-11", Ransomware: "Known"}
+	v.Packages[0].Vulnerabilities[0].KnownExploited = &kev.Entry{Added: "2026-11-19", Due: "2026-12-10", Ransomware: "Unknown"}
+	v.KnownExploited = &dataset.Use{Provenance: dataset.Provenance{ID: "kev", Version: "2026.11.21", DataDate: "2026-11-21", State: dataset.StateCurrent, Attribution: "As the catalog asks."}}
+	tab := vulnerabilitiesTab(v)
+
+	var rows []string
+	for _, r := range tab.Records {
+		rows = append(rows, r.Band+" | "+r.Title+" | "+r.Subtitle+" | "+r.Filters[2][0])
+	}
+	want := []string{
+		"known exploited | CVE-2026-1  openssl | exploited  fix 3.0.2-2  Important | known exploited",
+		"known exploited | CVE-2026-3  bash | exploited  unfixed | known exploited",
+		"not in the catalog | CVE-2026-2  openssl | unfixed  low | not in the catalog",
+		"not in the catalog | CVE-2026-4  nodejs | not matched | not in the catalog",
+	}
+	if !slices.Equal(rows, want) {
+		t.Errorf("rows\n%s\nwant\n%s", strings.Join(rows, "\n"), strings.Join(want, "\n"))
+	}
+	if len(tab.Filters) != 3 || !slices.Equal(tab.Filters[2].Options, []string{tui.All, "known exploited", "not in the catalog"}) || tab.Filters[2].Start != tui.All {
+		t.Errorf("filters %+v", tab.Filters)
+	}
+	if tab.Alert != "known exploited" || tab.Filters[0].Spares != "known exploited" || tab.Filters[1].Spares != "" || tab.Filters[2].Spares != "" {
+		t.Errorf("the tab sets apart %q, and its filters spare %q, %q, %q; want the status filter alone to spare the known exploited",
+			tab.Alert, tab.Filters[0].Spares, tab.Filters[1].Spares, tab.Filters[2].Spares)
+	}
+	if got := field(tab.Records[0], "known to be exploited"); got != "added to the catalog 2026-11-20\ndue date 2026-12-11\nransomware use Known" {
+		t.Errorf("the entry reads %q", got)
+	}
+	if got := field(tab.Records[2], "known exploitation"); got != "kev, 2026.11.21, data of 2026-11-21, current\nAs the catalog asks." || field(tab.Records[2], "known to be exploited") != "" {
+		t.Errorf("a vulnerability the catalog does not list reads %q", got)
+	}
+
+	v = matchedView()
+	v.KnownExploited = &dataset.Use{Provenance: dataset.Provenance{ID: "kev"}, NotDone: "kev is not held"}
+	tab = vulnerabilitiesTab(v)
+	if len(tab.Filters) != 2 || tab.Records[0].Band != "" || tab.Alert != "" || tab.Filters[0].Spares != "" || field(tab.Records[0], "known exploitation") != "not read: kev is not held" {
+		t.Errorf("with the catalog not read: filters %+v, band %q, detail %q", tab.Filters, tab.Records[0].Band, field(tab.Records[0], "known exploitation"))
+	}
+}
+
 // With nothing fixable the tab opens on all; with no match made it says why.
 func TestVulnerabilitiesTabOpensAndNotes(t *testing.T) {
 	v := matchedView()
@@ -100,7 +149,7 @@ func TestVulnerabilitiesTabOpensAndNotes(t *testing.T) {
 	if tab := vulnerabilitiesTab(v); tab.Filters[0].Start != tui.All {
 		t.Errorf("with nothing fixable the tab opens on %q", tab.Filters[0].Start)
 	}
-	tab := vulnerabilitiesTab(vulnmatch.View{NotDone: "osv-ubuntu is not held; fetch it with owatch data refresh"})
+	tab := vulnerabilitiesTab(vulnmatch.View{Use: dataset.Use{NotDone: "osv-ubuntu is not held; fetch it with owatch data refresh"}})
 	if tab.Note != "Matching was not done: osv-ubuntu is not held; fetch it with owatch data refresh" || len(tab.Records) != 0 {
 		t.Errorf("a match not made: %+v", tab)
 	}

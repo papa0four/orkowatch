@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/papa0four/orkowatch/cmd/commands/delivery"
+	"github.com/papa0four/orkowatch/cmd/commands/held"
 	"github.com/papa0four/orkowatch/cmd/commands/security"
 	"github.com/papa0four/orkowatch/internal/dataset"
 	"github.com/papa0four/orkowatch/internal/dataset/datasettest"
@@ -40,28 +41,30 @@ func (r testRecords) Records(data io.Reader, host *osfingerprint.OSInfo, each fu
 		return facts, err
 	}
 	facts.Version = "Debian:12"
-	return facts, each(osv.Record{ID: "DSA-1", CVEs: []string{"CVE-2026-1"}, Modified: "2026-11-20T00:00:00Z",
+	return facts, each(osv.Record{ID: "DSA-1", CVEs: []string{"CVE-2026-0001"}, Modified: "2026-11-20T00:00:00Z",
 		Affected: []osv.Affected{{Package: "openssl", Ecosystem: "Debian:12", Ranges: [][]osv.Event{{{"introduced": "0"}, {"fixed": "3.0.15-1"}}}}}})
 }
 
 var debian = &osfingerprint.OSInfo{OS: "linux", Platform: "debian", PlatformVersion: "12"}
 
-// matching is inventoryMatching over a store in a temporary directory that
-// knows the test records, at dataNow.
-func matching(t *testing.T) (inventoryMatching, store.Store) {
+// matching is inventoryMatching that knows the test records, with a run's
+// data over a store in a temporary directory, read at dataNow.
+func matching(t *testing.T) (inventoryMatching, *held.Run, store.Store) {
 	t.Helper()
 	s := store.At(filepath.Join(t.TempDir(), "store"))
 	records := testRecords{datasettest.Dataset{Name: "records", Applies: true}}
 	return inventoryMatching{
-		host: func() (*osfingerprint.OSInfo, error) { return debian, nil },
-		read: func(context.Context, []dataset.Dataset, *osfingerprint.OSInfo, time.Time) (store.Store, store.Adoption, error) {
-			return s, store.Adoption{}, nil
-		},
-		now:      func() time.Time { return dataNow },
+		host:     func() (*osfingerprint.OSInfo, error) { return debian, nil },
 		matched:  []dataset.Dataset{records},
-		known:    []dataset.Dataset{records},
 		coverage: "Debian",
-	}, s
+	}, heldIn(s, records), s
+}
+
+// heldIn is a run's data that reads s, knowing known, at dataNow.
+func heldIn(s store.Store, known ...dataset.Dataset) *held.Run {
+	return held.New(func(context.Context, []dataset.Dataset, *osfingerprint.OSInfo, time.Time) (store.Store, store.Adoption, error) {
+		return s, store.Adoption{}, nil
+	}, known, dataNow)
 }
 
 // installed is a host with openssl at version installed.
@@ -73,18 +76,35 @@ func installed(version string) []softwarelist.SoftwareEntry {
 // dataset, its release, its date, and its state; read when the run did not
 // read the host.
 func TestMatchingHeld(t *testing.T) {
-	m, s := matching(t)
+	m, data, s := matching(t)
 	datasettest.Put(t, s.Root(), datasettest.Dataset{Name: "records"}, datasettest.Content, dataNow.Add(-9*24*time.Hour), nil)
 
-	v := m.run(context.Background(), nil, installed("3.0.11-1"))
-	if v.NotDone != "" || v.Dataset != "records" || v.Release != "Debian:12" || v.DataDate != "2026-11-20" || v.State != string(dataset.StateOutOfSync) || v.Source == "" {
+	v := m.run(context.Background(), data, nil, installed("3.0.11-1"))
+	if v.NotDone != "" || v.ID != "records" || v.Version != "Debian:12" || v.DataDate != "2026-11-20" || v.State != dataset.StateOutOfSync || v.Source == "" {
 		t.Fatalf("view %+v", v)
 	}
-	if len(v.Packages) != 1 || len(v.Packages[0].Vulnerabilities) != 1 || v.Packages[0].Vulnerabilities[0].ID != "CVE-2026-1" || v.Packages[0].Vulnerabilities[0].Fixed != "3.0.15-1" {
+	if len(v.Packages) != 1 || len(v.Packages[0].Vulnerabilities) != 1 || v.Packages[0].Vulnerabilities[0].ID != "CVE-2026-0001" || v.Packages[0].Vulnerabilities[0].Fixed != "3.0.15-1" {
 		t.Errorf("packages %+v", v.Packages)
 	}
-	if v := m.run(context.Background(), debian, installed("3.0.15-1")); v.NotDone != "" || len(v.Packages) != 0 {
+	if v := m.run(context.Background(), data, debian, installed("3.0.15-1")); v.NotDone != "" || len(v.Packages) != 0 {
 		t.Errorf("the fixed version gave %+v", v)
+	}
+	if v.KnownExploited == nil || !strings.HasPrefix(v.KnownExploited.NotDone, "kev is not held") || v.Packages[0].Vulnerabilities[0].KnownExploited != nil {
+		t.Errorf("with no catalog held the match says %+v", v.KnownExploited)
+	}
+}
+
+// A match is marked from the catalog of known-exploited vulnerabilities the
+// run's data holds.
+func TestMatchingMarksKnownExploited(t *testing.T) {
+	m, data, s := matching(t)
+	datasettest.Put(t, s.Root(), datasettest.Dataset{Name: "records"}, datasettest.Content, dataNow.Add(-time.Hour), nil)
+	datasettest.PutCatalog(t, s.Root(), dataNow.Add(-time.Hour), `{"cveID": "CVE-2026-0001", "dateAdded": "2026-11-20", "knownRansomwareCampaignUse": "Known"}`)
+
+	v := m.run(context.Background(), data, debian, installed("3.0.11-1"))
+	found := v.Packages[0].Vulnerabilities[0]
+	if found.KnownExploited == nil || found.KnownExploited.Added != "2026-11-20" || v.KnownExploited == nil || v.KnownExploited.ID != "kev" || v.Counts.KnownExploited != 1 {
+		t.Errorf("the match is marked %+v, from %+v", found.KnownExploited, v.KnownExploited)
 	}
 }
 
@@ -93,29 +113,29 @@ func TestMatchingHeld(t *testing.T) {
 // read, and a store that cannot be read.
 func TestMatchingNotDone(t *testing.T) {
 	for name, tt := range map[string]struct {
-		change func(*inventoryMatching, store.Store)
+		change func(*inventoryMatching, **held.Run, store.Store)
 		host   *osfingerprint.OSInfo
 		reason string
 	}{
 		"no dataset for the host": {nil, &osfingerprint.OSInfo{OS: "linux", Platform: "arch"}, "matching covers Debian"},
 		"not held":                {nil, debian, "records is not held; fetch it with owatch data refresh"},
-		"unusable": {func(_ *inventoryMatching, s store.Store) {
+		"unusable": {func(_ *inventoryMatching, _ **held.Run, s store.Store) {
 			datasettest.Put(t, s.Root(), datasettest.Dataset{Name: "records"}, "not the test dataset\n", dataNow.Add(-time.Hour), nil)
 		}, debian, "records cannot be used"},
-		"no host": {func(m *inventoryMatching, _ store.Store) {
+		"no host": {func(m *inventoryMatching, _ **held.Run, _ store.Store) {
 			m.host = func() (*osfingerprint.OSInfo, error) { return nil, errors.New("no host") }
 		}, nil, "the host could not be identified: no host"},
-		"no store": {func(m *inventoryMatching, _ store.Store) {
-			m.read = func(context.Context, []dataset.Dataset, *osfingerprint.OSInfo, time.Time) (store.Store, store.Adoption, error) {
+		"no store": {func(_ *inventoryMatching, data **held.Run, _ store.Store) {
+			*data = held.New(func(context.Context, []dataset.Dataset, *osfingerprint.OSInfo, time.Time) (store.Store, store.Adoption, error) {
 				return store.Store{}, store.Adoption{}, errors.New("locked")
-			}
+			}, nil, dataNow)
 		}, debian, "the dataset store could not be read: locked"},
 	} {
-		m, s := matching(t)
+		m, data, s := matching(t)
 		if tt.change != nil {
-			tt.change(&m, s)
+			tt.change(&m, &data, s)
 		}
-		v := m.run(context.Background(), tt.host, installed("3.0.11-1"))
+		v := m.run(context.Background(), data, tt.host, installed("3.0.11-1"))
 		if !strings.Contains(v.NotDone, tt.reason) || len(v.Packages) != 0 || v.Packages == nil {
 			t.Errorf("%s: %+v, want not done naming %q", name, v, tt.reason)
 		}
@@ -126,23 +146,26 @@ func TestMatchingNotDone(t *testing.T) {
 // carry it under vulnerabilities, the text of all and of software alone show
 // it, and a saved report reads it back.
 func TestVulnerabilitiesInTheReports(t *testing.T) {
-	m, s := matching(t)
+	m, reads, s := matching(t)
 	datasettest.Put(t, s.Root(), datasettest.Dataset{Name: "records"}, datasettest.Content, dataNow.Add(-time.Hour), nil)
 	result := &ScanResult{
 		Timestamp: dataNow,
 		Modules:   []moduleRun{{Name: selection.NameSoftware, Result: finding.ResultInformational}},
 		Software:  installed("3.0.11-1"),
-		Vulns:     m.run(context.Background(), debian, installed("3.0.11-1")),
+		Vulns:     m.run(context.Background(), reads, debian, installed("3.0.11-1")),
 	}
 	view := toAllResult(result, "")
 	data, err := json.Marshal(view)
-	if err != nil || !bytes.Contains(data, []byte(`"vulnerabilities":{"dataset":"records"`)) {
+	if err != nil || !bytes.Contains(data, []byte(`"vulnerabilities":{"id":"records","state":"current","source":"https://data.example/records","data_date":"2026-11-20","version":"Debian:12"`)) {
 		t.Fatalf("JSON %s, %v", data, err)
+	}
+	if data, err := delivery.Encode(view, delivery.FormatYAML); err != nil || !bytes.Contains(data, []byte("vulnerabilities:\n    id: records\n    state: current\n")) {
+		t.Fatalf("YAML %s, %v", data, err)
 	}
 
 	var text bytes.Buffer
 	if err := writeAllText(&text, view); err != nil || !strings.Contains(text.String(), "\nVulnerabilities\nMatched against records, Debian:12") ||
-		!strings.Contains(text.String(), "-           CVE-2026-1           openssl 3.0.11-1, fixed in 3.0.15-1") {
+		!strings.Contains(text.String(), "-           CVE-2026-0001        openssl 3.0.11-1, fixed in 3.0.15-1") {
 		t.Errorf("software alone wrote %q, %v", text.String(), err)
 	}
 	view.Modules = append(view.Modules, moduleRun{Name: selection.NameOS, Result: finding.ResultInformational})
@@ -180,11 +203,11 @@ func TestVulnerabilitiesInTheReports(t *testing.T) {
 // made.
 func TestSoftwareModuleMatches(t *testing.T) {
 	result := &ScanResult{}
-	collectSoftware(context.Background(), result)
+	collectSoftware(context.Background(), held.ForHost(), result)
 	if ran := result.Modules[len(result.Modules)-1]; ran.Result == finding.ResultError {
 		t.Skipf("this host's inventory cannot be read: %s", ran.Reason)
 	}
-	if result.Vulns == nil || (result.Vulns.NotDone == "" && result.Vulns.Dataset == "") {
+	if result.Vulns == nil || (result.Vulns.NotDone == "" && result.Vulns.ID == "") {
 		t.Errorf("the software module's run carries %+v", result.Vulns)
 	}
 }

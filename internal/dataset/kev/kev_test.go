@@ -7,6 +7,8 @@ import (
 	"compress/gzip"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
+	"fmt"
 	"io"
 	"os"
 	"strings"
@@ -114,11 +116,97 @@ func TestCheckRefuses(t *testing.T) {
 		"a JSON list":                 {[]byte(`[{"cveID": "CVE-2026-129448"}]`), "not the catalog's JSON"},
 		"an empty catalog":            {[]byte(`{"catalogVersion": "2026.11.23", "dateReleased": "2026-11-23T12:54:37Z", "count": 0, "vulnerabilities": []}`), "holds no entries"},
 		"nothing":                     {nil, "not the catalog's JSON"},
+		"a CVE named twice": {smallCatalog(`{"cveID": "CVE-2026-0001"}`, `{"cveID": "CVE-2026-0001"}`),
+			"entry 2 names CVE-2026-0001, which an earlier entry names"},
 	} {
 		_, err := Catalog{}.Check(bytes.NewReader(c.data), nil)
 		if err == nil || !strings.Contains(err.Error(), c.want) {
 			t.Errorf("%s: Check gave %v, want a refusal saying %q", name, err, c.want)
 		}
+	}
+}
+
+// Read gives every entry of the recorded catalog as the catalog writes it,
+// nothing for a CVE it does not list, and for each CWE the number of entries
+// that name it, counted here from the file as a generic JSON document.
+func TestReadIndexesTheRecordedCatalog(t *testing.T) {
+	data := recorded(t)
+	x, _, err := Catalog{}.Read(bytes.NewReader(data), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var raw struct {
+		Vulnerabilities []map[string]any `json:"vulnerabilities"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatal(err)
+	}
+	want := make(map[string]int)
+	for _, e := range raw.Vulnerabilities {
+		id := e["cveID"].(string)
+		got, ok := x.Entry(id)
+		if !ok || got.Added != e["dateAdded"] || got.Due != e["dueDate"] || got.Ransomware != e["knownRansomwareCampaignUse"] {
+			t.Errorf("%s: entry %+v, %v, want the catalog's %v, %v, %v", id, got, ok, e["dateAdded"], e["dueDate"], e["knownRansomwareCampaignUse"])
+		}
+		named := make(map[string]bool)
+		for _, cwe := range e["cwes"].([]any) {
+			named[cwe.(string)] = true
+		}
+		for cwe := range named {
+			want[cwe]++
+		}
+	}
+	if len(want) == 0 {
+		t.Fatal("the recorded catalog names no CWE")
+	}
+	for cwe, n := range want {
+		if got := x.ClassCount(cwe); got != n {
+			t.Errorf("%s counts %d entries, want %d", cwe, got, n)
+		}
+	}
+	if got := x.ClassCount("CWE-306"); got != 43 {
+		t.Errorf("CWE-306 counts %d entries, want the 43 the catalog of 2026-11-23 holds", got)
+	}
+	if _, ok := x.Entry("CVE-1999-0001"); ok || x.ClassCount("CWE-319") != 0 {
+		t.Error("a CVE or a CWE the catalog does not list was given an entry or a count")
+	}
+}
+
+// smallCatalog is a catalog of entries written out whole.
+func smallCatalog(entries ...string) []byte {
+	return []byte(fmt.Sprintf(`{"catalogVersion": "1", "dateReleased": "2026-11-23T12:54:37Z", "count": %d, "vulnerabilities": [%s]}`,
+		len(entries), strings.Join(entries, ", ")))
+}
+
+// An entry that names a CWE twice is counted once under it.
+func TestReadCountsEachEntryOnce(t *testing.T) {
+	data := smallCatalog(`{"cveID": "CVE-2026-0001", "cwes": ["CWE-1", "CWE-1"]}`, `{"cveID": "CVE-2026-0002", "cwes": ["CWE-1"]}`)
+	x, _, err := Catalog{}.Read(bytes.NewReader(data), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := x.ClassCount("CWE-1"); got != 2 {
+		t.Errorf("two entries naming CWE-1, one of them twice, count %d, want 2", got)
+	}
+}
+
+// An entry that names a great many CWEs is read in time linear in what it
+// names, since the catalog is untrusted and fits that many within its size
+// limit: counting each entry once must not compare every CWE with every other.
+func TestReadIsLinearInWhatAnEntryNames(t *testing.T) {
+	const named = 150000
+	cwes := make([]string, named)
+	for i := range cwes {
+		cwes[i] = fmt.Sprintf("%q", fmt.Sprintf("CWE-%d", i))
+	}
+	data := smallCatalog(`{"cveID": "CVE-2026-0001", "cwes": [` + strings.Join(cwes, ",") + `]}`)
+	if int64(len(data)) > (Catalog{}).MaxBytes() {
+		t.Fatalf("the catalog holds %d bytes, more than the dataset may", len(data))
+	}
+	start := time.Now()
+	x, _, err := Catalog{}.Read(bytes.NewReader(data), nil)
+	if took := time.Since(start); err != nil || took > 2*time.Second || x.ClassCount("CWE-149999") != 1 {
+		t.Errorf("an entry naming %d CWEs took %s to read, %v", named, took, err)
 	}
 }
 

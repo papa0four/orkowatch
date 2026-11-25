@@ -5,6 +5,7 @@ package cmd
 import (
 	"github.com/spf13/cobra"
 
+	"github.com/papa0four/orkowatch/cmd/commands/held"
 	"github.com/papa0four/orkowatch/internal/selection"
 )
 
@@ -17,9 +18,14 @@ func newSoftwareCmd() *cobra.Command {
 
 On AlmaLinux, Alpine, Red Hat Enterprise Linux, Rocky Linux, and Ubuntu, the
 packages are then matched against the host's OSV dataset, which owatch data
-refresh fetches, and the report gains a Vulnerabilities section: each CVE with a
-fix available, the unfixed counted by package, and what could not be matched.
-With no dataset held, the section says matching was not done and what to run.
+refresh fetches, and the report gains a Vulnerabilities section: each CVE that
+CISA's Known Exploited Vulnerabilities catalog lists, first and whether fixed or
+not, then each other CVE with a fix available, the unfixed counted by package,
+and what could not be matched. With no dataset held, the section says matching
+was not done and what to run, and with no catalog held, that known exploitation
+was not read.
+
+` + held.ElevatedHelp + `
 
 The report opens in the results browser on a terminal, with the same layout as an audit.`,
 		example: `  # Open the installed software in the results browser

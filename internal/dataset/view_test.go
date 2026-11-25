@@ -3,9 +3,26 @@
 package dataset
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 )
+
+// A row's provenance is written among its own fields in JSON and YAML alike,
+// as the keys status has always had.
+func TestRowEncoding(t *testing.T) {
+	row := Row{Provenance: Provenance{ID: "kev", State: StateCurrent, Version: "2026.11.20"}, Size: 1}
+	asJSON, err := json.Marshal(row)
+	if err != nil || string(asJSON) != `{"id":"kev","state":"current","version":"2026.11.20","size":1}` {
+		t.Errorf("JSON %s, %v", asJSON, err)
+	}
+	asYAML, err := yaml.Marshal(row)
+	if err != nil || string(asYAML) != "id: kev\nstate: current\nversion: 2026.11.20\nsize: 1\n" {
+		t.Errorf("YAML %q, %v", asYAML, err)
+	}
+}
 
 // Each row is written with what bears on its state, a held dataset with its
 // source and license under it, and an empty store says so. A name holding a
@@ -13,12 +30,12 @@ import (
 func TestWriteText(t *testing.T) {
 	var b strings.Builder
 	err := WriteText(&b, View{Store: "/store", Datasets: []Row{
-		{ID: "kev", State: StateCurrent, Source: "https://data.example/kev", DataDate: "2026-11-20", Version: "2026.11.20",
-			Fetched: "2026-11-22T11:00:00Z", Size: 3 << 20, License: "CC0 1.0", Attribution: "CISA"},
-		{ID: "epss", State: StateNotHeld},
-		{ID: "bad", State: StateUnusable, Reason: "checksum", Attention: "the import failed"},
-		{ID: "old", State: StateNotApplicable, Size: 512},
-		{ID: "x\x1b[2J", State: StateUnknown, Size: 1},
+		{Provenance: Provenance{ID: "kev", State: StateCurrent, Source: "https://data.example/kev", DataDate: "2026-11-20", Version: "2026.11.20",
+			Fetched: "2026-11-22T11:00:00Z", License: "CC0 1.0", Attribution: "CISA"}, Size: 3 << 20},
+		{Provenance: Provenance{ID: "epss", State: StateNotHeld}},
+		{Provenance: Provenance{ID: "bad", State: StateUnusable}, Reason: "checksum", Attention: "the import failed"},
+		{Provenance: Provenance{ID: "old", State: StateNotApplicable}, Size: 512},
+		{Provenance: Provenance{ID: "x\x1b[2J", State: StateUnknown}, Size: 1},
 	}})
 	if err != nil {
 		t.Fatal(err)
@@ -47,28 +64,38 @@ old         no longer applies, 512 B
 	}
 }
 
-// An elevated run's report says, under the store, what it installed from the
-// operator's store, what it left alone there and why, and the advice; a run
-// with no one behind it is given the advice alone.
-func TestWriteTextSaysWhatWasInstalled(t *testing.T) {
+// An elevated run's report says what it installed from the operator's store,
+// what it left alone there and why, and the advice, with a blank line after;
+// a run with no one behind it is given the advice alone, and one that did
+// nothing is given nothing. Only advice asks the operator to act.
+func TestWriteOperatorText(t *testing.T) {
 	for name, tt := range map[string]struct {
 		operator *Operator
 		want     string
+		act      bool
 	}{
 		"installed": {&Operator{Store: "/home/a/store", Installed: []string{"epss", "kev"}},
-			"Store: /store\nInstalled from /home/a/store: epss and kev\n\nkev  not held\n"},
+			"Installed from /home/a/store: epss and kev\n\n", false},
 		"refused": {&Operator{Store: "/home/a/store", Refused: []Refusal{{ID: "kev", Reason: "it is a link"}}, Advice: "run import"},
-			"Store: /store\nNot installed from /home/a/store: kev: it is a link\nrun import\n\nkev  not held\n"},
-		"no operator":  {&Operator{Advice: "fetch elsewhere"}, "Store: /store\nfetch elsewhere\n\nkev  not held\n"},
-		"not elevated": {nil, "Store: /store\n\nkev  not held\n"},
+			"Not installed from /home/a/store: kev: it is a link\nrun import\n\n", true},
+		"no operator":  {&Operator{Advice: "fetch elsewhere"}, "fetch elsewhere\n\n", true},
+		"not elevated": {nil, "", false},
 	} {
 		var b strings.Builder
-		if err := WriteText(&b, View{Store: "/store", Operator: tt.operator, Datasets: []Row{{ID: "kev", State: StateNotHeld}}}); err != nil {
+		if err := WriteOperatorText(&b, tt.operator); err != nil {
 			t.Fatal(err)
 		}
 		if b.String() != tt.want {
 			t.Errorf("%s: got\n%s\nwant\n%s", name, b.String(), tt.want)
 		}
+		if tt.operator != nil && tt.operator.NeedsAction() != tt.act {
+			t.Errorf("%s: needs action %v, want %v", name, !tt.act, tt.act)
+		}
+	}
+
+	var b strings.Builder
+	if err := WriteText(&b, View{Store: "/store", Datasets: []Row{{Provenance: Provenance{ID: "kev", State: StateNotHeld}}}}); err != nil || b.String() != "Store: /store\n\nkev  not held\n" {
+		t.Errorf("the store's text is %q, %v", b.String(), err)
 	}
 }
 

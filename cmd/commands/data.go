@@ -13,10 +13,8 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/papa0four/orkowatch/cmd/commands/cliargs"
+	"github.com/papa0four/orkowatch/cmd/commands/held"
 	"github.com/papa0four/orkowatch/internal/dataset"
-	"github.com/papa0four/orkowatch/internal/dataset/epss"
-	"github.com/papa0four/orkowatch/internal/dataset/kev"
-	"github.com/papa0four/orkowatch/internal/dataset/osv"
 	"github.com/papa0four/orkowatch/internal/dataset/store"
 	"github.com/papa0four/orkowatch/internal/elevation"
 	"github.com/papa0four/orkowatch/internal/osfingerprint"
@@ -26,13 +24,13 @@ import (
 
 // dataCmd is what the owatch data commands read from the host, held apart so
 // a test can give each its own: the datasets owatch knows, the store to
-// change and the store made ready to read, the host's identity, the time,
-// whether a person is at the terminal to ask, whether the process is
+// change, the run status reads the store through, the host's identity, the
+// time, whether a person is at the terminal to ask, whether the process is
 // elevated, and what fetches a dataset.
 type dataCmd struct {
 	known       []dataset.Dataset
 	open        func(context.Context) (store.Store, error)
-	read        func(context.Context, []dataset.Dataset, *osfingerprint.OSInfo, time.Time) (store.Store, store.Adoption, error)
+	run         func() *held.Run
 	host        func() (*osfingerprint.OSInfo, error)
 	now         func() time.Time
 	interactive func() bool
@@ -41,21 +39,13 @@ type dataCmd struct {
 	fetcher     func() (fetcher, error)
 }
 
-// knownDatasets lists the datasets this version of owatch knows. A source is
-// added here as a type that satisfies dataset.Dataset; the commands and the
-// store read every source through that interface and name none. They are
-// listed in name order, which is the order status shows them in.
-func knownDatasets() []dataset.Dataset {
-	return append([]dataset.Dataset{epss.Scores{}, kev.Catalog{}}, osv.Datasets()...)
-}
-
 // newDataCmd returns the owatch data command and its subcommands, reading the
 // host itself.
 func newDataCmd() *cobra.Command {
 	return dataCommand(&dataCmd{
-		known:       knownDatasets(),
+		known:       held.Known(),
 		open:        store.ForProcess,
-		read:        store.ForReading,
+		run:         held.ForHost,
 		host:        osfingerprint.GetOSFingerprint,
 		now:         time.Now,
 		interactive: func() bool { return render.StdinIsTerminal() && render.StdoutIsTerminal() },
@@ -133,13 +123,13 @@ audit.`,
 		mask:    selection.ModuleDatasets,
 		label:   "datasets",
 		collect: d.collectStatus,
-	}, "data status")
+	}, "data status", d.run)
 }
 
-// collectStatus reads the store's state and records how it ended in result,
-// as each of all's modules does.
-func (d *dataCmd) collectStatus(ctx context.Context, result *ScanResult) {
-	view, err := d.status(ctx)
+// collectStatus reads the store's state through the run's store and records
+// how it ended in result, as each of all's modules does.
+func (d *dataCmd) collectStatus(ctx context.Context, data *held.Run, result *ScanResult) {
+	view, err := d.status(ctx, data)
 	if err != nil {
 		result.Errors = append(result.Errors, fmt.Sprintf("Datasets error: %v", err))
 		result.Modules = append(result.Modules, erroredModule(selection.NameDatasets, err))
@@ -149,54 +139,18 @@ func (d *dataCmd) collectStatus(ctx context.Context, result *ScanResult) {
 	result.Modules = append(result.Modules, inventoryModule(selection.NameDatasets))
 }
 
-// status reads what the process's store holds of the known datasets, with
-// what an elevated run installed from the operator's store on the way.
-func (d *dataCmd) status(ctx context.Context) (dataset.View, error) {
+// status reads what the run's store holds of the known datasets. What an
+// elevated run installed on opening it is the run's to report.
+func (d *dataCmd) status(ctx context.Context, data *held.Run) (dataset.View, error) {
 	host, err := d.host()
 	if err != nil {
 		return dataset.View{}, fmt.Errorf("identify the host: %w", err)
 	}
-	s, adoption, err := d.read(ctx, d.known, host, d.now())
+	s, err := data.Open(ctx, host)
 	if err != nil {
 		return dataset.View{}, err
 	}
-	view, err := s.Status(d.known, host, d.now())
-	if err != nil {
-		return dataset.View{}, err
-	}
-	view.Operator = operatorView(adoption)
-	return view, nil
-}
-
-// noOperatorAdvice is what an elevated run with no one behind it is told,
-// since it has no account's store to install from and never fetches itself.
-const noOperatorAdvice = "No account is behind this elevated run, so no dataset was installed from one. " +
-	"Fetch as an ordinary account with owatch data refresh --to <directory>, then run owatch data import <directory> here."
-
-// operatorView says what an elevated run did with the operator's datasets:
-// which it installed, which it left alone and why, and the command that
-// installs one of those deliberately. It is nil when there is nothing to
-// say, as for a run that is not elevated or one that found nothing newer.
-func operatorView(a store.Adoption) *dataset.Operator {
-	if a.NoOperator {
-		return &dataset.Operator{Advice: noOperatorAdvice}
-	}
-	o := dataset.Operator{Store: a.From}
-	for _, outcome := range a.Outcomes {
-		switch {
-		case outcome.Result == store.Installed:
-			o.Installed = append(o.Installed, outcome.ID)
-		case outcome.NeedsAttention():
-			o.Refused = append(o.Refused, dataset.Refusal{ID: outcome.ID, Reason: outcome.Reason})
-		}
-	}
-	switch {
-	case len(o.Refused) > 0:
-		o.Advice = "To install what was not installed, as a deliberate act, run owatch data import " + a.From
-	case len(o.Installed) == 0:
-		return nil
-	}
-	return &o
+	return s.Status(d.known, host, d.now())
 }
 
 // importCmd returns owatch data import.

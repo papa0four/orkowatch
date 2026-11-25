@@ -195,8 +195,9 @@ func TestFindingDetailShowsBothScores(t *testing.T) {
 	r := sidebarReport(0)
 	r.Items = []Item{{Check: "ssh", Key: "ssh.root_login_permitted", Result: "fail", Severity: "HIGH",
 		Title: "Root login over SSH is permitted", Evidence: []string{"- listening=loopback-only"},
-		SeverityBasis: "the CVSS-BE severity on this host; the registry rates the rule CRITICAL",
-		CVSS:          "9.3 CRITICAL  CVSS-B v4.0, baseline for the condition, not measured on this host  CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N\ncalculator: https://www.first.org/cvss/calculator/4.0#CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N",
+		SeverityBasis:  "the CVSS-BE severity on this host; the registry rates the rule CRITICAL",
+		ClassExploited: "43 vulnerabilities known to be exploited are of CWE-306, this finding's weakness class.",
+		CVSS:           "9.3 CRITICAL  CVSS-B v4.0, baseline for the condition, not measured on this host  CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N\ncalculator: https://www.first.org/cvss/calculator/4.0#CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N",
 		HostCVSS: "8.6 HIGH  CVSS-BE v4.0, Modified Base metrics derived from evidence recorded on this host  CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N/MAV:L\n" +
 			"MAV:L from listening loopback-only on 1 of 1 subject: sshd listens only on loopback addresses\n" +
 			"  Implementation Guide, Modified Attack Vector (MAV): \"the service is exposed locally\""}}
@@ -204,7 +205,8 @@ func TestFindingDetailShowsBothScores(t *testing.T) {
 		b := sized(newBrowser(r), width, 60)
 		text, _ := b.detailText(r.Items[0])
 		detail := plain(text)
-		for _, want := range []string{"CVSS baseline", "9.3 CRITICAL", "CVSS on this host", "8.6 HIGH", "CVSS-BE", "MAV:L from listening",
+		for _, want := range []string{"known exploited in its class 43 vulnerabilities known to be exploited are of CWE-306",
+			"CVSS baseline", "9.3 CRITICAL", "CVSS on this host", "8.6 HIGH", "CVSS-BE", "MAV:L from listening",
 			"severity  HIGH, the CVSS-BE severity on this host; the registry rates the rule CRITICAL"} {
 			if !strings.Contains(strings.Join(strings.Fields(detail), " "), strings.Join(strings.Fields(want), " ")) {
 				t.Errorf("at width %d the detail lacks %q:\n%s", width, want, detail)

@@ -62,17 +62,16 @@ func TestStatusOfAHeldDataset(t *testing.T) {
 	put(t, s, d, content, now.Add(-time.Hour), nil)
 
 	got := rowOf(t, s, []dataset.Dataset{d}, d.Name)
-	want := dataset.Row{
+	want := dataset.Row{Provenance: dataset.Provenance{
 		ID:          d.Name,
 		State:       dataset.StateCurrent,
 		Source:      "https://data.example/test-data",
 		DataDate:    "2026-11-20",
 		Version:     datasettest.Version,
 		Fetched:     "2026-11-22T11:00:00Z",
-		Size:        int64(len(content)),
 		License:     "CC0 1.0",
 		Attribution: "Made for the tests",
-	}
+	}, Size: int64(len(content))}
 	if got != want {
 		t.Errorf("row %+v, want %+v", got, want)
 	}
@@ -227,7 +226,7 @@ func TestStatusRows(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(view.Datasets) != 1 || view.Datasets[0] != (dataset.Row{ID: "wanted", State: dataset.StateNotHeld}) {
+	if len(view.Datasets) != 1 || view.Datasets[0] != (dataset.Row{Provenance: dataset.Provenance{ID: "wanted", State: dataset.StateNotHeld}}) {
 		t.Errorf("a missing store gave %+v, want wanted as not held", view.Datasets)
 	}
 

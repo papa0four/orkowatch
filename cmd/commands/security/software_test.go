@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/papa0four/orkowatch/internal/dataset"
 	"github.com/papa0four/orkowatch/internal/softwarelist"
 	"github.com/papa0four/orkowatch/internal/tui"
 	"github.com/papa0four/orkowatch/internal/vulnmatch"
@@ -78,7 +79,7 @@ func TestSoftwareTabCounts(t *testing.T) {
 // and each package says why; with no match in the report at all it is the
 // inventory alone.
 func TestSoftwareTabWithoutAMatch(t *testing.T) {
-	tab := softwareTab(inventory(), &vulnmatch.View{NotDone: "osv-ubuntu is not held"})
+	tab := softwareTab(inventory(), &vulnmatch.View{Use: dataset.Use{NotDone: "osv-ubuntu is not held"}})
 	if r := recordOf(t, tab, "bash"); len(tab.Filters) != 0 || tab.Switch.Key != "" || r.Subtitle != "5.1-6ubuntu1" ||
 		field(r, "vulnerabilities") != "Matching was not done: osv-ubuntu is not held" {
 		t.Errorf("with no match made: filters %+v, switch %+v, record %+v", tab.Filters, tab.Switch, r)

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -29,6 +30,12 @@ const (
 	minListHeight = 4
 	listShareNum  = 2
 	listShareDen  = 5
+
+	// optionLead is the columns the left pane draws before an option, its
+	// marker when chosen, and countGap the least space between an option's
+	// label and its count.
+	optionLead = 2
+	countGap   = 1
 
 	// The banner: the brand on its right, the separator between the run, the
 	// host and the time on its left, the least room kept between the two
@@ -119,22 +126,24 @@ type (
 		Categories []string
 
 		// Weakness is the CWE entry the finding maps to, with MITRE's
-		// description of it, or the reason none fits. CVSS is the registry's
-		// baseline and HostCVSS the score on this host with what it rests on,
-		// each labeled with what it is a statement about. SeverityBasis says
-		// which of them Severity is.
-		Weakness      string
-		WeaknessAbout string
-		CVSS          string
-		HostCVSS      string
-		SeverityBasis string
-		Description   string
-		Impact        string
-		Resolution    string
-		References    []string
-		Techniques    []string
-		Mitigations   []string
-		Evidence      []string
+		// description of it, or the reason none fits, and ClassExploited how
+		// many vulnerabilities known to be exploited are of that class. CVSS
+		// is the registry's baseline and HostCVSS the score on this host with
+		// what it rests on, each labeled with what it is a statement about.
+		// SeverityBasis says which of them Severity is.
+		Weakness       string
+		WeaknessAbout  string
+		ClassExploited string
+		CVSS           string
+		HostCVSS       string
+		SeverityBasis  string
+		Description    string
+		Impact         string
+		Resolution     string
+		References     []string
+		Techniques     []string
+		Mitigations    []string
+		Evidence       []string
 	}
 
 	// itemIndex is an item's searchable text, lower-cased once when the
@@ -287,7 +296,7 @@ func buildIndex(items []Item) []itemIndex {
 	index := make([]itemIndex, len(items))
 	for i, item := range items {
 		fields := []string{item.Title, item.Key, item.Check, item.Reason, item.Description,
-			item.Impact, item.Resolution, item.Weakness, item.WeaknessAbout,
+			item.Impact, item.Resolution, item.Weakness, item.WeaknessAbout, item.ClassExploited,
 			item.CVSS, item.HostCVSS, item.SeverityBasis}
 		fields = append(fields, item.Categories...)
 		fields = append(fields, item.References...)
@@ -779,7 +788,7 @@ func (b browser) render() string {
 		main := lipgloss.JoinVertical(lipgloss.Left,
 			b.searchView(),
 			b.listView(),
-			styleMuted.Render(strings.Repeat("─", b.mainWidth())),
+			styleMuted.Render(strings.Repeat(ruleChar, b.mainWidth())),
 			b.detail.View(),
 		)
 		body = fitPane(main, b.mainWidth(), b.bodyHeight())
@@ -837,7 +846,7 @@ func readableTime(stamp string) string {
 
 // sourcesRule closes the left pane's table of sources, so the part of the
 // pane that switches sources is set apart from the filters and summary below.
-func sourcesRule() string { return styleMuted.Render(strings.Repeat("─", filterWidth)) }
+func sourcesRule() string { return styleMuted.Render(strings.Repeat(ruleChar, filterWidth)) }
 
 // divider is the rule between the left pane and the main one, joined to the
 // sources rule where that is on screen.
@@ -860,9 +869,9 @@ func (b browser) divider() string {
 func (b browser) headerRule() string {
 	width := max(b.width, 1)
 	if b.showText || !b.sidebarShown() {
-		return styleMuted.Render(strings.Repeat("─", width))
+		return styleMuted.Render(strings.Repeat(ruleChar, width))
 	}
-	return styleMuted.Render(strings.Repeat("─", filterWidth) + "┬" + strings.Repeat("─", max(width-filterWidth-paneRule, 0)))
+	return styleMuted.Render(strings.Repeat(ruleChar, filterWidth) + "┬" + strings.Repeat(ruleChar, max(width-filterWidth-paneRule, 0)))
 }
 
 // fitPane pads or clips text to exactly width columns and height lines.
@@ -1120,11 +1129,14 @@ func (b browser) sidebarLines() (lines []string, cursorLine int) {
 			line = "> " + label
 		}
 		style := styleMuted
-		switch {
-		case b.focus == focusFilters && b.filterCursor == index:
-			style = styleSelected
-		case selected:
+		if selected {
 			style = styleText
+		}
+		if index < len(b.tabs) {
+			style = b.tabs[index].nameStyle(style)
+		}
+		if b.focus == focusFilters && b.filterCursor == index {
+			style = styleSelected
 		}
 		if b.filterCursor == index {
 			cursorLine = len(lines)
@@ -1177,14 +1189,28 @@ func (b browser) groupLines(groups []*filterGroup, heading func(string), option 
 			heading("")
 		}
 		heading(b.paneTitle(g.name, focusFilters))
+		widest := 0
+		if len(g.counts) > 0 {
+			widest = len(strconv.Itoa(slices.Max(g.counts)))
+		}
 		for i, label := range g.labels {
 			if g.counts != nil {
-				label = fmt.Sprintf("%-*s%d", filterWidth-9, label, g.counts[i])
+				label = countedLabel(label, g.counts[i], widest)
 			}
 			option(index, label, g.chosen == i)
 			index++
 		}
 	}
+}
+
+// countedLabel is a filter option with how many records fall under it: the
+// count at the pane's right edge, right-aligned in a column widest digits
+// wide so a group's counts line up however large they are, and the label cut
+// short where it would otherwise run into the count.
+func countedLabel(label string, count, widest int) string {
+	room := filterWidth - 1 - optionLead - widest - countGap
+	label = truncate(label, room)
+	return label + strings.Repeat(" ", room-lipgloss.Width(label)+countGap) + fmt.Sprintf("%*d", widest, count)
 }
 
 // paneTitle renders a heading, lit when its pane has the keyboard.
@@ -1293,6 +1319,7 @@ func (b browser) detailText(item Item) (string, int) {
 		section("triggered by", triggerText(item))
 	}
 	section("weakness", strings.TrimSpace(item.Weakness+"\n"+item.WeaknessAbout))
+	section("known exploited in its class", item.ClassExploited)
 	section("CVSS baseline", item.CVSS)
 	section("CVSS on this host", item.HostCVSS)
 	section("categories", strings.Join(item.Categories, ", "))

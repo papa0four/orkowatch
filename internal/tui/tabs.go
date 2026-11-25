@@ -33,6 +33,11 @@ const (
 	// tabBarLines is the line the tab bar takes when there is more than one
 	// tab to choose between.
 	tabBarLines = 1
+
+	// ruleChar draws every rule in the browser, and ruleLead is the stretch
+	// of a band's rule ahead of the band's name.
+	ruleChar = "─"
+	ruleLead = ruleChar + ruleChar
 )
 
 type (
@@ -58,6 +63,16 @@ type (
 		// Switch, when it names a key, is a key that moves one of the
 		// filters between two of its options from the list.
 		Switch Switch
+
+		// Alert names the band whose heading and records are drawn in the
+		// critical color, so the records that most need attention stand apart
+		// from the rest.
+		Alert string
+
+		// Attention marks a tab holding what the operator must act on, so its
+		// name stands out in the critical color wherever the sources are
+		// listed, whichever tab is open.
+		Attention bool
 	}
 
 	// Switch is a key that moves the filter named Filter between its
@@ -72,39 +87,60 @@ type (
 
 	// Filter is a group of options the left pane narrows a tab's records
 	// by: its name, its options in the order shown, and the option the tab
-	// opens on. An option named All admits every record.
+	// opens on. An option named All admits every record. Spares names a band
+	// whose records the filter does not narrow, so they stay listed
+	// whichever option is chosen.
 	Filter struct {
 		Name    string
 		Options []string
 		Start   string
+		Spares  string
 	}
 
 	// Record is one row of a tab. Its fields are shown in the detail pane in
 	// the order given. Filters is the options of each of the tab's filters
-	// the record falls under, in the tab's order.
+	// the record falls under, in the tab's order. Band is the part of the
+	// list the record is in, which the list heads with the band's name where
+	// it changes, so a tab gives the records of one band together; a tab
+	// whose records have none has no headings.
 	Record struct {
 		Title    string
 		Subtitle string
 		Fields   []SummaryLine
 		Filters  [][]string
+		Band     string
+	}
+
+	// listLine is one line of a record tab's list: the heading of a band with
+	// how many of the visible records are in it, or the visible record at
+	// row.
+	listLine struct {
+		heading string
+		count   int
+		row     int
 	}
 
 	// tabDef is a tab as the tab bar knows it.
 	tabDef struct {
-		id     string
-		name   string
-		letter string
+		id        string
+		name      string
+		letter    string
+		attention bool
 	}
 
 	// recordPane is the list and detail of one record tab. Its state is
 	// reached through a pointer, so it survives the value copies the Bubble
 	// Tea model goes through. groups are the tab's filters as the left pane
-	// walks them.
+	// walks them. lines are the visible records with the headings of their
+	// bands, and lineOf the line of each visible record; listTop counts
+	// lines, and cursor visible records.
 	recordPane struct {
 		tab     Tab
 		index   []string
 		groups  []*filterGroup
 		visible []int
+		lines   []listLine
+		lineOf  []int
 		cursor  int
 		listTop int
 		shown   int
@@ -113,14 +149,16 @@ type (
 
 	// filterGroup is a group of filter options as the left pane draws and
 	// walks it: its name, its options and the label each is shown with,
-	// which is chosen, and how many records of the whole tab fall under each
-	// option, or none where the tab does not count them.
+	// which is chosen, how many records of the whole tab fall under each
+	// option, or none where the tab does not count them, and the band whose
+	// records it does not narrow.
 	filterGroup struct {
 		name    string
 		options []string
 		labels  []string
 		chosen  int
 		counts  []int
+		spares  string
 	}
 )
 
@@ -169,9 +207,19 @@ func buildTabs(report Report) []tabDef {
 		tabs = append(tabs, tabDef{id: TabFindings, name: "Findings", letter: tabLetters[TabFindings]})
 	}
 	for _, t := range report.Tabs {
-		tabs = append(tabs, tabDef{id: t.ID, name: t.Name, letter: tabLetters[t.ID]})
+		tabs = append(tabs, tabDef{id: t.ID, name: t.Name, letter: tabLetters[t.ID], attention: t.Attention})
 	}
 	return tabs
+}
+
+// nameStyle is how the source list and the tab bar draw t's name where the
+// keyboard is not on it: in the critical color when the tab needs attention,
+// in plain otherwise.
+func (t tabDef) nameStyle(plain lipgloss.Style) lipgloss.Style {
+	if t.attention {
+		return styleAlert
+	}
+	return plain
 }
 
 // buildPanes returns one pane per tab, parallel to tabs: nil for the
@@ -204,7 +252,7 @@ func newRecordPane(tab Tab) *recordPane {
 		p.index[i] = strings.ToLower(text.String())
 	}
 	for at, f := range tab.Filters {
-		g := &filterGroup{name: f.Name, options: f.Options, labels: f.Options, counts: make([]int, len(f.Options))}
+		g := &filterGroup{name: f.Name, options: f.Options, labels: f.Options, counts: make([]int, len(f.Options)), spares: f.Spares}
 		g.chosen = max(slices.Index(f.Options, f.Start), 0)
 		for i, option := range f.Options {
 			for _, r := range tab.Records {
@@ -219,10 +267,13 @@ func newRecordPane(tab Tab) *recordPane {
 }
 
 // admits reports whether record i falls under the option chosen in each of
-// the pane's filters.
+// the pane's filters that narrows its band.
 func (p *recordPane) admits(i int) bool {
 	record := p.tab.Records[i]
 	for at, g := range p.groups {
+		if g.spares != "" && record.Band == g.spares {
+			continue
+		}
 		if option := g.option(); option != "" && (at >= len(record.Filters) || !slices.Contains(record.Filters[at], option)) {
 			return false
 		}
@@ -237,7 +288,8 @@ func (p *recordPane) listless() bool {
 }
 
 // refilter keeps the records the chosen filters admit that contain needle,
-// already lower-case, and selects the first.
+// already lower-case, heads each band among them where it changes, and
+// selects the first.
 func (p *recordPane) refilter(needle string) {
 	p.visible = p.visible[:0]
 	for i, text := range p.index {
@@ -245,19 +297,40 @@ func (p *recordPane) refilter(needle string) {
 			p.visible = append(p.visible, i)
 		}
 	}
+	p.lines, p.lineOf = p.lines[:0], p.lineOf[:0]
+	band, heading := "", -1
+	for row, i := range p.visible {
+		if b := p.tab.Records[i].Band; b != "" && b != band {
+			heading = len(p.lines)
+			p.lines = append(p.lines, listLine{heading: b, row: -1})
+		}
+		band = p.tab.Records[i].Band
+		if band != "" && heading >= 0 {
+			p.lines[heading].count++
+		}
+		p.lineOf = append(p.lineOf, len(p.lines))
+		p.lines = append(p.lines, listLine{row: row})
+	}
 	p.cursor = 0
 	p.listTop = 0
 	p.shown = -1
 }
 
-// show keeps the selection inside the list's rows and loads it into the
-// detail pane, which keeps its place when the same record is redrawn.
+// show keeps the selection inside the list's rows, with the heading of its
+// band when it is the band's first, and loads it into the detail pane, which
+// keeps its place when the same record is redrawn.
 func (p *recordPane) show(rows, width int) {
-	switch {
-	case p.cursor < p.listTop:
-		p.listTop = p.cursor
-	case p.cursor >= p.listTop+rows:
-		p.listTop = p.cursor - rows + 1
+	if len(p.visible) > 0 {
+		line := p.lineOf[p.cursor]
+		switch {
+		case line < p.listTop:
+			p.listTop = line
+			if line > 0 && p.lines[line-1].row < 0 {
+				p.listTop--
+			}
+		case line >= p.listTop+rows:
+			p.listTop = line - rows + 1
+		}
 	}
 
 	if len(p.visible) == 0 {
@@ -324,10 +397,20 @@ func (p *recordPane) onListKey(key string, rows int) bool {
 	return false
 }
 
-// listView renders the rows of the list that fall inside its window.
+// listView renders the lines of the list that fall inside its window.
 func (p *recordPane) listView(rows, width int, selected bool) string {
 	lines := make([]string, 0, rows)
-	for row := p.listTop; row < min(p.listTop+rows, len(p.visible)); row++ {
+	for _, at := range p.lines[min(p.listTop, len(p.lines)):min(p.listTop+rows, len(p.lines))] {
+		band := at.heading
+		if at.row >= 0 {
+			band = p.tab.Records[p.visible[at.row]].Band
+		}
+		style := p.bandStyle(band)
+		if at.row < 0 {
+			lines = append(lines, style.Bold(true).Render(bandRule(at.heading, at.count, width)))
+			continue
+		}
+		row := at.row
 		record := p.tab.Records[p.visible[row]]
 		text := record.Title
 		if record.Subtitle != "" {
@@ -337,7 +420,7 @@ func (p *recordPane) listView(rows, width int, selected bool) string {
 		if row == p.cursor && selected {
 			line = styleSelected.Render(fmt.Sprintf("%-*s", width, line))
 		} else {
-			line = styleText.Render(line)
+			line = style.Render(line)
 		}
 		lines = append(lines, line)
 	}
@@ -345,6 +428,22 @@ func (p *recordPane) listView(rows, width int, selected bool) string {
 		lines = append(lines, "")
 	}
 	return strings.Join(lines, "\n")
+}
+
+// bandStyle is how the list draws a line of band: in the critical color when
+// it is the tab's alert band, as plain text otherwise.
+func (p *recordPane) bandStyle(band string) lipgloss.Style {
+	if band != "" && band == p.tab.Alert {
+		return styleAlert
+	}
+	return styleText
+}
+
+// bandRule is the heading of a band as a rule across the list: the band's
+// name and how many records are in it, between lines drawn to width.
+func bandRule(name string, count, width int) string {
+	label := truncate(fmt.Sprintf("%s %s (%d) ", ruleLead, name, count), width)
+	return label + strings.Repeat(ruleChar, max(width-lipgloss.Width(label), 0))
 }
 
 // recordText renders one record for the detail pane: its title, its
@@ -406,7 +505,7 @@ func (b browser) tabBar() string {
 		if t.letter != "" {
 			label = t.letter + " " + t.name
 		}
-		style := styleMuted
+		style := t.nameStyle(styleMuted)
 		if i == b.active {
 			style = styleSelected
 		}
@@ -465,7 +564,7 @@ func (b browser) recordBody(p *recordPane) string {
 	main := lipgloss.JoinVertical(lipgloss.Left,
 		b.queryLine(status),
 		p.listView(b.listHeight(), b.mainWidth(), true),
-		styleMuted.Render(strings.Repeat("─", b.mainWidth())),
+		styleMuted.Render(strings.Repeat(ruleChar, b.mainWidth())),
 		p.detail.View(),
 	)
 	return fitPane(main, b.mainWidth(), b.bodyHeight())

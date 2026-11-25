@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/papa0four/orkowatch/internal/dataset"
+	"github.com/papa0four/orkowatch/internal/dataset/kev"
 	"github.com/papa0four/orkowatch/internal/dataset/osv"
 	"github.com/papa0four/orkowatch/internal/pkgversion"
 	"github.com/papa0four/orkowatch/internal/softwarelist"
@@ -215,7 +217,7 @@ func TestMatchCannotCompare(t *testing.T) {
 // the unfixed counted by package, and those not matched; with no match made,
 // why.
 func TestWriteText(t *testing.T) {
-	v := View{Dataset: "osv-ubuntu", Release: "Ubuntu:22.04", DataDate: "2026-11-24", State: "current", Order: "dpkg",
+	v := View{Use: dataset.Use{Provenance: dataset.Provenance{ID: "osv-ubuntu", Version: "Ubuntu:22.04", DataDate: "2026-11-24", State: dataset.StateCurrent}}, Order: "dpkg",
 		Packages: []PackageMatches{{Package: "openssl", Installed: "3.0.2-1", Vulnerabilities: []Vulnerability{
 			{ID: "CVE-2026-1", Status: StatusFixAvailable, Fixed: "3.0.2-2", Severity: Severity{Label: "medium", Level: LevelMedium, Basis: "Ubuntu priority"}},
 			{ID: "CVE-2026-2", Status: StatusUnfixed},
@@ -244,7 +246,114 @@ func TestWriteText(t *testing.T) {
 	}
 
 	b.Reset()
-	if err := WriteText(&b, View{NotDone: "no OSV dataset is held for this host; run owatch data refresh"}); err != nil || !strings.HasPrefix(b.String(), "Matching was not done: no OSV dataset") {
+	if err := WriteText(&b, View{Use: dataset.Use{NotDone: "no OSV dataset is held for this host; run owatch data refresh"}}); err != nil || !strings.HasPrefix(b.String(), "Matching was not done: no OSV dataset") {
 		t.Errorf("a match not made wrote %q, %v", b.String(), err)
+	}
+}
+
+// catalog is a catalog of known-exploited vulnerabilities listing the
+// identifiers it holds.
+type catalog map[string]kev.Entry
+
+func (c catalog) Entry(id string) (kev.Entry, bool) {
+	e, ok := c[id]
+	return e, ok
+}
+
+// kevData is the provenance of a catalog read at its date.
+var kevData = dataset.Use{Provenance: dataset.Provenance{ID: "kev", Version: "2026.11.23", DataDate: "2026-11-23", State: dataset.StateCurrent, Attribution: "Attributed as the catalog asks."}}
+
+// exploitedView is a match of two packages, openssl with a low fix, a high
+// fix, and a critical unfixed, and bash with a medium fix, before any is
+// marked.
+func exploitedView() View {
+	sev := func(level string) Severity { return Severity{Label: level, Level: level, Basis: "Ubuntu priority"} }
+	v := View{Use: dataset.Use{Provenance: dataset.Provenance{ID: "osv-ubuntu", Version: "Ubuntu:22.04"}}, Packages: []PackageMatches{
+		{Package: "bash", Installed: "5.1", Vulnerabilities: []Vulnerability{
+			{ID: "CVE-2026-10", Status: StatusFixAvailable, Fixed: "5.2", Severity: sev(LevelMedium)},
+		}},
+		{Package: "openssl", Installed: "3.0.2-1", Vulnerabilities: []Vulnerability{
+			{ID: "CVE-2026-1", Status: StatusFixAvailable, Fixed: "3.0.2-2", Severity: sev(LevelHigh)},
+			{ID: "CVE-2026-2", Status: StatusFixAvailable, Fixed: "3.0.2-2", Severity: sev(LevelLow)},
+			{ID: "CVE-2026-3", Status: StatusUnfixed, Severity: sev(LevelCritical)},
+		}},
+	}, Installed: 2}
+	v.count()
+	return v
+}
+
+// The catalog marks what it lists and nothing else, and a package's
+// vulnerabilities known to be exploited come first, the most severe first,
+// then the rest in their order: a fix available ahead of the unfixed, the
+// most severe first within each. The counts include those known exploited.
+func TestMarkExploited(t *testing.T) {
+	v := exploitedView()
+	v.MarkExploited(catalog{
+		"CVE-2026-2": {Added: "2026-11-20", Due: "2026-12-11", Ransomware: "Known"},
+		"CVE-2026-3": {Added: "2026-11-21", Due: "2026-12-12", Ransomware: "Unknown"},
+	}, kevData)
+
+	var order []string
+	for _, found := range v.Packages[1].Vulnerabilities {
+		order = append(order, found.ID)
+	}
+	if got := strings.Join(order, ","); got != "CVE-2026-3,CVE-2026-2,CVE-2026-1" {
+		t.Errorf("openssl's vulnerabilities are in the order %s, want the critical and the low known exploited, then the high", got)
+	}
+	if e := v.Packages[1].Vulnerabilities[1].KnownExploited; e == nil || e.Added != "2026-11-20" || e.Ransomware != "Known" {
+		t.Errorf("CVE-2026-2 is marked %+v", e)
+	}
+	if v.Packages[1].Vulnerabilities[2].KnownExploited != nil || v.Packages[0].Vulnerabilities[0].KnownExploited != nil {
+		t.Error("a vulnerability the catalog does not list was marked")
+	}
+	if v.Counts.KnownExploited != 2 || v.Counts.FixAvailable != 3 || v.Counts.Unfixed != 1 {
+		t.Errorf("counts %+v", v.Counts)
+	}
+	if v.KnownExploited == nil || *v.KnownExploited != kevData {
+		t.Errorf("the view names the catalog's data as %+v", v.KnownExploited)
+	}
+}
+
+// The text lists every vulnerability known to be exploited first and apart,
+// fixed or not, the most severe first, with the catalog's data and
+// attribution, and leaves them out of the list of the rest with a fix
+// available. With none listed, or the catalog not read, it says so.
+func TestWriteTextKnownExploited(t *testing.T) {
+	v := exploitedView()
+	v.MarkExploited(catalog{
+		"CVE-2026-2":  {Added: "2026-11-20", Ransomware: "Known"},
+		"CVE-2026-3":  {Added: "2026-11-21", Ransomware: "Unknown"},
+		"CVE-2026-10": {Added: "2026-11-19", Ransomware: "Unknown"},
+	}, kevData)
+	var b strings.Builder
+	if err := WriteText(&b, v); err != nil {
+		t.Fatal(err)
+	}
+	text := b.String()
+	want := "\n3 vulnerabilities known to be exploited, by kev, 2026.11.23, data of 2026-11-23, current:\n" +
+		"  critical    CVE-2026-3           openssl 3.0.2-1, unfixed; added 2026-11-21, ransomware use Unknown\n" +
+		"  medium      CVE-2026-10          bash 5.1, fixed in 5.2; added 2026-11-19, ransomware use Unknown\n" +
+		"  low         CVE-2026-2           openssl 3.0.2-1, fixed in 3.0.2-2; added 2026-11-20, ransomware use Known\n" +
+		"  Attributed as the catalog asks.\n" +
+		"\nFix available:\n" +
+		"  high        CVE-2026-1           openssl 3.0.2-1, fixed in 3.0.2-2\n"
+	if !strings.Contains(text, want) {
+		t.Errorf("the text lacks\n%s\nin\n%s", want, text)
+	}
+
+	for name, c := range map[string]struct {
+		catalog catalog
+		use     dataset.Use
+		want    string
+	}{
+		"none listed": {catalog{}, kevData, "\nNone is known to be exploited, by kev, 2026.11.23, data of 2026-11-23, current.\n"},
+		"not read":    {catalog{}, dataset.Use{Provenance: dataset.Provenance{ID: "kev"}, NotDone: "kev is not held"}, "\nKnown exploitation was not read: kev is not held\n"},
+	} {
+		v := exploitedView()
+		v.MarkExploited(c.catalog, c.use)
+		b.Reset()
+		if err := WriteText(&b, v); err != nil || !strings.Contains(b.String(), c.want) || !strings.Contains(b.String(), "high        CVE-2026-1") {
+			t.Errorf("%s: wrote %q, %v, want %q", name, b.String(), err, c.want)
+		}
 	}
 }

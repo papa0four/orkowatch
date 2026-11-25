@@ -38,7 +38,7 @@ func (s Store) Status(known []dataset.Dataset, host *osfingerprint.OSInfo, now t
 		}
 		switch applies := d.AppliesTo(host); {
 		case applies && !held:
-			view.Datasets = append(view.Datasets, dataset.Row{ID: d.ID(), State: dataset.StateNotHeld})
+			view.Datasets = append(view.Datasets, dataset.Row{Provenance: dataset.Provenance{ID: d.ID(), State: dataset.StateNotHeld}})
 		case applies:
 			row := s.heldRow(d, host, now)
 			row.Attention = attention(s.dir(d.ID()))
@@ -71,19 +71,9 @@ func (s Store) heldRow(d dataset.Dataset, host *osfingerprint.OSInfo, now time.T
 		err = errors.New("its check states no version of the data")
 	}
 	if err != nil {
-		return dataset.Row{ID: d.ID(), State: dataset.StateUnusable, Reason: err.Error()}
+		return dataset.Row{Provenance: dataset.Provenance{ID: d.ID(), State: dataset.StateUnusable}, Reason: err.Error()}
 	}
-	return dataset.Row{
-		ID:          d.ID(),
-		State:       dataset.StateAt(m.Fetched, now),
-		Source:      m.Source,
-		DataDate:    facts.Date.UTC().Format(time.DateOnly),
-		Version:     facts.Version,
-		Fetched:     m.Fetched.UTC().Format(time.RFC3339),
-		Size:        m.Size,
-		License:     m.License,
-		Attribution: m.Attribution,
-	}
+	return dataset.Row{Provenance: dataset.ProvenanceOf(d.ID(), m, facts, now), Size: m.Size}
 }
 
 // sizedRow is a dataset directory that is not read, with the size of what it
@@ -91,9 +81,9 @@ func (s Store) heldRow(d dataset.Dataset, host *osfingerprint.OSInfo, now time.T
 func (s Store) sizedRow(id string, state dataset.State) dataset.Row {
 	size, err := dirSize(s.dir(id))
 	if err != nil {
-		return dataset.Row{ID: id, State: state, Reason: err.Error()}
+		return dataset.Row{Provenance: dataset.Provenance{ID: id, State: state}, Reason: err.Error()}
 	}
-	return dataset.Row{ID: id, State: state, Size: size}
+	return dataset.Row{Provenance: dataset.Provenance{ID: id, State: state}, Size: size}
 }
 
 // unknownDirs lists the directories in the store that named does not hold, in

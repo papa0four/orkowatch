@@ -7,6 +7,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"charm.land/lipgloss/v2"
 )
 
 // filteredReport has a record tab whose records fall under one status each,
@@ -175,6 +177,126 @@ func TestFilterFocus(t *testing.T) {
 	b.onFilterKey("enter")
 	if b.focus != focusList || b.active != 0 {
 		t.Errorf("enter on the open source left pane %d on tab %d, want its list", b.focus, b.active)
+	}
+}
+
+// A tab's records in bands are listed under the heading of each band, a rule
+// across the list naming the band and how many of the visible records are in
+// it, drawn where the band changes; a search that leaves one band shows its
+// heading alone; a record scrolled up to that is its band's first is shown
+// under its heading; and the tab's alert band is drawn in the critical color.
+func TestRecordBands(t *testing.T) {
+	record := func(title, band string) Record { return Record{Title: title, Band: band} }
+	p := newRecordPane(Tab{ID: TabVulnerabilities, Name: "Vulnerabilities", Alert: "first", Records: []Record{
+		record("alpha", "first"), record("bravo", "first"), record("charlie", "second"), record("delta", "second"), record("echo", "second")}})
+	listed := func(rows int) string {
+		p.show(rows, 40)
+		var lines []string
+		for _, line := range strings.Split(plain(p.listView(rows, 40, true)), "\n") {
+			if strings.HasPrefix(line, ruleLead) {
+				if lipgloss.Width(line) != 40 {
+					t.Errorf("the rule %q does not run across the list", line)
+				}
+				line = strings.Trim(line, ruleChar+" ")
+			}
+			if line = strings.TrimSpace(line); line != "" {
+				lines = append(lines, line)
+			}
+		}
+		return strings.Join(lines, ",")
+	}
+
+	p.refilter("")
+	if got := listed(10); got != "first (2),alpha,bravo,second (3),charlie,delta,echo" {
+		t.Errorf("the list is %q, want each band under its heading", got)
+	}
+	p.cursor = len(p.visible) - 1
+	if got := listed(2); got != "delta,echo" {
+		t.Errorf("at the end the list shows %q", got)
+	}
+	p.cursor = 2
+	if got := listed(2); got != "second (3),charlie" {
+		t.Errorf("scrolled up to the band's first, the list shows %q, want it under its heading", got)
+	}
+	p.refilter("delta")
+	if got := listed(10); got != "second (1),delta" {
+		t.Errorf("a search within one band shows %q", got)
+	}
+	if p.bandStyle("first").GetForeground() != colorCritical || p.bandStyle("second").GetForeground() == colorCritical || p.bandStyle("").GetForeground() == colorCritical {
+		t.Error("the alert band is not the one drawn in the critical color")
+	}
+}
+
+// A tab that needs attention has its name drawn in the critical color in the
+// source list, open or not, and in the tab bar a narrow window shows instead;
+// a tab that does not is drawn as before.
+func TestAttentionTabStandsOut(t *testing.T) {
+	alert := strings.SplitN(styleAlert.Render("x"), "x", 2)[0]
+	b := newBrowser(Report{Title: "owatch all", Tabs: []Tab{
+		{ID: TabSystem, Name: "System", Note: "nothing"},
+		{ID: TabDatasets, Name: "Datasets", Note: "nothing", Attention: true},
+	}})
+	for _, active := range []int{0, 1} {
+		b.active = active
+		lines, _ := b.sidebarLines()
+		if strings.HasPrefix(lines[1], alert) || !strings.HasPrefix(lines[2], alert) || !strings.Contains(plain(lines[2]), "Datasets") {
+			t.Errorf("with tab %d open, the sources are drawn %q", active, lines[1:3])
+		}
+	}
+
+	b.active = 0
+	b.width = filterWidth
+	bar := b.tabBar()
+	if !strings.Contains(bar, alert+" d Datasets ") || strings.Contains(bar, alert+" o System ") {
+		t.Errorf("the tab bar is drawn %q", bar)
+	}
+}
+
+// A filter option's count is set apart from its label and right-aligned at
+// the pane's edge with the rest of its group, however long the label and
+// however large the count; a label too long for the room left is cut short.
+func TestCountedLabel(t *testing.T) {
+	room := filterWidth - 1 - optionLead
+	for _, tt := range []struct {
+		label         string
+		count, widest int
+		want          string
+	}{
+		{"not in the catalog", 361, 3, "not in the catalog  361"},
+		{"known exploited", 1, 3, "known exploited       1"},
+		{"not in the catalog", 1234, 4, "not in the catalog 1234"},
+		{"not in the catalog", 123456, 6, "not in the cata… 123456"},
+	} {
+		got := countedLabel(tt.label, tt.count, tt.widest)
+		if got != tt.want || lipgloss.Width(got) != room {
+			t.Errorf("countedLabel(%q, %d, %d) = %q (%d wide), want %q, %d wide", tt.label, tt.count, tt.widest, got, lipgloss.Width(got), tt.want, room)
+		}
+	}
+}
+
+// A filter does not narrow the band it spares: its records stay listed
+// whichever option is chosen, and the other filters still narrow them.
+func TestFilterSparesABand(t *testing.T) {
+	record := func(title, band, status, severity string) Record {
+		return Record{Title: title, Band: band, Filters: [][]string{{status}, {severity}}}
+	}
+	report := Report{Title: "owatch software", Tabs: []Tab{
+		{ID: TabVulnerabilities, Name: "Vulnerabilities",
+			Filters: []Filter{
+				{Name: "status", Options: []string{All, "fix available", "unfixed"}, Start: "fix available", Spares: "exploited"},
+				{Name: "severity", Options: []string{All, "high", "low"}, Start: All},
+			},
+			Records: []Record{record("alpha", "exploited", "unfixed", "high"), record("bravo", "exploited", "fix available", "low"),
+				record("charlie", "rest", "fix available", "high"), record("delta", "rest", "unfixed", "low")}},
+		{ID: TabSystem, Name: "System", Note: "system note"},
+	}}
+	b := sized(newBrowser(report), 120, 40)
+	if got := strings.Join(visibleTitles(b), ","); got != "alpha,bravo,charlie" {
+		t.Errorf("opened on fix available the list is %q, want the spared band whole and the rest narrowed", got)
+	}
+	b = apply(b, 5)
+	if got := strings.Join(visibleTitles(b), ","); got != "bravo" {
+		t.Errorf("with low chosen the list is %q, want the severity to narrow the spared band too", got)
 	}
 }
 

@@ -131,6 +131,14 @@ func TestBrowserItemCarriesWeaknessAndCVSS(t *testing.T) {
 	if !strings.Contains(item.HostCVSS, "no rule of this finding reads the host") || item.SeverityBasis != "the registry's rating for this rule" {
 		t.Errorf("a finding with no rule shows host score %q and severity basis %q", item.HostCVSS, item.SeverityBasis)
 	}
+	if item.ClassExploited != "" {
+		t.Errorf("a finding whose class has no count shows %q", item.ClassExploited)
+	}
+	cond.Finding.KnownExploitedInClass = 3
+	if item = browserItem(cond); item.ClassExploited != audit.ClassExploitedText(*cond.Finding) || !strings.Contains(item.ClassExploited, "3 vulnerabilities known to be exploited are of CWE-732") {
+		t.Errorf("a finding whose class counts 3 shows %q", item.ClassExploited)
+	}
+	cond.Finding.KnownExploitedInClass = 0
 
 	cond.Finding.Host = &finding.HostScore{
 		CVSS: &finding.CVSSScore{Version: "4.0", Vector: "CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:H/VI:H/VA:N/SC:N/SI:N/SA:N/MPR:H", Score: 6.9,
@@ -156,6 +164,31 @@ func TestBrowserItemCarriesWeaknessAndCVSS(t *testing.T) {
 	item = browserItem(cond)
 	if item.Weakness != "none" || item.WeaknessAbout != "No entry describes this." {
 		t.Errorf("a finding with no weakness shows %q / %q", item.Weakness, item.WeaknessAbout)
+	}
+}
+
+// The summary names the data the counts of known-exploited vulnerabilities by
+// weakness class were read from, or why they were not read, and nothing for
+// an audit not given them.
+func TestSummaryNamesTheCatalog(t *testing.T) {
+	value := func(view audit.View) string {
+		for _, line := range summaryLines(&view) {
+			if line.Label == "known exploited" {
+				return line.Value
+			}
+		}
+		return ""
+	}
+	read := dataset.Use{Provenance: dataset.Provenance{ID: "kev", Version: "2026.11.21", DataDate: "2026-11-21", State: dataset.StateCurrent}}
+	notRead := dataset.Use{Provenance: dataset.Provenance{ID: "kev"}, NotDone: "kev is not held"}
+	for want, view := range map[string]audit.View{
+		"kev, 2026.11.21, data of 2026-11-21, current": {KnownExploited: &read},
+		"not read: kev is not held":                    {KnownExploited: &notRead},
+		"":                                             {},
+	} {
+		if got := value(view); got != want {
+			t.Errorf("the summary says %q, want %q", got, want)
+		}
 	}
 }
 
@@ -198,44 +231,62 @@ func TestDatasetsTabOnlyWhenHeld(t *testing.T) {
 		}
 	}
 	report := BrowserReport(BrowserSource{
-		Datasets: &dataset.View{Store: "/store", Datasets: []dataset.Row{{ID: "kev", State: dataset.StateNotHeld}}},
+		Datasets: &dataset.View{Store: "/store", Datasets: []dataset.Row{{Provenance: dataset.Provenance{ID: "kev", State: dataset.StateNotHeld}}}},
 		Modules:  []ModuleNote{{Name: selection.NameDatasets, Result: finding.ResultInformational}},
 	})
 	if report.Start != tui.TabDatasets {
 		t.Errorf("opens on %q, want the datasets", report.Start)
 	}
-	empty := datasetsTab(dataset.View{Store: "/store"})
+	empty := datasetsTab(&dataset.View{Store: "/store"}, nil)
 	if len(empty.Records) != 0 || !strings.Contains(empty.Note, "/store holds none") {
 		t.Errorf("an empty store gave %+v", empty)
 	}
 }
 
 // What an elevated run installed from the operator's store is the first
-// record, with the same sentences the text report prints.
+// record, with the same sentences the text report prints, and the tab needs
+// attention when the operator has something to do. A report with the record
+// and no store's datasets, as every report but status's is, offers the tab
+// with the record alone; one with neither offers no tab.
 func TestDatasetsTabSaysWhatWasInstalled(t *testing.T) {
-	operator := &dataset.Operator{Store: "/home/a/store", Installed: []string{"kev"}, Refused: []dataset.Refusal{{ID: "epss", Reason: "it is a link"}}, Advice: "run import"}
-	tab := datasetsTab(dataset.View{Store: "/store", Operator: operator, Datasets: []dataset.Row{{ID: "kev", State: dataset.StateCurrent}}})
-	if len(tab.Records) != 2 || tab.Records[0].Title != "from the operator" || tab.Records[1].Title != "kev" {
-		t.Fatalf("records %+v, want the operator's ahead of the dataset's", tab.Records)
+	refused := &dataset.Operator{Store: "/home/a/store", Installed: []string{"kev"}, Refused: []dataset.Refusal{{ID: "epss", Reason: "it is a link"}}, Advice: "run import"}
+	tab := datasetsTab(&dataset.View{Store: "/store", Datasets: []dataset.Row{{Provenance: dataset.Provenance{ID: "kev", State: dataset.StateCurrent}}}}, refused)
+	if len(tab.Records) != 2 || tab.Records[0].Title != "from the operator" || tab.Records[1].Title != "kev" || !tab.Attention {
+		t.Fatalf("tab %+v, want the operator's record ahead of the dataset's, needing attention", tab)
 	}
 	var got []string
 	for _, f := range tab.Records[0].Fields {
 		got = append(got, f.Value)
 	}
-	if !slices.Equal(got, operator.Lines()) {
-		t.Errorf("the record says %q, want %q", got, operator.Lines())
+	if !slices.Equal(got, refused.Lines()) {
+		t.Errorf("the record says %q, want %q", got, refused.Lines())
 	}
-	if plain := datasetsTab(dataset.View{Store: "/store", Datasets: []dataset.Row{{ID: "kev", State: dataset.StateCurrent}}}); len(plain.Records) != 1 {
-		t.Errorf("with nothing from an operator: %+v", plain.Records)
+	if plain := datasetsTab(&dataset.View{Store: "/store", Datasets: []dataset.Row{{Provenance: dataset.Provenance{ID: "kev", State: dataset.StateCurrent}}}}, nil); len(plain.Records) != 1 || plain.Attention {
+		t.Errorf("with nothing from an operator: %+v", plain)
+	}
+
+	installed := &dataset.Operator{Store: "/home/a/store", Installed: []string{"kev"}}
+	for _, src := range []BrowserSource{
+		{Title: "software", Operator: installed, Modules: []ModuleNote{{Name: selection.NameSoftware}}},
+		AuditSource("audit", audit.View{Operator: refused}, ""),
+	} {
+		at := slices.IndexFunc(BrowserReport(src).Tabs, func(tab tui.Tab) bool { return tab.ID == tui.TabDatasets })
+		if at < 0 {
+			t.Fatalf("%s offers no Datasets tab", src.Title)
+		}
+		tab := BrowserReport(src).Tabs[at]
+		if len(tab.Records) != 1 || tab.Records[0].Title != "from the operator" || tab.Note != "" || tab.Attention != src.Operator.NeedsAction() {
+			t.Errorf("%s: Datasets tab %+v", src.Title, tab)
+		}
 	}
 }
 
 // A held dataset's record gives the date of its data and, after it, the
 // version its source gives the data.
 func TestDatasetsTabShowsTheVersion(t *testing.T) {
-	tab := datasetsTab(dataset.View{Store: "/store", Datasets: []dataset.Row{
-		{ID: "kev", State: dataset.StateCurrent, DataDate: "2026-11-23", Version: "2026.11.23"},
-	}})
+	tab := datasetsTab(&dataset.View{Store: "/store", Datasets: []dataset.Row{
+		{Provenance: dataset.Provenance{ID: "kev", State: dataset.StateCurrent, DataDate: "2026-11-23", Version: "2026.11.23"}},
+	}}, nil)
 	var got []string
 	for _, f := range tab.Records[0].Fields {
 		got = append(got, f.Label+"="+f.Value)

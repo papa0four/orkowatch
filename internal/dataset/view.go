@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"strconv"
+	"time"
 
 	"github.com/papa0four/orkowatch/internal/render"
 )
@@ -31,19 +32,18 @@ const (
 )
 
 // View is the serializable projection of a store: where it is and what it
-// holds, one row per dataset, and, for an elevated run, what it installed
-// from the operator's store before reading its own.
+// holds, one row per dataset.
 type View struct {
-	Store    string    `json:"store" yaml:"store"`
-	Operator *Operator `json:"operator,omitempty" yaml:"operator,omitempty"`
-	Datasets []Row     `json:"datasets" yaml:"datasets"`
+	Store    string `json:"store" yaml:"store"`
+	Datasets []Row  `json:"datasets" yaml:"datasets"`
 }
 
 // Operator is what an elevated run did with the datasets of the operator
-// behind it. Store is the operator's store, and is empty when no one is
-// behind the run, as with a direct root login; Advice then says how datasets
-// reach this host. Installed names the datasets installed from Store, and
-// Refused those left alone, each with the reason.
+// behind it when it opened its store. Store is the operator's store, and is
+// empty when no one is behind the run, as with a direct root login; Advice
+// then says how datasets reach this host. Installed names the datasets
+// installed from Store, and Refused those left alone, each with the reason.
+// A run opens its store once, so a report states this once, for the run.
 type Operator struct {
 	Store     string    `json:"store,omitempty" yaml:"store,omitempty"`
 	Installed []string  `json:"installed,omitempty" yaml:"installed,omitempty"`
@@ -74,22 +74,96 @@ func (o Operator) Lines() []string {
 	return lines
 }
 
-// Row is one dataset as status shows it. A held dataset carries what its
-// manifest and its data say, the date of its data as time.DateOnly writes it,
-// the version its source gives the data, and its fetch time as time.RFC3339
-// writes it; any other carries its state and, where there is one, the reason
-// or its size.
-type Row struct {
-	ID          string `json:"id" yaml:"id"`
-	State       State  `json:"state" yaml:"state"`
-	Reason      string `json:"reason,omitempty" yaml:"reason,omitempty"`
+// NeedsAction reports whether the operator has something to do: a dataset
+// was left alone, or no one is behind the run. Advice is given for exactly
+// those.
+func (o Operator) NeedsAction() bool { return o.Advice != "" }
+
+// WriteOperatorText writes what a run did with the operator's datasets, one
+// sentence a line and a blank line after, at the head of a report; it writes
+// nothing when o is nil. Every report that states it writes it here.
+func WriteOperatorText(w io.Writer, o *Operator) error {
+	if o == nil {
+		return nil
+	}
+	ew := render.NewErrWriter(w)
+	for _, line := range o.Lines() {
+		ew.Printf("%s\n", render.HostText(line))
+	}
+	ew.Printf("\n")
+	return ew.Err()
+}
+
+// Provenance is what a dataset read was: the dataset and its state then and,
+// for one that was held, what its manifest and its data say, the date of its
+// data as time.DateOnly writes it, the version its source gives the data, its
+// fetch time as time.RFC3339 writes it, and the terms its data comes under.
+// The store's status and every result read from a dataset state it in this
+// one form, so a report names its data as status does.
+type Provenance struct {
+	ID          string `json:"id,omitempty" yaml:"id,omitempty"`
+	State       State  `json:"state,omitempty" yaml:"state,omitempty"`
 	Source      string `json:"source,omitempty" yaml:"source,omitempty"`
 	DataDate    string `json:"data_date,omitempty" yaml:"data_date,omitempty"`
 	Version     string `json:"version,omitempty" yaml:"version,omitempty"`
 	Fetched     string `json:"fetched,omitempty" yaml:"fetched,omitempty"`
-	Size        int64  `json:"size,omitempty" yaml:"size,omitempty"`
 	License     string `json:"license,omitempty" yaml:"license,omitempty"`
 	Attribution string `json:"attribution,omitempty" yaml:"attribution,omitempty"`
+}
+
+// About names the data on one line as every report names the data a result
+// was read from: the dataset, the version of its data, the date of its data,
+// and its state.
+func (p Provenance) About() string {
+	return fmt.Sprintf("%s, %s, data of %s, %s", p.ID, p.Version, p.DataDate, p.State)
+}
+
+// ProvenanceOf is the provenance of the dataset id held under m, whose data
+// its check gave facts of, read at now.
+func ProvenanceOf(id string, m Manifest, facts Facts, now time.Time) Provenance {
+	return Provenance{
+		ID:          id,
+		State:       StateAt(m.Fetched, now),
+		Source:      m.Source,
+		DataDate:    facts.Date.UTC().Format(time.DateOnly),
+		Version:     facts.Version,
+		Fetched:     m.Fetched.UTC().Format(time.RFC3339),
+		License:     m.License,
+		Attribution: m.Attribution,
+	}
+}
+
+// Use is what a result was read from, or why it read nothing: the dataset
+// named, its provenance when it was read, and otherwise the reason and what
+// to run. A use with NotDone has nothing of a reading but the dataset's name,
+// and that only when one was chosen.
+type Use struct {
+	Provenance `yaml:",inline"`
+
+	NotDone string `json:"not_done,omitempty" yaml:"not_done,omitempty"`
+}
+
+// Lines are what a report says of the data a result was read from: the data
+// named on one line, then the attribution its source asks for, when it asks
+// for one; or that it was not read, and why.
+func (u Use) Lines() []string {
+	if u.NotDone != "" {
+		return []string{"not read: " + u.NotDone}
+	}
+	lines := []string{u.About()}
+	if u.Attribution != "" {
+		lines = append(lines, u.Attribution)
+	}
+	return lines
+}
+
+// Row is one dataset as status shows it: its provenance and, for one that is
+// not read, the reason or its size.
+type Row struct {
+	Provenance `yaml:",inline"`
+
+	Reason string `json:"reason,omitempty" yaml:"reason,omitempty"`
+	Size   int64  `json:"size,omitempty" yaml:"size,omitempty"`
 
 	// Attention is what about the dataset the operator must deal with,
 	// whatever its state: an import of it that failed, with the reason, or
@@ -107,20 +181,14 @@ const (
 	floatBits   = 64
 )
 
-// WriteText writes v as status prints it: the store, what an elevated run
-// installed from the operator's, then one line per dataset with its state and
-// what bears on it, and under it, for a held dataset, the source, license,
-// and attribution, and what needs attention. This is the one text renderer of
-// a store, used by status and by a saved status report alike.
+// WriteText writes v as status prints it: the store, then one line per
+// dataset with its state and what bears on it, and under it, for a held
+// dataset, the source, license, and attribution, and what needs attention.
+// This is the one text renderer of a store, used by status and by a saved
+// status report alike.
 func WriteText(w io.Writer, v View) error {
 	ew := render.NewErrWriter(w)
-	ew.Printf("Store: %s\n", render.HostText(v.Store))
-	if v.Operator != nil {
-		for _, line := range v.Operator.Lines() {
-			ew.Printf("%s\n", render.HostText(line))
-		}
-	}
-	ew.Printf("\n")
+	ew.Printf("Store: %s\n\n", render.HostText(v.Store))
 	if len(v.Datasets) == 0 {
 		ew.Printf("No dataset applies to this host, and the store holds none.\n")
 		return ew.Err()

@@ -4,20 +4,102 @@ package security
 
 import (
 	"bytes"
+	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/papa0four/orkowatch/cmd/commands/cliargs"
+	"github.com/papa0four/orkowatch/cmd/commands/held"
+	"github.com/papa0four/orkowatch/internal/dataset"
+	"github.com/papa0four/orkowatch/internal/dataset/store"
+	"github.com/papa0four/orkowatch/internal/osfingerprint"
+	"github.com/papa0four/orkowatch/internal/security/audit"
 	"github.com/papa0four/orkowatch/internal/selection"
+	"github.com/papa0four/orkowatch/internal/tui"
 )
+
+// The audit command's report states what its run installed from the
+// operator's store, in its projection, its text, and the browser; the
+// audit's own projection never does, so under all the run states it once.
+func TestAuditReportStatesWhatWasInstalled(t *testing.T) {
+	operator := &dataset.Operator{Store: "/home/a/store", Installed: []string{"kev"}}
+	result := &audit.Result{}
+	if result.View("").Operator != nil {
+		t.Fatal("the audit's own projection states what was installed")
+	}
+	r := auditReport{c: &auditCmd{audit: &AuditFlags{}}, result: result, operator: operator}
+	if v, ok := r.View().(audit.View); !ok || v.Operator != operator {
+		t.Errorf("the report's projection states %+v", v.Operator)
+	}
+	var b strings.Builder
+	if err := r.WriteText(&b); err != nil || !strings.Contains(b.String(), "Installed from /home/a/store: kev\n") {
+		t.Errorf("the report's text is %q, %v", b.String(), err)
+	}
+	if !slices.ContainsFunc(r.Browse("").Tabs, func(tab tui.Tab) bool { return tab.ID == tui.TabDatasets }) {
+		t.Error("the browser offers no Datasets tab")
+	}
+}
+
+// The audit command hands what its run installed on opening the store to the
+// report it delivers.
+func TestAuditCommandReportsWhatItsRunInstalled(t *testing.T) {
+	s := store.At(filepath.Join(t.TempDir(), "store"))
+	data := held.New(func(context.Context, []dataset.Dataset, *osfingerprint.OSInfo, time.Time) (store.Store, store.Adoption, error) {
+		return s, store.Adoption{From: "/home/a/store", Outcomes: []store.Outcome{{ID: "kev", Result: store.Installed}}}, nil
+	}, nil, time.Now())
+	dir := t.TempDir()
+
+	c, cmd := newAuditCmd()
+	var runErr error
+	cmd.RunE = func(cmd *cobra.Command, _ []string) error {
+		if err := c.validateFlags(cmd); err != nil {
+			return err
+		}
+		mask, err := c.buildMask()
+		if err != nil {
+			return err
+		}
+		runErr = c.runAuditWithTimeout(cmd, mask, data)
+		return nil
+	}
+	cmd.SilenceUsage, cmd.SilenceErrors = true, true
+	cmd.SetArgs([]string{"--ssh", "-o", "json", "--report-file", dir, "--allow-elevated-write"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if runErr != nil {
+		t.Skipf("the audit does not run on this host: %v", runErr)
+	}
+
+	files, err := filepath.Glob(filepath.Join(dir, "*.json"))
+	if err != nil || len(files) != 1 {
+		t.Fatalf("the report files are %v, %v", files, err)
+	}
+	raw, err := os.ReadFile(files[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	var report struct {
+		Operator *dataset.Operator `json:"operator"`
+	}
+	if err := json.Unmarshal(raw, &report); err != nil {
+		t.Fatal(err)
+	}
+	if report.Operator == nil || !slices.Equal(report.Operator.Installed, []string{"kev"}) {
+		t.Errorf("the report states %+v, want kev installed", report.Operator)
+	}
+}
 
 // selected runs the audit command's own parsing and validation on args,
 // through cobra, and returns the checks and the scan root they settle on in

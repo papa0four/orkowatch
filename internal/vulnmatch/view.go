@@ -3,9 +3,14 @@
 package vulnmatch
 
 import (
+	"cmp"
 	"fmt"
 	"io"
+	"slices"
+	"strings"
 
+	"github.com/papa0four/orkowatch/internal/dataset"
+	"github.com/papa0four/orkowatch/internal/dataset/kev"
 	"github.com/papa0four/orkowatch/internal/dataset/osv"
 	"github.com/papa0four/orkowatch/internal/render"
 )
@@ -27,19 +32,17 @@ const (
 // that could not be judged, and the counts. This is the one shape the
 // vulnerabilities section has in every report.
 type View struct {
-	Dataset  string `json:"dataset,omitempty" yaml:"dataset,omitempty"`
-	Release  string `json:"release,omitempty" yaml:"release,omitempty"`
-	Source   string `json:"source,omitempty" yaml:"source,omitempty"`
-	DataDate string `json:"data_date,omitempty" yaml:"data_date,omitempty"`
-	Fetched  string `json:"fetched,omitempty" yaml:"fetched,omitempty"`
-	State    string `json:"state,omitempty" yaml:"state,omitempty"`
-
-	// NotDone says why no match was made, and what to do; a view that has
-	// it has nothing else of a match.
-	NotDone string `json:"not_done,omitempty" yaml:"not_done,omitempty"`
+	// Use is the dataset matched against, whose version is the release its
+	// records are of, or why no match was made and what to do; a view that
+	// was not done has nothing else of a match.
+	dataset.Use `yaml:",inline"`
 
 	// Order is the version order the packages were compared in.
 	Order string `json:"version_order,omitempty" yaml:"version_order,omitempty"`
+
+	// KnownExploited is the catalog of known-exploited vulnerabilities the
+	// match was marked from, or why it was not, for a match that was made.
+	KnownExploited *dataset.Use `json:"known_exploited_data,omitempty" yaml:"known_exploited_data,omitempty"`
 
 	Counts     Counts           `json:"counts" yaml:"counts"`
 	Packages   []PackageMatches `json:"packages" yaml:"packages"`
@@ -53,7 +56,7 @@ type View struct {
 
 // Counts sums a match: the packages matched and those no record covers, the
 // vulnerabilities with a fix available and unfixed and the packages each is
-// in, and the pairs not matched.
+// in, those known to be exploited among them, and the pairs not matched.
 type Counts struct {
 	Packages            int `json:"packages" yaml:"packages"`
 	NotCovered          int `json:"packages_not_covered" yaml:"packages_not_covered"`
@@ -61,6 +64,7 @@ type Counts struct {
 	PackagesWithFix     int `json:"packages_with_fix_available" yaml:"packages_with_fix_available"`
 	Unfixed             int `json:"unfixed" yaml:"unfixed"`
 	PackagesWithUnfixed int `json:"packages_with_unfixed" yaml:"packages_with_unfixed"`
+	KnownExploited      int `json:"known_exploited" yaml:"known_exploited"`
 	NotMatched          int `json:"not_matched" yaml:"not_matched"`
 }
 
@@ -78,14 +82,40 @@ type PackageMatches struct {
 // Vulnerability is one vulnerability of a package: its identifier, a CVE or,
 // for a record that names none, the record's own; whether a fix is available,
 // and the version that fixes it; its severity and what that rests on; its
-// scores as the records give them; and the records that name it.
+// scores as the records give them; the records that name it; and, when CISA's
+// catalog lists it as known to be exploited, the catalog's entry.
 type Vulnerability struct {
-	ID       string         `json:"id" yaml:"id"`
-	Status   string         `json:"status" yaml:"status"`
-	Fixed    string         `json:"fixed,omitempty" yaml:"fixed,omitempty"`
-	Severity Severity       `json:"severity" yaml:"severity"`
-	Scores   []osv.Severity `json:"scores,omitempty" yaml:"scores,omitempty"`
-	Records  []string       `json:"records" yaml:"records"`
+	ID             string         `json:"id" yaml:"id"`
+	Status         string         `json:"status" yaml:"status"`
+	Fixed          string         `json:"fixed,omitempty" yaml:"fixed,omitempty"`
+	Severity       Severity       `json:"severity" yaml:"severity"`
+	Scores         []osv.Severity `json:"scores,omitempty" yaml:"scores,omitempty"`
+	Records        []string       `json:"records" yaml:"records"`
+	KnownExploited *kev.Entry     `json:"known_exploited,omitempty" yaml:"known_exploited,omitempty"`
+}
+
+// Exploited is a catalog of vulnerabilities known to be exploited, as a
+// match is marked from it: the entry of each vulnerability it lists.
+type Exploited interface {
+	Entry(id string) (kev.Entry, bool)
+}
+
+// MarkExploited marks each vulnerability catalog lists with its entry, and
+// orders each package's vulnerabilities with those known to be exploited
+// first. use is the catalog's data, or why it was not read, in which case
+// catalog lists nothing and the view says so.
+func (v *View) MarkExploited(catalog Exploited, use dataset.Use) {
+	v.KnownExploited = &use
+	for i := range v.Packages {
+		vulns := v.Packages[i].Vulnerabilities
+		for j := range vulns {
+			if entry, ok := catalog.Entry(vulns[j].ID); ok {
+				vulns[j].KnownExploited = &entry
+			}
+		}
+		slices.SortFunc(vulns, vulnerabilityOrder)
+	}
+	v.count()
 }
 
 // NotMatched is a vulnerability of an installed package that could not be
@@ -101,9 +131,10 @@ type NotMatched struct {
 func (v *View) count() {
 	v.Counts = Counts{Packages: v.Installed, NotCovered: v.NotCovered, NotMatched: len(v.NotMatched)}
 	for _, pkg := range v.Packages {
-		fixable, unfixed := pkg.counts()
+		fixable, unfixed, known := pkg.counts()
 		v.Counts.FixAvailable += fixable
 		v.Counts.Unfixed += unfixed
+		v.Counts.KnownExploited += known
 		if fixable > 0 {
 			v.Counts.PackagesWithFix++
 		}
@@ -114,22 +145,27 @@ func (v *View) count() {
 }
 
 // counts is how many of the package's vulnerabilities have a fix available,
-// and how many are unfixed.
-func (p PackageMatches) counts() (fixable, unfixed int) {
+// how many are unfixed, and how many are known to be exploited.
+func (p PackageMatches) counts() (fixable, unfixed, known int) {
 	for _, found := range p.Vulnerabilities {
+		if found.KnownExploited != nil {
+			known++
+		}
 		if found.Status == StatusFixAvailable {
 			fixable++
 		} else {
 			unfixed++
 		}
 	}
-	return fixable, unfixed
+	return fixable, unfixed, known
 }
 
 // WriteText writes v as the vulnerabilities section of a text report: the
-// dataset, or why no match was made; the counts; every vulnerability with a
-// fix available, one a line led by its severity, the most severe of a package
-// first; and for the unfixed, a count for each package.
+// dataset, or why no match was made; the counts; every vulnerability known to
+// be exploited, fixed or not, the most severe first, or why that was not
+// read; the rest of those with a fix available, one a line led by its
+// severity, the most severe of a package first; and for the unfixed, a count
+// for each package.
 // Every match is in the JSON and YAML reports and the results browser; the
 // unfixed are counted here, since a release can carry thousands. This is the
 // one text renderer of a match.
@@ -139,7 +175,7 @@ func WriteText(w io.Writer, v View) error {
 		ew.Printf("%s\n", render.HostText("Matching was not done: "+v.NotDone))
 		return ew.Err()
 	}
-	ew.Printf("%s\n", render.HostText(fmt.Sprintf("Matched against %s, %s, data of %s, %s", v.Dataset, v.Release, v.DataDate, v.State)))
+	ew.Printf("%s\n", render.HostText("Matched against "+v.About()))
 	c := v.Counts
 	ew.Printf("%s\n", render.HostText(fmt.Sprintf("%s matched: %s with a fix available in %s, %s in %s, %s not matched, %s no record covers",
 		render.Count(c.Packages, "package", "packages"),
@@ -147,20 +183,12 @@ func WriteText(w io.Writer, v View) error {
 		render.Count(c.Unfixed, "unfixed", "unfixed"), render.Count(c.PackagesWithUnfixed, "package", "packages"),
 		render.Count(c.NotMatched, "pair", "pairs"), render.Count(c.NotCovered, "package", "packages"))))
 
-	if c.FixAvailable > 0 {
-		ew.Printf("\nFix available:\n")
-		for _, pkg := range v.Packages {
-			for _, found := range pkg.Vulnerabilities {
-				if found.Status == StatusFixAvailable {
-					ew.Printf("  %s\n", render.HostText(fmt.Sprintf("%-11s %-20s %s %s, fixed in %s", severityWord(found.Severity), found.ID, pkg.Package, pkg.Installed, found.Fixed)))
-				}
-			}
-		}
-	}
+	writeKnownExploited(ew, v)
+	writeFixAvailable(ew, v)
 	if c.Unfixed > 0 {
 		ew.Printf("\nUnfixed, by package:\n")
 		for _, pkg := range v.Packages {
-			if _, unfixed := pkg.counts(); unfixed > 0 {
+			if _, unfixed, _ := pkg.counts(); unfixed > 0 {
 				ew.Printf("  %s\n", render.HostText(fmt.Sprintf("%s %s: %s", pkg.Package, pkg.Installed, render.Count(unfixed, "unfixed", "unfixed"))))
 			}
 		}
@@ -173,6 +201,93 @@ func WriteText(w io.Writer, v View) error {
 	}
 	ew.Printf("\nEvery match, the unfixed included, is in the JSON and YAML reports and the results browser.\n")
 	return ew.Err()
+}
+
+// Listed is one vulnerability of an affected package.
+type Listed struct {
+	Package       PackageMatches
+	Vulnerability Vulnerability
+}
+
+// InOrder is every vulnerability of v's affected packages in the order every
+// view lists them across packages: those known to be exploited first, the
+// most severe first, then the rest with a fix available ahead of the unfixed,
+// each keeping the order of its package and the order within it.
+func (v View) InOrder() []Listed {
+	var all []Listed
+	for _, pkg := range v.Packages {
+		for _, found := range pkg.Vulnerabilities {
+			all = append(all, Listed{pkg, found})
+		}
+	}
+	slices.SortStableFunc(all, func(a, b Listed) int {
+		aKnown, bKnown := a.Vulnerability.KnownExploited != nil, b.Vulnerability.KnownExploited != nil
+		switch {
+		case aKnown != bKnown && aKnown:
+			return -1
+		case aKnown != bKnown:
+			return 1
+		case aKnown:
+			return cmp.Compare(rank(a.Vulnerability.Severity.Level), rank(b.Vulnerability.Severity.Level))
+		}
+		return strings.Compare(statusOrder[a.Vulnerability.Status], statusOrder[b.Vulnerability.Status])
+	})
+	return all
+}
+
+// writeFixAvailable writes the vulnerabilities of v with a fix available that
+// are not known to be exploited, which are listed before them, one a line led
+// by its severity, the most severe of a package first.
+func writeFixAvailable(ew *render.ErrWriter, v View) {
+	var lines []string
+	for _, l := range v.InOrder() {
+		if found := l.Vulnerability; found.Status == StatusFixAvailable && found.KnownExploited == nil {
+			lines = append(lines, fmt.Sprintf("%-11s %-20s %s %s, fixed in %s", severityWord(found.Severity), found.ID, l.Package.Package, l.Package.Installed, found.Fixed))
+		}
+	}
+	if len(lines) == 0 {
+		return
+	}
+	ew.Printf("\nFix available:\n")
+	for _, line := range lines {
+		ew.Printf("  %s\n", render.HostText(line))
+	}
+}
+
+// writeKnownExploited writes the vulnerabilities of v the catalog of
+// known-exploited vulnerabilities lists, fixed or not, the most severe first,
+// under the catalog's data and attribution; that none is listed; or why the
+// catalog was not read.
+func writeKnownExploited(ew *render.ErrWriter, v View) {
+	catalog := v.KnownExploited
+	switch {
+	case catalog == nil:
+		return
+	case catalog.NotDone != "":
+		ew.Printf("\n%s\n", render.HostText("Known exploitation was not read: "+catalog.NotDone))
+		return
+	case v.Counts.KnownExploited == 0:
+		ew.Printf("\n%s\n", render.HostText("None is known to be exploited, by "+catalog.About()+"."))
+		return
+	}
+
+	ew.Printf("\n%s\n", render.HostText(fmt.Sprintf("%s, by %s:",
+		render.Count(v.Counts.KnownExploited, "vulnerability known to be exploited", "vulnerabilities known to be exploited"), catalog.About())))
+	for _, l := range v.InOrder() {
+		found := l.Vulnerability
+		if found.KnownExploited == nil {
+			break
+		}
+		state := "unfixed"
+		if found.Status == StatusFixAvailable {
+			state = "fixed in " + found.Fixed
+		}
+		ew.Printf("  %s\n", render.HostText(fmt.Sprintf("%-11s %-20s %s %s, %s; added %s, ransomware use %s",
+			severityWord(found.Severity), found.ID, l.Package.Package, l.Package.Installed, state, found.KnownExploited.Added, found.KnownExploited.Ransomware)))
+	}
+	if catalog.Attribution != "" {
+		ew.Printf("  %s\n", render.HostText(catalog.Attribution))
+	}
 }
 
 // severityWord is a severity as a line of the text report leads with it: the
