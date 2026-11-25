@@ -319,7 +319,7 @@ Findings when the audit ran, and otherwise on the first module that did, so
 | `tab`, `shift+tab` | Move between the left, list and detail panes |
 | up/down, pgup/pgdn, home/end | Move through the focused pane |
 | left/right | Pan the detail pane or the full report sideways |
-| `enter` | In the left pane, open a source, or apply a filter and move to the list it narrowed; in the list, open the selected item in the detail pane |
+| `enter` | In the left pane, open a source, or on the source already open move to its list, or apply a filter and move to the list it narrowed; in the list, open the selected item in the detail pane |
 | `esc` | In the list, clear a kept search, or with none kept go back to the left pane, to the filter last applied; in the detail pane, go back to the list |
 | `/` | Search the active tab: on Findings, titles, rule keys, descriptions, references and evidence, and the detail pane then shows only the matching evidence lines; on Software, package names and versions. `enter` keeps the search, `esc` clears it, and each tab keeps its own |
 | `a` | On Findings, show every evaluated rule, not only findings and rules that could not be evaluated; on Software, switch between every package and the affected ones |

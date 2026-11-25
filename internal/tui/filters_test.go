@@ -168,6 +168,14 @@ func TestFilterFocus(t *testing.T) {
 	if b.focus != focusFilters || b.tabs[b.active].id != TabSystem {
 		t.Errorf("choosing a source left pane %d on %q, want the left pane on System", b.focus, b.tabs[b.active].id)
 	}
+
+	// Enter on the source already open goes into its list.
+	b.filterCursor = 0
+	b.onFilterKey("enter")
+	b.onFilterKey("enter")
+	if b.focus != focusList || b.active != 0 {
+		t.Errorf("enter on the open source left pane %d on tab %d, want its list", b.focus, b.active)
+	}
 }
 
 // v opens the Vulnerabilities tab.

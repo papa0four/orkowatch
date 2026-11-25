@@ -544,6 +544,13 @@ func (b *browser) onFilterKey(key string) {
 		b.filterCursor = last
 	case "enter", "space":
 		option := b.filterCursor - sources
+		// Enter on the source already open goes into its list, as enter on
+		// a filter does; on another source it opens that one and the
+		// keyboard stays here, so the next source is one key away.
+		if option < 0 && b.filterCursor == b.active {
+			b.focus = focusList
+			return
+		}
 		if option < 0 {
 			b.selectTab(b.filterCursor)
 			return
