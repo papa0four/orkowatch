@@ -69,10 +69,12 @@ type (
 	}
 
 	// auditReport adapts a finished audit result to delivery.Report. It pairs the
-	// result with the command whose min-severity governs its projection.
+	// result with the command whose min-severity governs its projection, and
+	// with what the run installed from the operator's store.
 	auditReport struct {
-		c      *auditCmd
-		result *audit.Result
+		c        *auditCmd
+		result   *audit.Result
+		operator *dataset.Operator
 	}
 )
 
@@ -180,7 +182,12 @@ This command checks various security aspects including:
 - User accounts
 - File permissions
 
-You can run all checks or specify individual checks to run.`,
+You can run all checks or specify individual checks to run.
+
+The audit reads CISA's Known Exploited Vulnerabilities catalog for its count of
+known-exploited vulnerabilities in each finding's weakness class.
+
+` + held.ElevatedHelp,
 		Example: `  # Run all security checks
   owatch audit
 
@@ -396,6 +403,7 @@ func (c *auditCmd) runAuditWithTimeout(cmd *cobra.Command, mask selection.CheckM
 	defer cancel()
 
 	var result *audit.Result
+	data := held.ForHost()
 	ending, runErr := tui.Run(ctx, c.progressOptions(mask), func(ctx context.Context, reporter tui.Reporter) error {
 		auditor := audit.NewSecurityAuditor(audit.Options{
 			Observer:       Observe(reporter),
@@ -403,7 +411,7 @@ func (c *auditCmd) runAuditWithTimeout(cmd *cobra.Command, mask selection.CheckM
 			MinSeverity:    c.audit.MinSeverity(),
 			Checks:         selection.EnabledChecks(mask),
 			Unselected:     c.audit.Unselected(mask),
-			KnownExploited: ExploitedClasses(held.ForHost()),
+			KnownExploited: ExploitedClasses(data),
 		})
 		var err error
 		result, err = auditor.RunAudit(ctx)
@@ -417,7 +425,7 @@ func (c *auditCmd) runAuditWithTimeout(cmd *cobra.Command, mask selection.CheckM
 		fmt.Fprintf(os.Stderr, "[!] OS fingerprint unavailable: %v\n", result.FingerprintError)
 	}
 
-	if err := c.outputResults(result, mask); err != nil {
+	if err := c.outputResults(result, data.Operator(), mask); err != nil {
 		return err
 	}
 
@@ -462,30 +470,34 @@ func (c *auditCmd) progressOptions(mask selection.CheckMask) tui.Options {
 	return opts
 }
 
-func (c *auditCmd) outputResults(result *audit.Result, mask selection.CheckMask) error {
+func (c *auditCmd) outputResults(result *audit.Result, operator *dataset.Operator, mask selection.CheckMask) error {
 	if result == nil || len(result.Results) == 0 {
 		return errors.New("audit produced no results")
 	}
 
-	return c.out.Deliver(auditReport{c: c, result: result}, mask)
+	return c.out.Deliver(auditReport{c: c, result: result, operator: operator}, mask)
 }
 
-// View returns the severity-filtered audit projection.
-func (r auditReport) View() any {
-	return r.result.View(r.c.audit.MinSeverity())
+// view is the severity-filtered audit projection with what the run installed
+// from the operator's store, which View, Browse, and WriteText all render.
+func (r auditReport) view() audit.View {
+	v := r.result.View(r.c.audit.MinSeverity())
+	v.Operator = r.operator
+	return v
 }
+
+// View returns the report's projection.
+func (r auditReport) View() any { return r.view() }
 
 // Browse returns what the results browser shows for the audit, from the same
-// severity-filtered projection View returns.
+// projection View returns.
 func (r auditReport) Browse(text string) tui.Report {
-	return BrowserReport(AuditSource("owatch audit", r.result.View(r.c.audit.MinSeverity()), text))
+	return BrowserReport(AuditSource("owatch audit", r.view(), text))
 }
 
 // WriteText renders the audit as human-readable text from the same
-// severity-filtered projection View returns.
-func (r auditReport) WriteText(w io.Writer) error {
-	return WriteAuditText(w, r.result.View(r.c.audit.MinSeverity()))
-}
+// projection View returns.
+func (r auditReport) WriteText(w io.Writer) error { return WriteAuditText(w, r.view()) }
 
 // WriteAuditText renders an audit report as human-readable text: the system
 // block via osfingerprint.WriteViewText, then the security section via

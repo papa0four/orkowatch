@@ -87,6 +87,15 @@ func (r *Run) Open(ctx context.Context, host *osfingerprint.OSInfo) (store.Store
 // not elevated, found nothing newer, or never opened its store.
 func (r *Run) Operator() *dataset.Operator { return r.operator }
 
+// ElevatedHelp is what the help of a command that reads datasets says of an
+// elevated run, so every such command says it alike.
+const ElevatedHelp = `Run as root or from an elevated terminal, the command reads the protected
+store, and first installs there what the account behind the run holds newer,
+as owatch data status does. The report says what was installed and what was
+left alone and why: at the head of its text, under operator in JSON and YAML,
+and in the results browser's Datasets tab, whose name is drawn in red when
+something needs doing.`
+
 // noOperatorAdvice is what an elevated run with no one behind it is told,
 // since it has no account's store to install from and never fetches itself.
 const noOperatorAdvice = "No account is behind this elevated run, so no dataset was installed from one. " +

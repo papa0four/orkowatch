@@ -139,8 +139,8 @@ func (d *dataCmd) collectStatus(ctx context.Context, data *held.Run, result *Sca
 	result.Modules = append(result.Modules, inventoryModule(selection.NameDatasets))
 }
 
-// status reads what the run's store holds of the known datasets, with what an
-// elevated run installed from the operator's store on opening it.
+// status reads what the run's store holds of the known datasets. What an
+// elevated run installed on opening it is the run's to report.
 func (d *dataCmd) status(ctx context.Context, data *held.Run) (dataset.View, error) {
 	host, err := d.host()
 	if err != nil {
@@ -150,12 +150,7 @@ func (d *dataCmd) status(ctx context.Context, data *held.Run) (dataset.View, err
 	if err != nil {
 		return dataset.View{}, err
 	}
-	view, err := s.Status(d.known, host, d.now())
-	if err != nil {
-		return dataset.View{}, err
-	}
-	view.Operator = data.Operator()
-	return view, nil
+	return s.Status(d.known, host, d.now())
 }
 
 // importCmd returns owatch data import.

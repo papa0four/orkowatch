@@ -60,7 +60,9 @@ func newModuleCmd(m standaloneModule, module inventory, name string, data func()
 			}
 			started := time.Now()
 			result := &ScanResult{Timestamp: started, Errors: make([]string, 0)}
-			module.collect(cmd.Context(), data(), result)
+			run := data()
+			module.collect(cmd.Context(), run, result)
+			result.Operator = run.Operator()
 			if ran := result.Modules[len(result.Modules)-1]; ran.Result == finding.ResultError {
 				return fmt.Errorf("%s: %s", name, ran.Reason)
 			}

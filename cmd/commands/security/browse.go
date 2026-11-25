@@ -34,6 +34,7 @@ type BrowserSource struct {
 	Vulns    *vulnmatch.View
 	Sockets  *sockets.View
 	Datasets *dataset.View
+	Operator *dataset.Operator
 	Modules  []ModuleNote
 	Text     string
 }
@@ -43,7 +44,7 @@ type BrowserSource struct {
 // report both build their source here, so the two cannot differ in what they
 // take from the projection.
 func AuditSource(title string, view audit.View, text string) BrowserSource {
-	return BrowserSource{Title: title, Audit: &view, System: view.SystemInfo, Text: text}
+	return BrowserSource{Title: title, Audit: &view, System: view.SystemInfo, Operator: view.Operator, Text: text}
 }
 
 // ModuleNote is how one module of an all run ended.
@@ -113,11 +114,12 @@ func sourceTabs(src BrowserSource) []tui.Tab {
 		tabs = append(tabs, tui.Tab{ID: tui.TabSockets, Name: "Sockets", Note: notRun(src.Modules, selection.NameListeners)})
 	}
 
-	// Only owatch data status reports the datasets, so their tab is offered
-	// only by a report that holds them and every other report opens as it
-	// did.
-	if src.Datasets != nil {
-		tabs = append(tabs, datasetsTab(*src.Datasets))
+	// Only owatch data status reports the datasets, and only an elevated run
+	// that did something with the operator's has that to say, so their tab
+	// is offered only by a report that holds one or the other and every
+	// other report opens as it did.
+	if src.Datasets != nil || src.Operator != nil {
+		tabs = append(tabs, datasetsTab(src.Datasets, src.Operator))
 	}
 
 	if src.Audit != nil {
@@ -289,19 +291,23 @@ func systemTab(system osfingerprint.SystemView) tui.Tab {
 	}}}
 }
 
-// datasetsTab is the store's datasets, one record each in the order status
-// lists them, with what needs attention ahead of the rest. What an elevated
-// run installed from the operator's store, or left alone there, is a record
-// before them. A store that holds nothing and has nothing that applies says
-// so in place of the list.
-func datasetsTab(v dataset.View) tui.Tab {
+// datasetsTab is what the run did with the operator's datasets, when it did
+// anything, as the first record, then the store's datasets when the report
+// holds them, one record each in the order status lists them. The tab needs
+// attention when the operator has something to do. A store that holds
+// nothing and has nothing that applies says so in place of the list.
+func datasetsTab(v *dataset.View, operator *dataset.Operator) tui.Tab {
 	tab := tui.Tab{ID: tui.TabDatasets, Name: "Datasets"}
-	if v.Operator != nil {
+	if operator != nil {
 		var fields []tui.SummaryLine
-		for _, line := range v.Operator.Lines() {
+		for _, line := range operator.Lines() {
 			fields = append(fields, tui.SummaryLine{Value: safeLines(line)})
 		}
 		tab.Records = append(tab.Records, tui.Record{Title: "from the operator", Subtitle: "what this elevated run installed", Fields: fields})
+		tab.Attention = operator.NeedsAction()
+	}
+	if v == nil {
+		return tab
 	}
 	for _, r := range v.Datasets {
 		var fields []tui.SummaryLine

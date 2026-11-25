@@ -51,9 +51,15 @@ type (
 	// authoritative result type for the all command and is not shared with
 	// the audit subsystem.
 	ScanResult struct {
-		Timestamp     time.Time
-		Duration      time.Duration
-		Modules       []moduleRun
+		Timestamp time.Time
+		Duration  time.Duration
+		Modules   []moduleRun
+
+		// Operator is what the run, elevated, did with the operator's
+		// datasets when it opened its store: a fact of the run, not of any
+		// one module.
+		Operator *dataset.Operator
+
 		OSInfo        *osfingerprint.OSInfo
 		Software      []softwarelist.SoftwareEntry
 		Vulns         *vulnmatch.View
@@ -80,6 +86,7 @@ type (
 		Timestamp string                     `json:"timestamp" yaml:"timestamp"`
 		Duration  string                     `json:"duration" yaml:"duration"`
 		Modules   []moduleRun                `json:"modules" yaml:"modules"`
+		Operator  *dataset.Operator          `json:"operator,omitempty" yaml:"operator,omitempty"`
 		System    *osfingerprint.SystemView  `json:"system,omitempty" yaml:"system,omitempty"`
 		Software  *softwarelist.SoftwareView `json:"software,omitempty" yaml:"software,omitempty"`
 		Vulns     *vulnmatch.View            `json:"vulnerabilities,omitempty" yaml:"vulnerabilities,omitempty"`
@@ -116,7 +123,9 @@ func newAllCmd() *cobra.Command {
 - Security audit
 - System configuration analysis
 
-Results can be output in various formats and saved to a file.`,
+Results can be output in various formats and saved to a file.
+
+` + held.ElevatedHelp,
 		Example: `  # Run all scans with default settings
   owatch all
 
@@ -178,6 +187,7 @@ func toAllResult(result *ScanResult, minSeverity string) allResult {
 		Timestamp: result.Timestamp.UTC().Format(time.RFC3339),
 		Duration:  result.Duration.String(),
 		Modules:   result.Modules,
+		Operator:  result.Operator,
 		Errors:    result.Errors,
 	}
 
@@ -345,8 +355,11 @@ func (c *allCmd) tasks(mask selection.CheckMask) []tui.Task {
 
 // runModules runs each module that was not skipped, recording its outcome in
 // result and reporting it to the display as it happens. The modules read
-// datasets through data, so the run opens the store once.
+// datasets through data, so the run opens the store once, and result then
+// holds what opening it did with the operator's datasets, however the
+// modules ended.
 func (c *allCmd) runModules(ctx context.Context, data *held.Run, mask selection.CheckMask, result *ScanResult, reporter tui.Reporter) {
+	defer func() { result.Operator = data.Operator() }()
 	for _, module := range inventoryModules() {
 		if c.isModuleSkipped(module.name) {
 			result.Modules = append(result.Modules, skippedModule(module.name))
@@ -521,6 +534,7 @@ func allSource(title string, v allResult, text string) security.BrowserSource {
 		Sockets:  v.Sockets,
 		Vulns:    v.Vulns,
 		Datasets: v.Datasets,
+		Operator: v.Operator,
 		Modules:  moduleNotes(v.Modules),
 		Text:     text,
 	}
@@ -561,6 +575,12 @@ func writeAllText(w io.Writer, v allResult) error {
 			ew.Printf("  %-10s %s\n", m.Name, strings.ToUpper(string(m.Result)))
 		}
 		ew.Printf("\n")
+	}
+	if err := ew.Err(); err != nil {
+		return err
+	}
+	if err := dataset.WriteOperatorText(w, v.Operator); err != nil {
+		return err
 	}
 
 	// Each module that ran writes its own section under a heading; the
@@ -618,9 +638,13 @@ func writeSections(ew *render.ErrWriter, w io.Writer, sections []textSection) er
 
 // writeSingleModuleText writes the report of a command that ran one inventory
 // module, such as osinfo or owatch data status, as that module's own text with no all-report
-// heading around it. The projection holds one module row only for such a
-// command, so a saved report is rendered as the run that wrote it was.
+// heading around it, after what the run installed from the operator's store.
+// The projection holds one module row only for such a command, so a saved
+// report is rendered as the run that wrote it was.
 func writeSingleModuleText(w io.Writer, v allResult) error {
+	if err := dataset.WriteOperatorText(w, v.Operator); err != nil {
+		return err
+	}
 	switch v.Modules[0].Name {
 	case selection.NameOS:
 		if v.System != nil {

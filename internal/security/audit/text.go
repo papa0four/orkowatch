@@ -7,12 +7,15 @@ import (
 	"io"
 	"strings"
 
+	"github.com/papa0four/orkowatch/internal/dataset"
 	"github.com/papa0four/orkowatch/internal/render"
 	"github.com/papa0four/orkowatch/internal/security/finding"
 )
 
-// WriteViewText renders a completed audit as text: each check with its
-// findings, the suppression notice, and the summary. It renders
+// WriteViewText renders a completed audit as text: what its run installed
+// from the operator's store, the data its counts of known exploitation came
+// from, each check with its findings, the suppression notice, and the
+// summary. It renders
 // from the projection a saved report carries, so a live run and a saved report
 // show the same text. It does not render the system block; callers write that
 // separately via osfingerprint.WriteViewText. The first write error, if any, is
@@ -30,6 +33,12 @@ func WriteViewText(w io.Writer, v View) error {
 		minSeverity = finding.SeverityNone
 	}
 
+	if err := ew.Err(); err != nil {
+		return err
+	}
+	if err := dataset.WriteOperatorText(w, v.Operator); err != nil {
+		return err
+	}
 	if v.KnownExploited != nil {
 		lines := v.KnownExploited.Lines()
 		ew.Printf("%s\n", render.HostText("Known exploited, counted by weakness class: "+lines[0]))

@@ -32,19 +32,18 @@ const (
 )
 
 // View is the serializable projection of a store: where it is and what it
-// holds, one row per dataset, and, for an elevated run, what it installed
-// from the operator's store before reading its own.
+// holds, one row per dataset.
 type View struct {
-	Store    string    `json:"store" yaml:"store"`
-	Operator *Operator `json:"operator,omitempty" yaml:"operator,omitempty"`
-	Datasets []Row     `json:"datasets" yaml:"datasets"`
+	Store    string `json:"store" yaml:"store"`
+	Datasets []Row  `json:"datasets" yaml:"datasets"`
 }
 
 // Operator is what an elevated run did with the datasets of the operator
-// behind it. Store is the operator's store, and is empty when no one is
-// behind the run, as with a direct root login; Advice then says how datasets
-// reach this host. Installed names the datasets installed from Store, and
-// Refused those left alone, each with the reason.
+// behind it when it opened its store. Store is the operator's store, and is
+// empty when no one is behind the run, as with a direct root login; Advice
+// then says how datasets reach this host. Installed names the datasets
+// installed from Store, and Refused those left alone, each with the reason.
+// A run opens its store once, so a report states this once, for the run.
 type Operator struct {
 	Store     string    `json:"store,omitempty" yaml:"store,omitempty"`
 	Installed []string  `json:"installed,omitempty" yaml:"installed,omitempty"`
@@ -73,6 +72,26 @@ func (o Operator) Lines() []string {
 		lines = append(lines, o.Advice)
 	}
 	return lines
+}
+
+// NeedsAction reports whether the operator has something to do: a dataset
+// was left alone, or no one is behind the run. Advice is given for exactly
+// those.
+func (o Operator) NeedsAction() bool { return o.Advice != "" }
+
+// WriteOperatorText writes what a run did with the operator's datasets, one
+// sentence a line and a blank line after, at the head of a report; it writes
+// nothing when o is nil. Every report that states it writes it here.
+func WriteOperatorText(w io.Writer, o *Operator) error {
+	if o == nil {
+		return nil
+	}
+	ew := render.NewErrWriter(w)
+	for _, line := range o.Lines() {
+		ew.Printf("%s\n", render.HostText(line))
+	}
+	ew.Printf("\n")
+	return ew.Err()
 }
 
 // Provenance is what a dataset read was: the dataset and its state then and,
@@ -162,20 +181,14 @@ const (
 	floatBits   = 64
 )
 
-// WriteText writes v as status prints it: the store, what an elevated run
-// installed from the operator's, then one line per dataset with its state and
-// what bears on it, and under it, for a held dataset, the source, license,
-// and attribution, and what needs attention. This is the one text renderer of
-// a store, used by status and by a saved status report alike.
+// WriteText writes v as status prints it: the store, then one line per
+// dataset with its state and what bears on it, and under it, for a held
+// dataset, the source, license, and attribution, and what needs attention.
+// This is the one text renderer of a store, used by status and by a saved
+// status report alike.
 func WriteText(w io.Writer, v View) error {
 	ew := render.NewErrWriter(w)
-	ew.Printf("Store: %s\n", render.HostText(v.Store))
-	if v.Operator != nil {
-		for _, line := range v.Operator.Lines() {
-			ew.Printf("%s\n", render.HostText(line))
-		}
-	}
-	ew.Printf("\n")
+	ew.Printf("Store: %s\n\n", render.HostText(v.Store))
 	if len(v.Datasets) == 0 {
 		ew.Printf("No dataset applies to this host, and the store holds none.\n")
 		return ew.Err()

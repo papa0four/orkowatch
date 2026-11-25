@@ -64,28 +64,38 @@ old         no longer applies, 512 B
 	}
 }
 
-// An elevated run's report says, under the store, what it installed from the
-// operator's store, what it left alone there and why, and the advice; a run
-// with no one behind it is given the advice alone.
-func TestWriteTextSaysWhatWasInstalled(t *testing.T) {
+// An elevated run's report says what it installed from the operator's store,
+// what it left alone there and why, and the advice, with a blank line after;
+// a run with no one behind it is given the advice alone, and one that did
+// nothing is given nothing. Only advice asks the operator to act.
+func TestWriteOperatorText(t *testing.T) {
 	for name, tt := range map[string]struct {
 		operator *Operator
 		want     string
+		act      bool
 	}{
 		"installed": {&Operator{Store: "/home/a/store", Installed: []string{"epss", "kev"}},
-			"Store: /store\nInstalled from /home/a/store: epss and kev\n\nkev  not held\n"},
+			"Installed from /home/a/store: epss and kev\n\n", false},
 		"refused": {&Operator{Store: "/home/a/store", Refused: []Refusal{{ID: "kev", Reason: "it is a link"}}, Advice: "run import"},
-			"Store: /store\nNot installed from /home/a/store: kev: it is a link\nrun import\n\nkev  not held\n"},
-		"no operator":  {&Operator{Advice: "fetch elsewhere"}, "Store: /store\nfetch elsewhere\n\nkev  not held\n"},
-		"not elevated": {nil, "Store: /store\n\nkev  not held\n"},
+			"Not installed from /home/a/store: kev: it is a link\nrun import\n\n", true},
+		"no operator":  {&Operator{Advice: "fetch elsewhere"}, "fetch elsewhere\n\n", true},
+		"not elevated": {nil, "", false},
 	} {
 		var b strings.Builder
-		if err := WriteText(&b, View{Store: "/store", Operator: tt.operator, Datasets: []Row{{Provenance: Provenance{ID: "kev", State: StateNotHeld}}}}); err != nil {
+		if err := WriteOperatorText(&b, tt.operator); err != nil {
 			t.Fatal(err)
 		}
 		if b.String() != tt.want {
 			t.Errorf("%s: got\n%s\nwant\n%s", name, b.String(), tt.want)
 		}
+		if tt.operator != nil && tt.operator.NeedsAction() != tt.act {
+			t.Errorf("%s: needs action %v, want %v", name, !tt.act, tt.act)
+		}
+	}
+
+	var b strings.Builder
+	if err := WriteText(&b, View{Store: "/store", Datasets: []Row{{Provenance: Provenance{ID: "kev", State: StateNotHeld}}}}); err != nil || b.String() != "Store: /store\n\nkev  not held\n" {
+		t.Errorf("the store's text is %q, %v", b.String(), err)
 	}
 }
 

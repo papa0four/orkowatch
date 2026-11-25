@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -16,8 +17,33 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/papa0four/orkowatch/cmd/commands/cliargs"
+	"github.com/papa0four/orkowatch/internal/dataset"
+	"github.com/papa0four/orkowatch/internal/security/audit"
 	"github.com/papa0four/orkowatch/internal/selection"
+	"github.com/papa0four/orkowatch/internal/tui"
 )
+
+// The audit command's report states what its run installed from the
+// operator's store, in its projection, its text, and the browser; the
+// audit's own projection never does, so under all the run states it once.
+func TestAuditReportStatesWhatWasInstalled(t *testing.T) {
+	operator := &dataset.Operator{Store: "/home/a/store", Installed: []string{"kev"}}
+	result := &audit.Result{}
+	if result.View("").Operator != nil {
+		t.Fatal("the audit's own projection states what was installed")
+	}
+	r := auditReport{c: &auditCmd{audit: &AuditFlags{}}, result: result, operator: operator}
+	if v, ok := r.View().(audit.View); !ok || v.Operator != operator {
+		t.Errorf("the report's projection states %+v", v.Operator)
+	}
+	var b strings.Builder
+	if err := r.WriteText(&b); err != nil || !strings.Contains(b.String(), "Installed from /home/a/store: kev\n") {
+		t.Errorf("the report's text is %q, %v", b.String(), err)
+	}
+	if !slices.ContainsFunc(r.Browse("").Tabs, func(tab tui.Tab) bool { return tab.ID == tui.TabDatasets }) {
+		t.Error("the browser offers no Datasets tab")
+	}
+}
 
 // selected runs the audit command's own parsing and validation on args,
 // through cobra, and returns the checks and the scan root they settle on in

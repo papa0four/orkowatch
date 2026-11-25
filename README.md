@@ -496,14 +496,22 @@ system and its administrators can change:
 | Windows | `owatch\datasets` in the ProgramData folder |
 
 `owatch data refresh` is the only owatch command that opens a network
-connection, and it never runs elevated. An elevated `owatch data status`
-installs into the protected store what the account behind the run holds newer:
-the user who ran `sudo` or `doas`, or on Windows the account the terminal is
-elevated for. Each file is read as untrusted and must be a regular file that
-account owns, not a link, and within its size limit. One that is not is left
-alone and reported with the reason, and `owatch data import` installs it
-deliberately. A root login with no account behind it installs with
-`owatch data import`.
+connection, and it never runs elevated. An elevated run of a command that reads
+datasets (`owatch software`, `owatch audit`, `owatch all`, and
+`owatch data status`) first installs into the protected store what the account
+behind the run holds newer: the user who ran `sudo` or `doas`, or on Windows
+the account the terminal is elevated for. Each file is read as untrusted and
+must be a regular file that account owns, not a link, and within its size
+limit. One that is not is left alone and reported with the reason, and
+`owatch data import` installs it deliberately. A root login with no account
+behind it installs with `owatch data import`.
+
+The run does this once, and its report says once what was installed and what
+was left alone and why: at the head of the text report, under the top-level
+`operator` key in JSON and YAML, and as the first record of the results
+browser's Datasets tab. The tab is offered only when there is something to say,
+and its name is drawn in red when something was left alone or no account is
+behind the run.
 
 The datasets this version knows, each fetched from the address its publisher
 gives for it:

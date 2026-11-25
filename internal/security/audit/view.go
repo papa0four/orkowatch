@@ -30,6 +30,12 @@ type (
 		// known-exploited vulnerabilities in its weakness class was read
 		// from, or why none was.
 		KnownExploited *dataset.Use `json:"known_exploited_data,omitempty" yaml:"known_exploited_data,omitempty"`
+
+		// Operator is what the audit's run, elevated, did with the
+		// operator's datasets when it opened its store. It is the run's
+		// fact, so the audit command sets it on its own report and the View
+		// of a Result never does: under all, the run states it once.
+		Operator *dataset.Operator `json:"operator,omitempty" yaml:"operator,omitempty"`
 	}
 
 	// CheckView is the serializable projection of a single check's result.
