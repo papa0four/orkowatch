@@ -59,10 +59,10 @@ const (
 	floatBits = 64
 
 	// percent is a probability of 1 written as a percentage, and
-	// percentDigits how many significant digits a score is written with as
-	// one. Most scores are below 1%, where a fixed count of decimals would
-	// write many of them as 0; the file writes five decimals, which as a
-	// percentage is three digits at most below 1%.
+	// percentDigits how many significant digits a score or a percentile is
+	// written with as one. Most scores are below 1%, where a fixed count of
+	// decimals would write many of them as 0; the file writes five decimals,
+	// which as a percentage is three digits at most below 1%.
 	percent       = 100
 	percentDigits = 3
 )
@@ -90,10 +90,10 @@ type Prediction struct {
 	Percentile float64 `json:"percentile" yaml:"percentile"`
 }
 
-// ScorePercent is the score as every view writes it, a percentage to three
-// significant digits, such as 94.3% or 0.043%.
-func (p Prediction) ScorePercent() string {
-	return strconv.FormatFloat(p.Score*percent, 'g', percentDigits, floatBits) + "%"
+// Percent is a score or a percentile as every view writes it, a percentage to
+// three significant digits, such as 94.3% or 0.043%.
+func Percent(probability float64) string {
+	return strconv.FormatFloat(probability*percent, 'g', percentDigits, floatBits) + "%"
 }
 
 // Index is the predictions of the CVEs a read was asked to keep.

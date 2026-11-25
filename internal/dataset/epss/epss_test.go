@@ -263,11 +263,11 @@ func TestScoresStatesItsSource(t *testing.T) {
 
 // A score is written as a percentage to three significant digits, so a small
 // score keeps its digits where a fixed count of decimals would write it as 0.
-func TestScorePercent(t *testing.T) {
+func TestPercent(t *testing.T) {
 	for score, want := range map[float64]string{
 		1: "100%", 0.94321: "94.3%", 0.5: "50%", 0.01234: "1.23%", 0.00043: "0.043%", 0.00001: "0.001%", 0: "0%",
 	} {
-		if got := (Prediction{Score: score}).ScorePercent(); got != want {
+		if got := Percent(score); got != want {
 			t.Errorf("a score of %v is written %q, want %q", score, got, want)
 		}
 	}

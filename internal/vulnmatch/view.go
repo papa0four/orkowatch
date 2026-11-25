@@ -266,7 +266,7 @@ func writeFixAvailable(ew *render.ErrWriter, v View) {
 	var lines []string
 	for _, l := range v.InOrder() {
 		if found := l.Vulnerability; found.Status == StatusFixAvailable && found.KnownExploited == nil {
-			lines = append(lines, fmt.Sprintf("%-11s %s%-20s %s %s, fixed in %s", severityWord(found.Severity), predictionWord(v, found), found.ID, l.Package.Package, l.Package.Installed, found.Fixed))
+			lines = append(lines, fmt.Sprintf("%-11s %s%-20s %s %s, fixed in %s", severityWord(found.Severity), predictionColumn(v, found), found.ID, l.Package.Package, l.Package.Installed, found.Fixed))
 		}
 	}
 	if len(lines) == 0 {
@@ -307,7 +307,7 @@ func writeKnownExploited(ew *render.ErrWriter, v View) {
 			state = "fixed in " + found.Fixed
 		}
 		ew.Printf("  %s\n", render.HostText(fmt.Sprintf("%-11s %s%-20s %s %s, %s; added %s, ransomware use %s",
-			severityWord(found.Severity), predictionWord(v, found), found.ID, l.Package.Package, l.Package.Installed, state, found.KnownExploited.Added, found.KnownExploited.Ransomware)))
+			severityWord(found.Severity), predictionColumn(v, found), found.ID, l.Package.Package, l.Package.Installed, state, found.KnownExploited.Added, found.KnownExploited.Ransomware)))
 	}
 	if catalog.Attribution != "" {
 		ew.Printf("  %s\n", render.HostText(catalog.Attribution))
@@ -331,17 +331,26 @@ func writePredicted(ew *render.ErrWriter, v View) {
 	}
 }
 
-// predictionWord is the EPSS column of a line of the text report, with its
-// trailing space: the score, or a dash where the file gives none. It is empty
-// when no scores were read, so that a file not read is not taken for one that
-// scores nothing.
-func predictionWord(v View, found Vulnerability) string {
+// PredictionWord is the EPSS score of found as every view puts it beside the
+// severity, or a dash where the file gives none. It is empty when no scores
+// were read, so that a file not read is not taken for one that scores
+// nothing.
+func (v View) PredictionWord(found Vulnerability) string {
 	if v.ExploitPrediction == nil || v.ExploitPrediction.NotDone != "" {
 		return ""
 	}
-	word := "EPSS -"
-	if found.ExploitPrediction != nil {
-		word = "EPSS " + found.ExploitPrediction.ScorePercent()
+	if found.ExploitPrediction == nil {
+		return "EPSS -"
+	}
+	return "EPSS " + epss.Percent(found.ExploitPrediction.Score)
+}
+
+// predictionColumn is the EPSS column of a line of the text report, with its
+// trailing space, or nothing when no scores were read.
+func predictionColumn(v View, found Vulnerability) string {
+	word := v.PredictionWord(found)
+	if word == "" {
+		return ""
 	}
 	return fmt.Sprintf("%-12s ", word)
 }
