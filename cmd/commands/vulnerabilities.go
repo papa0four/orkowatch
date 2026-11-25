@@ -10,6 +10,7 @@ import (
 
 	"github.com/papa0four/orkowatch/cmd/commands/held"
 	"github.com/papa0four/orkowatch/internal/dataset"
+	"github.com/papa0four/orkowatch/internal/dataset/epss"
 	"github.com/papa0four/orkowatch/internal/dataset/osv"
 	"github.com/papa0four/orkowatch/internal/osfingerprint"
 	"github.com/papa0four/orkowatch/internal/softwarelist"
@@ -46,7 +47,7 @@ func hostMatching() inventoryMatching {
 
 // run matches entries, the inventory of host, against the dataset of host's
 // distribution as data reads it, marks the vulnerabilities known to be
-// exploited, and says what it found. host is read when the run did not read
+// exploited, scores them from EPSS, and says what it found. host is read when the run did not read
 // it. A match that cannot be made says why and what to do, and is never an
 // error of the inventory: the packages are still listed.
 func (m inventoryMatching) run(ctx context.Context, data *held.Run, host *osfingerprint.OSInfo, entries []softwarelist.SoftwareEntry) *vulnmatch.View {
@@ -78,7 +79,30 @@ func (m inventoryMatching) run(ctx context.Context, data *held.Run, host *osfing
 	v := matcher.Result()
 	v.Use = use
 	v.MarkExploited(data.Exploited(ctx, host))
+	v.MarkPredicted(predicted(ctx, data, host, v))
 	return &v
+}
+
+// predicted reads the EPSS scores file through data, keeping the predictions
+// of the vulnerabilities v matched and no others: its index, empty when it was
+// not read, and what was read or why nothing was.
+func predicted(ctx context.Context, data *held.Run, host *osfingerprint.OSInfo, v vulnmatch.View) (epss.Index, dataset.Use) {
+	matched := make(map[string]bool)
+	for _, pkg := range v.Packages {
+		for _, found := range pkg.Vulnerabilities {
+			matched[found.ID] = true
+		}
+	}
+	scores := epss.Scores{}
+	var x epss.Index
+	use := data.Read(ctx, scores, host, func(r io.Reader) (facts dataset.Facts, err error) {
+		x, facts, err = scores.Read(r, func(cve string) bool { return matched[cve] })
+		return facts, err
+	})
+	if use.NotDone != "" {
+		x = epss.Index{}
+	}
+	return x, use
 }
 
 // notDone is the view of a match that was not made, for the dataset named id

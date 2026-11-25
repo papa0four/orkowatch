@@ -19,6 +19,7 @@ import (
 	"github.com/papa0four/orkowatch/cmd/commands/security"
 	"github.com/papa0four/orkowatch/internal/dataset"
 	"github.com/papa0four/orkowatch/internal/dataset/datasettest"
+	"github.com/papa0four/orkowatch/internal/dataset/epss"
 	"github.com/papa0four/orkowatch/internal/dataset/osv"
 	"github.com/papa0four/orkowatch/internal/dataset/store"
 	"github.com/papa0four/orkowatch/internal/osfingerprint"
@@ -106,6 +107,37 @@ func TestMatchingMarksKnownExploited(t *testing.T) {
 	if found.KnownExploited == nil || found.KnownExploited.Added != "2026-11-20" || v.KnownExploited == nil || v.KnownExploited.ID != "kev" || v.Counts.KnownExploited != 1 {
 		t.Errorf("the match is marked %+v, from %+v", found.KnownExploited, v.KnownExploited)
 	}
+}
+
+// A match is scored from the EPSS scores file the run's data holds, keeping
+// the scores of what it matched; with none held it says why and what to run.
+func TestMatchingScoresFromEPSS(t *testing.T) {
+	m, data, s := matching(t)
+	datasettest.Put(t, s.Root(), datasettest.Dataset{Name: "records"}, datasettest.Content, dataNow.Add(-time.Hour), nil)
+
+	v := m.run(context.Background(), data, debian, installed("3.0.11-1"))
+	if v.ExploitPrediction == nil || !strings.HasPrefix(v.ExploitPrediction.NotDone, "epss is not held; fetch it with owatch data refresh") || v.Packages[0].Vulnerabilities[0].ExploitPrediction != nil {
+		t.Errorf("with no scores held the match says %+v", v.ExploitPrediction)
+	}
+
+	datasettest.PutScores(t, s.Root(), dataNow.Add(-time.Hour), "CVE-1999-0001,0.04753,0.921", "CVE-2026-0001,0.41012,0.9721")
+	v = m.run(context.Background(), data, debian, installed("3.0.11-1"))
+	found := v.Packages[0].Vulnerabilities[0]
+	if found.ExploitPrediction == nil || *found.ExploitPrediction != (epss.Prediction{Score: 0.41012, Percentile: 0.9721}) {
+		t.Errorf("CVE-2026-0001 is scored %+v", found.ExploitPrediction)
+	}
+	if v.ExploitPrediction == nil || v.ExploitPrediction.ID != "epss" || v.ExploitPrediction.Version != "v2026.06.15" || v.ExploitPrediction.NotDone != "" {
+		t.Errorf("the match names the scores as %+v", v.ExploitPrediction)
+	}
+	if x, _ := predicted(context.Background(), data, debian, *v); !has(x, "CVE-2026-0001") || has(x, "CVE-1999-0001") {
+		t.Error("the run kept the score of a CVE it did not match, or not of one it did")
+	}
+}
+
+// has reports whether x holds a prediction for cve.
+func has(x epss.Index, cve string) bool {
+	_, ok := x.Prediction(cve)
+	return ok
 }
 
 // A match that cannot be made says why and what to do: no dataset for the

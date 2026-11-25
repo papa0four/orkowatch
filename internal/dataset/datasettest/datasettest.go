@@ -1,13 +1,15 @@
 // internal/dataset/datasettest/datasettest.go
 
-// Package datasettest holds a dataset made for tests and writes it, or a
-// catalog of known-exploited vulnerabilities, in the store's layout, so the
-// store's tests and the commands' tests judge one dataset by one set of
-// files. Nothing outside a test imports it.
+// Package datasettest holds a dataset made for tests and writes it, a catalog
+// of known-exploited vulnerabilities, or an EPSS scores file, in the store's
+// layout, so the store's tests and the commands' tests judge one dataset by
+// one set of files. Nothing outside a test imports it.
 package datasettest
 
 import (
 	"bufio"
+	"bytes"
+	"compress/gzip"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -20,6 +22,7 @@ import (
 	"time"
 
 	"github.com/papa0four/orkowatch/internal/dataset"
+	"github.com/papa0four/orkowatch/internal/dataset/epss"
 	"github.com/papa0four/orkowatch/internal/dataset/kev"
 	"github.com/papa0four/orkowatch/internal/osfingerprint"
 )
@@ -100,6 +103,27 @@ func PutCatalog(t *testing.T, root string, fetched time.Time, entries ...string)
 		len(entries), strings.Join(entries, ", "))
 	Put(t, root, catalog, data, fetched, func(m *dataset.Manifest) {
 		o := catalog.Origin()
+		m.Source, m.License, m.Attribution = o.URL, o.License, o.Attribution
+	})
+}
+
+// PutScores writes an EPSS scores file of model v2026.06.15, scored
+// 2026-11-23, in the directory root, fetched at fetched, with the manifest its
+// source states. Each row is one row of the file, a CVE, a score, and a
+// percentile.
+func PutScores(t *testing.T, root string, fetched time.Time, rows ...string) {
+	t.Helper()
+	scores := epss.Scores{}
+	var data bytes.Buffer
+	z := gzip.NewWriter(&data)
+	if _, err := fmt.Fprintf(z, "#model_version:v2026.06.15,score_date:2026-11-23T12:00:23Z\ncve,epss,percentile\n%s\n", strings.Join(rows, "\n")); err != nil {
+		t.Fatal(err)
+	}
+	if err := z.Close(); err != nil {
+		t.Fatal(err)
+	}
+	Put(t, root, scores, data.String(), fetched, func(m *dataset.Manifest) {
+		o := scores.Origin()
 		m.Source, m.License, m.Attribution = o.URL, o.License, o.Attribution
 	})
 }
