@@ -602,7 +602,13 @@ size and the time its download is allowed before fetching it, and asks before on
 larger than 100 MiB; `--yes` skips the question. What is fetched is checked as any
 dataset is before it replaces the copy held, a download that fails because a
 server is briefly unable to answer, or that stalls, is tried three times, and a
-dataset that could not be refreshed keeps the copy held. `--for` names another
+dataset that could not be refreshed keeps the copy held. While it runs, each
+download shows what has been received of its size, for how long, and how fast,
+and how long nothing has come once that is five seconds, and keeping the records
+the host needs, the check, and the install are each named as they run; on a
+terminal the line is rewritten in place, and anywhere else each step gets a line
+as it begins and as it ends. `import` names its check and install the same way.
+`--for` names another
 host by the `Target` line `owatch osinfo` prints there, `os/platform/version`,
 copied as printed and quoted when it holds a space, as on Windows. It needs
 `--to`. `refresh` never runs as root or from an elevated terminal, and no flag

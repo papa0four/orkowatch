@@ -75,11 +75,14 @@ func holds(root, id string) bool {
 }
 
 // refresh fetches the datasets that apply to the host, and no other, prints
-// each one's size and where it comes from, and installs what it fetched.
+// each one's size and where it comes from, shows each step as it begins and
+// ends, and installs what it fetched.
 func TestDataRefresh(t *testing.T) {
 	d, s, origins := refreshing(t, false, "")
 	out, err := run(d, "refresh")
-	if err != nil || out != "wanted: 39 B from https://data.example/wanted, allowed 10m0s\nwanted: installed\n" {
+	if err != nil || out != "wanted: 39 B from https://data.example/wanted, allowed 10m0s\n"+
+		"wanted: downloading 39 B\nwanted: downloaded 39 B in 0s\nwanted: checking\nwanted: checked in 0s\n"+
+		"wanted: installing\nwanted: installed in 0s\nwanted: installed\n" {
 		t.Errorf("refresh printed %q, %v", out, err)
 	}
 	if !slices.Equal(origins.fetched, []string{"wanted"}) || !holds(s.Root(), "wanted") || holds(s.Root(), "debian-data") {

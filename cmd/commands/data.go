@@ -15,6 +15,7 @@ import (
 	"github.com/papa0four/orkowatch/cmd/commands/cliargs"
 	"github.com/papa0four/orkowatch/cmd/commands/held"
 	"github.com/papa0four/orkowatch/internal/dataset"
+	"github.com/papa0four/orkowatch/internal/dataset/progress"
 	"github.com/papa0four/orkowatch/internal/dataset/store"
 	"github.com/papa0four/orkowatch/internal/elevation"
 	"github.com/papa0four/orkowatch/internal/osfingerprint"
@@ -26,7 +27,8 @@ import (
 // a test can give each its own: the datasets owatch knows, the store to
 // change, the run status reads the store through, the host's identity, the
 // time, whether a person is at the terminal to ask, whether the process is
-// elevated, and what fetches a dataset.
+// elevated, what fetches a dataset, and the width of the terminal progress is
+// rewritten on, which is nil when the output is not a terminal.
 type dataCmd struct {
 	known       []dataset.Dataset
 	open        func(context.Context) (store.Store, error)
@@ -37,6 +39,7 @@ type dataCmd struct {
 	in          io.Reader
 	elevated    func() bool
 	fetcher     func() (fetcher, error)
+	width       func() int
 }
 
 // newDataCmd returns the owatch data command and its subcommands, reading the
@@ -52,7 +55,18 @@ func newDataCmd() *cobra.Command {
 		in:          os.Stdin,
 		elevated:    elevation.Elevated,
 		fetcher:     newFetcher,
+		width:       progressWidth(),
 	})
+}
+
+// progressWidth is how the data commands ask the width of the terminal their
+// progress is rewritten on: nil when standard output is not a terminal, where
+// nothing is rewritten.
+func progressWidth() func() int {
+	if !render.StdoutIsTerminal() {
+		return nil
+	}
+	return render.StdoutWidth
 }
 
 // dataCommand builds the owatch data command over d.
@@ -168,7 +182,8 @@ skipped, and one older than the copy held is left, and neither is an error.
 An install that fails because a file is in use is tried again; one that fails
 for another reason is recorded, and owatch data status shows it until the
 dataset is installed. The command exits with an error when any dataset was
-refused or failed.
+refused or failed. The check and the install of each dataset are named as they
+run, on a line rewritten in place on a terminal.
 
 Run as root or from an elevated terminal, import installs into the protected
 store.`,
@@ -191,8 +206,10 @@ func (d *dataCmd) runImport(ctx context.Context, out io.Writer, from string) err
 	if err != nil {
 		return fmt.Errorf("identify the host: %w", err)
 	}
-	outcomes, err := s.Import(ctx, from, d.known, host, d.now())
-	if err != nil {
+	report := progress.New(out, d.width, d.now)
+	report.Start()
+	outcomes, err := s.Reporting(report).Import(ctx, from, d.known, host, d.now())
+	if err := errors.Join(err, report.Stop()); err != nil {
 		return err
 	}
 	if len(outcomes) == 0 {

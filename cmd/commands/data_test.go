@@ -66,8 +66,8 @@ func run(d *dataCmd, args ...string) (string, error) {
 	return out.String(), err
 }
 
-// A directory of sound datasets is imported with a line for each and no
-// error; one with a refused dataset ends in an error naming how many; an
+// A directory of sound datasets is imported with each step shown, a line for
+// each dataset, and no error; one with a refused dataset ends in an error naming how many; an
 // empty one is an error.
 func TestDataImport(t *testing.T) {
 	d, _ := testData(t, false, "")
@@ -75,7 +75,7 @@ func TestDataImport(t *testing.T) {
 	datasettest.Put(t, src, datasettest.Dataset{Name: "wanted"}, datasettest.Content, dataNow.Add(-time.Hour), nil)
 
 	out, err := run(d, "import", src)
-	if err != nil || out != "wanted: installed\n" {
+	if err != nil || out != "wanted: checking\nwanted: checked in 0s\nwanted: installing\nwanted: installed in 0s\nwanted: installed\n" {
 		t.Errorf("import printed %q, %v", out, err)
 	}
 
