@@ -190,6 +190,26 @@ func TestReadCountsEachEntryOnce(t *testing.T) {
 	}
 }
 
+// An entry that names a great many CWEs is read in time linear in what it
+// names, since the catalog is untrusted and fits that many within its size
+// limit: counting each entry once must not compare every CWE with every other.
+func TestReadIsLinearInWhatAnEntryNames(t *testing.T) {
+	const named = 150000
+	cwes := make([]string, named)
+	for i := range cwes {
+		cwes[i] = fmt.Sprintf("%q", fmt.Sprintf("CWE-%d", i))
+	}
+	data := smallCatalog(`{"cveID": "CVE-2026-0001", "cwes": [` + strings.Join(cwes, ",") + `]}`)
+	if int64(len(data)) > (Catalog{}).MaxBytes() {
+		t.Fatalf("the catalog holds %d bytes, more than the dataset may", len(data))
+	}
+	start := time.Now()
+	x, _, err := Catalog{}.Read(bytes.NewReader(data), nil)
+	if took := time.Since(start); err != nil || took > 2*time.Second || x.ClassCount("CWE-149999") != 1 {
+		t.Errorf("an entry naming %d CWEs took %s to read, %v", named, took, err)
+	}
+}
+
 // The catalog names itself, its source, and its terms as a dataset must: a
 // name the store can hold, an HTTPS address on CISA's host with no other host
 // to follow, and a license and attribution a manifest accepts.

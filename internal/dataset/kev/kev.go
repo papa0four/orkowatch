@@ -10,7 +10,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"slices"
 	"time"
 
 	"github.com/papa0four/orkowatch/internal/dataset"
@@ -141,6 +140,10 @@ func (Catalog) Read(data io.Reader, _ *osfingerprint.OSInfo) (Index, dataset.Fac
 	}
 
 	x := Index{entries: make(map[string]Entry, len(c.Vulnerabilities)), classes: make(map[string]int)}
+	// named holds the CWEs the entry being read has named, so an entry is
+	// counted once under each in time linear in what it names, however many
+	// an untrusted catalog gives it.
+	named := make(map[string]bool)
 	for i, e := range c.Vulnerabilities {
 		if !dataset.ValidCVE(e.CVEID) {
 			return Index{}, dataset.Facts{}, fmt.Errorf("entry %d names %q, which is not a CVE identifier", i+1, e.CVEID)
@@ -149,8 +152,10 @@ func (Catalog) Read(data io.Reader, _ *osfingerprint.OSInfo) (Index, dataset.Fac
 			return Index{}, dataset.Facts{}, fmt.Errorf("entry %d names %s, which an earlier entry names", i+1, e.CVEID)
 		}
 		x.entries[e.CVEID] = Entry{Added: e.DateAdded, Due: e.DueDate, Ransomware: e.Ransomware}
-		for j, cwe := range e.CWEs {
-			if !slices.Contains(e.CWEs[:j], cwe) {
+		clear(named)
+		for _, cwe := range e.CWEs {
+			if !named[cwe] {
+				named[cwe] = true
 				x.classes[cwe]++
 			}
 		}
