@@ -103,7 +103,7 @@ func TestVulnerabilitiesTabKnownExploited(t *testing.T) {
 	v := matchedView()
 	v.Packages[1].Vulnerabilities[0].KnownExploited = &kev.Entry{Added: "2026-11-20", Due: "2026-12-11", Ransomware: "Known"}
 	v.Packages[0].Vulnerabilities[0].KnownExploited = &kev.Entry{Added: "2026-11-19", Due: "2026-12-10", Ransomware: "Unknown"}
-	v.KnownExploited = &dataset.Use{Provenance: dataset.Provenance{ID: "kev", DataDate: "2026-11-21", State: dataset.StateCurrent, Attribution: "As the catalog asks."}}
+	v.KnownExploited = &dataset.Use{Provenance: dataset.Provenance{ID: "kev", Version: "2026.11.21", DataDate: "2026-11-21", State: dataset.StateCurrent, Attribution: "As the catalog asks."}}
 	tab := vulnerabilitiesTab(v)
 
 	var rows []string
@@ -125,7 +125,7 @@ func TestVulnerabilitiesTabKnownExploited(t *testing.T) {
 	if got := field(tab.Records[0], "known to be exploited"); got != "added to the catalog 2026-11-20\ndue date 2026-12-11\nransomware use Known" {
 		t.Errorf("the entry reads %q", got)
 	}
-	if got := field(tab.Records[2], "known exploitation"); got != "kev, data of 2026-11-21, current\nAs the catalog asks." || field(tab.Records[2], "known to be exploited") != "" {
+	if got := field(tab.Records[2], "known exploitation"); got != "kev, 2026.11.21, data of 2026-11-21, current\nAs the catalog asks." || field(tab.Records[2], "known to be exploited") != "" {
 		t.Errorf("a vulnerability the catalog does not list reads %q", got)
 	}
 

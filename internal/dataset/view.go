@@ -92,6 +92,13 @@ type Provenance struct {
 	Attribution string `json:"attribution,omitempty" yaml:"attribution,omitempty"`
 }
 
+// About names the data on one line as every report names the data a result
+// was read from: the dataset, the version of its data, the date of its data,
+// and its state.
+func (p Provenance) About() string {
+	return fmt.Sprintf("%s, %s, data of %s, %s", p.ID, p.Version, p.DataDate, p.State)
+}
+
 // ProvenanceOf is the provenance of the dataset id held under m, whose data
 // its check gave facts of, read at now.
 func ProvenanceOf(id string, m Manifest, facts Facts, now time.Time) Provenance {

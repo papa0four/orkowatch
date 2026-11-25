@@ -131,7 +131,7 @@ func exploitationText(use *dataset.Use) string {
 	case use.NotDone != "":
 		return safeLines("not read: " + use.NotDone)
 	}
-	text := strings.Join([]string{use.ID, "data of " + use.DataDate, string(use.State)}, ", ")
+	text := use.About()
 	if use.Attribution != "" {
 		text += "\n" + use.Attribution
 	}
@@ -141,7 +141,7 @@ func exploitationText(use *dataset.Use) string {
 // matchedAgainst names the dataset a match was made against, its release, its
 // date, and its state, on one line.
 func matchedAgainst(v vulnmatch.View) string {
-	return safeLines(strings.Join([]string{v.ID, v.Version, "data of " + v.DataDate, string(v.State)}, ", "))
+	return safeLines(v.About())
 }
 
 // vulnerabilityRecord is one vulnerability of an affected package as the tab

@@ -261,7 +261,7 @@ func (c catalog) Entry(id string) (kev.Entry, bool) {
 }
 
 // kevData is the provenance of a catalog read at its date.
-var kevData = dataset.Use{Provenance: dataset.Provenance{ID: "kev", DataDate: "2026-11-23", State: dataset.StateCurrent, Attribution: "Attributed as the catalog asks."}}
+var kevData = dataset.Use{Provenance: dataset.Provenance{ID: "kev", Version: "2026.11.23", DataDate: "2026-11-23", State: dataset.StateCurrent, Attribution: "Attributed as the catalog asks."}}
 
 // exploitedView is a match of two packages, openssl with a low fix, a high
 // fix, and a critical unfixed, and bash with a medium fix, before any is
@@ -330,7 +330,7 @@ func TestWriteTextKnownExploited(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := b.String()
-	want := "\n3 vulnerabilities known to be exploited, by kev, data of 2026-11-23, current:\n" +
+	want := "\n3 vulnerabilities known to be exploited, by kev, 2026.11.23, data of 2026-11-23, current:\n" +
 		"  critical    CVE-2026-3           openssl 3.0.2-1, unfixed; added 2026-11-21, ransomware use Unknown\n" +
 		"  medium      CVE-2026-10          bash 5.1, fixed in 5.2; added 2026-11-19, ransomware use Unknown\n" +
 		"  low         CVE-2026-2           openssl 3.0.2-1, fixed in 3.0.2-2; added 2026-11-20, ransomware use Known\n" +
@@ -346,7 +346,7 @@ func TestWriteTextKnownExploited(t *testing.T) {
 		use     dataset.Use
 		want    string
 	}{
-		"none listed": {catalog{}, kevData, "\nNone is known to be exploited, by kev, data of 2026-11-23, current.\n"},
+		"none listed": {catalog{}, kevData, "\nNone is known to be exploited, by kev, 2026.11.23, data of 2026-11-23, current.\n"},
 		"not read":    {catalog{}, dataset.Use{Provenance: dataset.Provenance{ID: "kev"}, NotDone: "kev is not held"}, "\nKnown exploitation was not read: kev is not held\n"},
 	} {
 		v := exploitedView()

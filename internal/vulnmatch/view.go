@@ -174,7 +174,7 @@ func WriteText(w io.Writer, v View) error {
 		ew.Printf("%s\n", render.HostText("Matching was not done: "+v.NotDone))
 		return ew.Err()
 	}
-	ew.Printf("%s\n", render.HostText(fmt.Sprintf("Matched against %s, %s, data of %s, %s", v.ID, v.Version, v.DataDate, v.State)))
+	ew.Printf("%s\n", render.HostText("Matched against "+v.About()))
 	c := v.Counts
 	ew.Printf("%s\n", render.HostText(fmt.Sprintf("%s matched: %s with a fix available in %s, %s in %s, %s not matched, %s no record covers",
 		render.Count(c.Packages, "package", "packages"),
@@ -236,7 +236,7 @@ func writeKnownExploited(ew *render.ErrWriter, v View) {
 		ew.Printf("\n%s\n", render.HostText("Known exploitation was not read: "+catalog.NotDone))
 		return
 	case v.Counts.KnownExploited == 0:
-		ew.Printf("\n%s\n", render.HostText(fmt.Sprintf("None is known to be exploited, by %s, data of %s, %s.", catalog.ID, catalog.DataDate, catalog.State)))
+		ew.Printf("\n%s\n", render.HostText("None is known to be exploited, by "+catalog.About()+"."))
 		return
 	}
 
@@ -254,8 +254,8 @@ func writeKnownExploited(ew *render.ErrWriter, v View) {
 	}
 	slices.SortStableFunc(known, func(a, b listed) int { return cmp.Compare(rank(a.found.Severity.Level), rank(b.found.Severity.Level)) })
 
-	ew.Printf("\n%s\n", render.HostText(fmt.Sprintf("%s, by %s, data of %s, %s:",
-		render.Count(len(known), "vulnerability known to be exploited", "vulnerabilities known to be exploited"), catalog.ID, catalog.DataDate, catalog.State)))
+	ew.Printf("\n%s\n", render.HostText(fmt.Sprintf("%s, by %s:",
+		render.Count(len(known), "vulnerability known to be exploited", "vulnerabilities known to be exploited"), catalog.About())))
 	for _, k := range known {
 		state := "unfixed"
 		if k.found.Status == StatusFixAvailable {
