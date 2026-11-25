@@ -204,18 +204,30 @@ ahead of the unfixed, then the identifier. With the
 catalog not held, or not usable, the section says known exploitation was not read,
 why, and what to run.
 
-The text report gives the counts, every vulnerability known to be exploited in a
-block of its own under the catalog's data and attribution, every other
-vulnerability with a fix available led by its severity, and the unfixed counted by
-package, since a release can carry thousands; the
+A matched vulnerability that FIRST's EPSS scores file scores carries its score,
+FIRST's estimate of the probability that it will be exploited in the wild in the
+next 30 days, and its percentile, the proportion of all scored vulnerabilities with
+the same score or lower. Both are shown as percentages to three significant digits,
+such as 94.3% or 0.043%. Only the scores of the CVEs matched on the host are kept.
+With the scores not held, or not usable, the section says exploit prediction was not
+read, why, and what to run, and no vulnerability is shown with a score.
+
+The text report gives the counts, the EPSS scores file read and its attribution or
+why it was not read, every vulnerability known to be exploited in a block of its own
+under the catalog's data and attribution, every other vulnerability with a fix
+available, each line led by its severity and, when the scores were read, its EPSS
+score or a dash where the file gives none, and the unfixed counted by package,
+since a release can carry thousands; the
 JSON and YAML reports hold every match under `vulnerabilities.packages`, each affected
 package once with its installed version and the binaries built from it, and its
 vulnerabilities under it, those known to be exploited first, with their status,
 fixed version, `severity` (its label, level, and basis), `scores` as the records
-give them, the records that name them, and `known_exploited` (`date_added`,
-`due_date`, `known_ransomware_use`) where the catalog lists them, beside
-`not_matched`, `counts` (with `known_exploited`), and `known_exploited_data`, the
-catalog read or why it was not. The section names the dataset it was matched
+give them, the records that name them, `known_exploited` (`date_added`,
+`due_date`, `known_ransomware_use`) where the catalog lists them, and
+`exploit_prediction` (`score`, `percentile`, each from 0 to 1 as the file writes
+them) where the scores file scores them, beside `not_matched`, `counts` (with
+`known_exploited`), `known_exploited_data`, the catalog read or why it was not, and
+`exploit_prediction_data`, the scores file read or why it was not. The section names the dataset it was matched
 against with the keys `owatch data status` uses: `id`, `version` (the release its
 records are of), `source`, `data_date`, `fetched`, `state`, `license`, and
 `attribution`. With no dataset held, or one that cannot be used, the section says matching was not done,
@@ -322,16 +334,18 @@ filter chooses all, the affected packages, or those with a fix available;
 Vulnerabilities, when the software was
 matched, lists each CVE of each affected package in that order, those known to be
 exploited first in red under a red rule that counts them and marked on their rows,
-then the rest under a rule of their own, and opens filtered to those with a fix
-available: its filters choose fix
+then the rest under a rule of their own, each row giving, in that order, the
+severity, the EPSS score when the scores were read, and the fixed version or
+that none is available, and opens filtered to those with a fix available: its filters choose fix
 available, unfixed, not matched, or all, a severity, and known exploited, not in
 the catalog, or all, each option with how many fall under it, and the known
 exploited stay listed whichever status is chosen,
 and `/` searches within them; the detail gives the package and what was built
 from it, the installed and fixed versions, the severity and its basis, the
 scores as the records give them, the catalog's entry for a CVE known to be
-exploited, the records that name the CVE, the
-dataset, and the catalog's data or why it was not read; a finding's detail in
+exploited, the CVE's EPSS score and percentile, the records that name the CVE, the
+dataset, the catalog's data or why it was not read, and the scores file's data or
+why it was not read; a finding's detail in
 Findings gives how many vulnerabilities known to be exploited are of its
 weakness class, and the summary names the catalog's data; Sockets lists each socket with its state, ends,
 scope and the processes holding it, or why they could not be read; MITRE ATT&CK® groups the findings by the
@@ -553,9 +567,8 @@ CISA or DHS.
 
 owatch holds those that apply to the host and reports their state, with the date
 and version of each. `owatch software` and `owatch all` match installed packages
-against the OSV dataset and mark the matches the KEV catalog lists, and the audit
-counts the catalog's entries by weakness class; no report reads EPSS's entries
-yet.
+against the OSV dataset, mark the matches the KEV catalog lists, and score them
+from the EPSS file, and the audit counts the catalog's entries by weakness class.
 
 ```bash
 # Fetch the datasets this host needs, over HTTPS
