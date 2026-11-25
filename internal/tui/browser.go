@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -29,6 +30,12 @@ const (
 	minListHeight = 4
 	listShareNum  = 2
 	listShareDen  = 5
+
+	// optionLead is the columns the left pane draws before an option, its
+	// marker when chosen, and countGap the least space between an option's
+	// label and its count.
+	optionLead = 2
+	countGap   = 1
 
 	// The banner: the brand on its right, the separator between the run, the
 	// host and the time on its left, the least room kept between the two
@@ -1182,14 +1189,28 @@ func (b browser) groupLines(groups []*filterGroup, heading func(string), option 
 			heading("")
 		}
 		heading(b.paneTitle(g.name, focusFilters))
+		widest := 0
+		if len(g.counts) > 0 {
+			widest = len(strconv.Itoa(slices.Max(g.counts)))
+		}
 		for i, label := range g.labels {
 			if g.counts != nil {
-				label = fmt.Sprintf("%-*s%d", filterWidth-9, label, g.counts[i])
+				label = countedLabel(label, g.counts[i], widest)
 			}
 			option(index, label, g.chosen == i)
 			index++
 		}
 	}
+}
+
+// countedLabel is a filter option with how many records fall under it: the
+// count at the pane's right edge, right-aligned in a column widest digits
+// wide so a group's counts line up however large they are, and the label cut
+// short where it would otherwise run into the count.
+func countedLabel(label string, count, widest int) string {
+	room := filterWidth - 1 - optionLead - widest - countGap
+	label = truncate(label, room)
+	return label + strings.Repeat(" ", room-lipgloss.Width(label)+countGap) + fmt.Sprintf("%*d", widest, count)
 }
 
 // paneTitle renders a heading, lit when its pane has the keyboard.

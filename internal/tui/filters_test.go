@@ -252,6 +252,28 @@ func TestAttentionTabStandsOut(t *testing.T) {
 	}
 }
 
+// A filter option's count is set apart from its label and right-aligned at
+// the pane's edge with the rest of its group, however long the label and
+// however large the count; a label too long for the room left is cut short.
+func TestCountedLabel(t *testing.T) {
+	room := filterWidth - 1 - optionLead
+	for _, tt := range []struct {
+		label         string
+		count, widest int
+		want          string
+	}{
+		{"not in the catalog", 361, 3, "not in the catalog  361"},
+		{"known exploited", 1, 3, "known exploited       1"},
+		{"not in the catalog", 1234, 4, "not in the catalog 1234"},
+		{"not in the catalog", 123456, 6, "not in the cata… 123456"},
+	} {
+		got := countedLabel(tt.label, tt.count, tt.widest)
+		if got != tt.want || lipgloss.Width(got) != room {
+			t.Errorf("countedLabel(%q, %d, %d) = %q (%d wide), want %q, %d wide", tt.label, tt.count, tt.widest, got, lipgloss.Width(got), tt.want, room)
+		}
+	}
+}
+
 // A filter does not narrow the band it spares: its records stay listed
 // whichever option is chosen, and the other filters still narrow them.
 func TestFilterSparesABand(t *testing.T) {
