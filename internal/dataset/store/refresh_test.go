@@ -273,3 +273,34 @@ func TestRefreshKeepsLessThanItFetches(t *testing.T) {
 		})
 	}
 }
+
+// errAway is a fetch that could make no connection at all, as on a host with
+// no network.
+type errAway struct{}
+
+func (errAway) Error() string     { return "no connection could be made" }
+func (errAway) Passing() bool     { return true }
+func (errAway) Unreachable() bool { return true }
+
+// A fetch that can make no connection stops the refresh there: the datasets
+// after it are not fetched, the one that failed is recorded, and the refresh
+// says the network could not be reached.
+func TestRefreshStopsWhenUnreachable(t *testing.T) {
+	s, _ := stores(t)
+	other := testDataset{Name: "other", Applies: true, From: served.From}
+	var fetched []string
+	fetch := func(_ context.Context, d dataset.Dataset, _ io.Writer) error {
+		fetched = append(fetched, d.ID())
+		return errAway{}
+	}
+	outcomes, err := s.Refresh(context.Background(), fetch, []dataset.Dataset{served, other}, &osfingerprint.OSInfo{}, now)
+	if !errors.Is(err, ErrUnreachable) || !strings.Contains(err.Error(), "no connection could be made") {
+		t.Errorf("the refresh ended with %v, want the network unreachable", err)
+	}
+	if slices.Contains(fetched, "other") {
+		t.Errorf("fetched %q after the network could not be reached", fetched)
+	}
+	if len(outcomes) != 1 || outcomes[0].ID != "wanted" || outcomes[0].Result != Failed {
+		t.Errorf("outcomes %+v, want the one that failed", outcomes)
+	}
+}
