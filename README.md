@@ -198,8 +198,9 @@ which CISA directs US federal agencies to act on it, and whether its use in
 ransomware campaigns is known, each as the catalog writes it. A vulnerability
 exploited now outranks its score, so those known to be exploited come first,
 whether fixed or not, then the rest. Every report and the results browser list
-vulnerabilities by one rule: known exploited first, then the most severe, then a
-fix available ahead of the unfixed, then the identifier. With the
+vulnerabilities by one rule: known exploited first, then the most severe, then the
+highest EPSS score, one with no score after those with one, then a fix available
+ahead of the unfixed, then the identifier. With the
 catalog not held, or not usable, the section says known exploitation was not read,
 why, and what to run.
 

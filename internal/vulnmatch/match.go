@@ -219,8 +219,9 @@ var statusOrder = map[string]string{StatusFixAvailable: "0", StatusUnfixed: "1"}
 // vulnerabilityOrder is the one order every view lists vulnerabilities in,
 // within a package and across packages. Those known to be exploited come
 // first, since a vulnerability exploited now outranks its score; then, in
-// each part alike, the most severe first, a fix available ahead of the
-// unfixed, and the identifier.
+// each part alike, the most severe first, the likeliest to be exploited
+// first by its EPSS score, one with no score after every one with a score, a
+// fix available ahead of the unfixed, and the identifier.
 func vulnerabilityOrder(a, b Vulnerability) int {
 	known := func(v Vulnerability) int {
 		if v.KnownExploited != nil {
@@ -228,9 +229,16 @@ func vulnerabilityOrder(a, b Vulnerability) int {
 		}
 		return 1
 	}
+	score := func(v Vulnerability) float64 {
+		if v.ExploitPrediction == nil {
+			return -1
+		}
+		return v.ExploitPrediction.Score
+	}
 	return cmp.Or(
 		cmp.Compare(known(a), known(b)),
 		cmp.Compare(rank(a.Severity.Level), rank(b.Severity.Level)),
+		cmp.Compare(score(b), score(a)),
 		strings.Compare(statusOrder[a.Status], statusOrder[b.Status]),
 		strings.Compare(a.ID, b.ID))
 }

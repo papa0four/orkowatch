@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/papa0four/orkowatch/internal/dataset"
+	"github.com/papa0four/orkowatch/internal/dataset/epss"
 	"github.com/papa0four/orkowatch/internal/dataset/kev"
 	"github.com/papa0four/orkowatch/internal/dataset/osv"
 	"github.com/papa0four/orkowatch/internal/pkgversion"
@@ -313,10 +314,41 @@ func TestMarkExploited(t *testing.T) {
 	}
 }
 
+// predictions is a scores file holding the predictions it is given.
+type predictions map[string]epss.Prediction
+
+func (p predictions) Prediction(id string) (epss.Prediction, bool) {
+	found, ok := p[id]
+	return found, ok
+}
+
+// epssData is the provenance of a scores file read at its date.
+var epssData = dataset.Use{Provenance: dataset.Provenance{ID: "epss", Version: "v2026.06.15", DataDate: "2026-11-23", State: dataset.StateCurrent, Attribution: "Attributed as FIRST asks."}}
+
+// Scoring gives each scored vulnerability its prediction and no other, and
+// the view names the file read, or why none was.
+func TestMarkPredicted(t *testing.T) {
+	v := exploitedView()
+	v.MarkPredicted(predictions{"CVE-2026-1": {Score: 0.4, Percentile: 0.97}}, epssData)
+	for _, pkg := range v.Packages {
+		for _, found := range pkg.Vulnerabilities {
+			switch p := found.ExploitPrediction; {
+			case found.ID == "CVE-2026-1" && (p == nil || *p != epss.Prediction{Score: 0.4, Percentile: 0.97}):
+				t.Errorf("CVE-2026-1 is scored %+v", p)
+			case found.ID != "CVE-2026-1" && p != nil:
+				t.Errorf("%s, which the file does not score, is scored %+v", found.ID, p)
+			}
+		}
+	}
+	if v.ExploitPrediction == nil || *v.ExploitPrediction != epssData {
+		t.Errorf("the view names the file as %+v", v.ExploitPrediction)
+	}
+}
+
 // Every view orders vulnerabilities by one rule, the known exploited first,
-// then severity, then a fix available ahead of the unfixed, then the
-// identifier: each package's own list, the list across packages, and the text
-// report's blocks.
+// then severity, then the EPSS score, the highest first and none last, then a
+// fix available ahead of the unfixed, then the identifier: each package's own
+// list, the list across packages, and the text report's blocks.
 func TestOnePrecedence(t *testing.T) {
 	sev := func(level string) Severity { return Severity{Label: level, Level: level, Basis: "Ubuntu priority"} }
 	fix := func(id, level string) Vulnerability {
@@ -327,11 +359,12 @@ func TestOnePrecedence(t *testing.T) {
 	}
 	v := View{Use: dataset.Use{Provenance: dataset.Provenance{ID: "osv-ubuntu"}}, Packages: []PackageMatches{
 		{Package: "a", Installed: "1", Vulnerabilities: []Vulnerability{
-			fix("CVE-2026-21", LevelHigh), unfixed("CVE-2026-12", LevelCritical), fix("CVE-2026-13", LevelLow)}},
+			fix("CVE-2026-20", LevelHigh), fix("CVE-2026-21", LevelHigh), unfixed("CVE-2026-12", LevelCritical), fix("CVE-2026-13", LevelLow)}},
 		{Package: "b", Installed: "1", Vulnerabilities: []Vulnerability{
 			fix("CVE-2026-31", LevelCritical), unfixed("CVE-2026-32", LevelHigh), fix("CVE-2026-22", LevelHigh)}},
 	}, Installed: 2}
 	v.MarkExploited(catalog{"CVE-2026-13": {}, "CVE-2026-32": {}}, kevData)
+	v.MarkPredicted(predictions{"CVE-2026-12": {Score: 0.9}, "CVE-2026-31": {Score: 0.2}, "CVE-2026-22": {Score: 0.5}, "CVE-2026-21": {Score: 0.1}}, epssData)
 
 	ids := func(vulns []Vulnerability) string {
 		var out []string
@@ -340,7 +373,7 @@ func TestOnePrecedence(t *testing.T) {
 		}
 		return strings.Join(out, ",")
 	}
-	for i, want := range []string{"CVE-2026-13,CVE-2026-12,CVE-2026-21", "CVE-2026-32,CVE-2026-31,CVE-2026-22"} {
+	for i, want := range []string{"CVE-2026-13,CVE-2026-12,CVE-2026-21,CVE-2026-20", "CVE-2026-32,CVE-2026-31,CVE-2026-22"} {
 		if got := ids(v.Packages[i].Vulnerabilities); got != want {
 			t.Errorf("package %s lists %s, want %s", v.Packages[i].Package, got, want)
 		}
@@ -349,7 +382,7 @@ func TestOnePrecedence(t *testing.T) {
 	for _, l := range v.InOrder() {
 		across = append(across, l.Vulnerability)
 	}
-	if got, want := ids(across), "CVE-2026-32,CVE-2026-13,CVE-2026-31,CVE-2026-12,CVE-2026-21,CVE-2026-22"; got != want {
+	if got, want := ids(across), "CVE-2026-32,CVE-2026-13,CVE-2026-12,CVE-2026-31,CVE-2026-22,CVE-2026-21,CVE-2026-20"; got != want {
 		t.Errorf("across packages %s, want %s", got, want)
 	}
 
@@ -363,7 +396,7 @@ func TestOnePrecedence(t *testing.T) {
 			listed = append(listed, fields[1])
 		}
 	}
-	if got, want := strings.Join(listed, ","), "CVE-2026-32,CVE-2026-13,CVE-2026-31,CVE-2026-21,CVE-2026-22"; got != want {
+	if got, want := strings.Join(listed, ","), "CVE-2026-32,CVE-2026-13,CVE-2026-31,CVE-2026-22,CVE-2026-21,CVE-2026-20"; got != want {
 		t.Errorf("the text lists %s, want %s:\n%s", got, want, b.String())
 	}
 }

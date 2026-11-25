@@ -8,6 +8,7 @@ import (
 	"slices"
 
 	"github.com/papa0four/orkowatch/internal/dataset"
+	"github.com/papa0four/orkowatch/internal/dataset/epss"
 	"github.com/papa0four/orkowatch/internal/dataset/kev"
 	"github.com/papa0four/orkowatch/internal/dataset/osv"
 	"github.com/papa0four/orkowatch/internal/render"
@@ -41,6 +42,10 @@ type View struct {
 	// KnownExploited is the catalog of known-exploited vulnerabilities the
 	// match was marked from, or why it was not, for a match that was made.
 	KnownExploited *dataset.Use `json:"known_exploited_data,omitempty" yaml:"known_exploited_data,omitempty"`
+
+	// ExploitPrediction is the EPSS scores file the match was scored from, or
+	// why it was not, for a match that was made.
+	ExploitPrediction *dataset.Use `json:"exploit_prediction_data,omitempty" yaml:"exploit_prediction_data,omitempty"`
 
 	Counts     Counts           `json:"counts" yaml:"counts"`
 	Packages   []PackageMatches `json:"packages" yaml:"packages"`
@@ -80,16 +85,18 @@ type PackageMatches struct {
 // Vulnerability is one vulnerability of a package: its identifier, a CVE or,
 // for a record that names none, the record's own; whether a fix is available,
 // and the version that fixes it; its severity and what that rests on; its
-// scores as the records give them; the records that name it; and, when CISA's
-// catalog lists it as known to be exploited, the catalog's entry.
+// scores as the records give them; the records that name it; when CISA's
+// catalog lists it as known to be exploited, the catalog's entry; and when
+// EPSS scores it, its score and percentile.
 type Vulnerability struct {
-	ID             string         `json:"id" yaml:"id"`
-	Status         string         `json:"status" yaml:"status"`
-	Fixed          string         `json:"fixed,omitempty" yaml:"fixed,omitempty"`
-	Severity       Severity       `json:"severity" yaml:"severity"`
-	Scores         []osv.Severity `json:"scores,omitempty" yaml:"scores,omitempty"`
-	Records        []string       `json:"records" yaml:"records"`
-	KnownExploited *kev.Entry     `json:"known_exploited,omitempty" yaml:"known_exploited,omitempty"`
+	ID                string           `json:"id" yaml:"id"`
+	Status            string           `json:"status" yaml:"status"`
+	Fixed             string           `json:"fixed,omitempty" yaml:"fixed,omitempty"`
+	Severity          Severity         `json:"severity" yaml:"severity"`
+	Scores            []osv.Severity   `json:"scores,omitempty" yaml:"scores,omitempty"`
+	Records           []string         `json:"records" yaml:"records"`
+	KnownExploited    *kev.Entry       `json:"known_exploited,omitempty" yaml:"known_exploited,omitempty"`
+	ExploitPrediction *epss.Prediction `json:"exploit_prediction,omitempty" yaml:"exploit_prediction,omitempty"`
 }
 
 // Exploited is a catalog of vulnerabilities known to be exploited, as a
@@ -98,10 +105,15 @@ type Exploited interface {
 	Entry(id string) (kev.Entry, bool)
 }
 
-// MarkExploited marks each vulnerability catalog lists with its entry, and
-// orders each package's vulnerabilities with those known to be exploited
-// first. use is the catalog's data, or why it was not read, in which case
-// catalog lists nothing and the view says so.
+// Predictions is a file of exploit prediction scores, as a match is scored
+// from it: the prediction of each vulnerability it scores.
+type Predictions interface {
+	Prediction(id string) (epss.Prediction, bool)
+}
+
+// MarkExploited marks each vulnerability catalog lists with its entry. use is
+// the catalog's data, or why it was not read, in which case catalog lists
+// nothing and the view says so.
 func (v *View) MarkExploited(catalog Exploited, use dataset.Use) {
 	v.KnownExploited = &use
 	for i := range v.Packages {
@@ -111,7 +123,31 @@ func (v *View) MarkExploited(catalog Exploited, use dataset.Use) {
 				vulns[j].KnownExploited = &entry
 			}
 		}
-		slices.SortFunc(vulns, vulnerabilityOrder)
+	}
+	v.arrange()
+}
+
+// MarkPredicted gives each vulnerability scores holds its prediction. use is
+// the file's data, or why it was not read, in which case scores holds nothing
+// and the view says so.
+func (v *View) MarkPredicted(scores Predictions, use dataset.Use) {
+	v.ExploitPrediction = &use
+	for i := range v.Packages {
+		vulns := v.Packages[i].Vulnerabilities
+		for j := range vulns {
+			if p, ok := scores.Prediction(vulns[j].ID); ok {
+				vulns[j].ExploitPrediction = &p
+			}
+		}
+	}
+	v.arrange()
+}
+
+// arrange puts each package's vulnerabilities in the order every view lists
+// them and fills the counts, after a mark that changes either.
+func (v *View) arrange() {
+	for i := range v.Packages {
+		slices.SortFunc(v.Packages[i].Vulnerabilities, vulnerabilityOrder)
 	}
 	v.count()
 }
