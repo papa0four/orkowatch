@@ -544,6 +544,13 @@ func (b *browser) onFilterKey(key string) {
 		b.filterCursor = last
 	case "enter", "space":
 		option := b.filterCursor - sources
+		// Enter on the source already open goes into its list, as enter on
+		// a filter does; on another source it opens that one and the
+		// keyboard stays here, so the next source is one key away.
+		if option < 0 && b.filterCursor == b.active {
+			b.focus = focusList
+			return
+		}
 		if option < 0 {
 			b.selectTab(b.filterCursor)
 			return
@@ -978,6 +985,8 @@ func (b browser) help() []hint {
 		return append([]hint{scroll, pan}, append(tabs, report, quit)...)
 	case pn != nil && b.focus == focusDetail:
 		return common([]hint{scroll, pan, keyHint("list", "esc")})
+	case pn != nil && pn.tab.Switch.Key != "":
+		return common(append([]hint{move, keyHint("detail", "enter")}, back...), keyHint(pn.tab.Switch.Hint, pn.tab.Switch.Key))
 	case pn != nil:
 		return common(append([]hint{move, keyHint("detail", "enter")}, back...))
 	case b.focus == focusFilters:

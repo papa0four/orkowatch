@@ -175,12 +175,28 @@ schema states, in the distribution's own version order. For each CVE and package
 
 A package at or above any record's fixed version is not affected: a host on an
 earlier minor release's update is not told it lacks a later release's build of the
-same fix. The text report gives the counts, every vulnerability with a fix available,
-and the unfixed counted by package, since a release can carry thousands; the JSON and
-YAML reports hold every match under `vulnerabilities.packages`, each affected package
-once with its installed version and the binaries built from it, and its
-vulnerabilities under it with their status, fixed version, scores, and the records
-that name them, beside `not_matched` and `counts`. With
+same fix.
+
+Each vulnerability has a severity, and says what it rests on:
+
+| Basis | Where | Severity |
+|---|---|---|
+| Ubuntu priority | Ubuntu | The priority its records state: critical, high, medium, low, or negligible |
+| Advisory rating | AlmaLinux, Rocky Linux | The rating the advisory's title opens with: Critical, Important, Moderate, or Low. It is the advisory's, so every CVE the advisory names carries it |
+| CVSS base score | Where the records state neither, as on Red Hat and Alpine | The CVSS band (critical, high, medium, low) of the highest base score among the vectors the records give, computed from the vector and shown with its version and score |
+
+The label shown is the source's own word. For filtering and ordering, Important is
+placed with high and Moderate with medium. A CVSS v3.0 vector has the metrics of a
+v3.1 one and is scored with the v3.1 base equations, and is named as v3.0. A
+vulnerability whose records give nothing that can be read has none stated.
+
+The text report gives the counts, every vulnerability with a fix available led by its
+severity, and the unfixed counted by package, since a release can carry thousands; the
+JSON and YAML reports hold every match under `vulnerabilities.packages`, each affected
+package once with its installed version and the binaries built from it, and its
+vulnerabilities under it with their status, fixed version, `severity` (its label,
+level, and basis), `scores` as the records give them, and the records that name them,
+beside `not_matched` and `counts`. With
 no dataset held, or one that cannot be used, the section says matching was not done,
 why, and what to run. Fixes published only in Ubuntu Pro or Red Hat's
 extended-support streams are not read, so a host on those streams can be shown a fix
@@ -278,14 +294,18 @@ browser has a source for each
 part of the run: Findings lists each finding with its severity and shows the selected one in
 full with what triggered it (the rule that failed, what it found, the severity the registry
 gives it, the techniques it is mapped to) and its evidence; System shows the host's fingerprint; Software lists the
-installed packages and can be searched; Vulnerabilities, when the software was
+installed packages and can be searched, and when the software was matched each
+package's row gives how many of its CVEs have a fix available and how many are
+unfixed, with the worst severity among them, its detail lists them, and its
+filter chooses all, the affected packages, or those with a fix available;
+Vulnerabilities, when the software was
 matched, lists each CVE of each affected package, those with a fix available
 first, and opens filtered to them: its filters choose fix available, unfixed,
-not matched, or all, and a severity label the records state, such as Ubuntu's
-priority, each option with how many fall under it, and `/` searches within
-them; the detail gives the package and what was built from it, the installed
-and fixed versions, the scores as the records give them, the records that name
-the CVE, and the dataset; Sockets lists each socket with its state, ends,
+not matched, or all, and a severity, each option with how many fall under it,
+and `/` searches within them; the detail gives the package and what was built
+from it, the installed and fixed versions, the severity and its basis, the
+scores as the records give them, the records that name the CVE, and the
+dataset; Sockets lists each socket with its state, ends,
 scope and the processes holding it, or why they could not be read; MITRE ATT&CK® groups the findings by the
 technique each makes available, with the finding, rule and evidence behind each. A source a command did not run, or a module
 that was skipped or failed, is still listed and says so. A run opens on
@@ -299,10 +319,10 @@ Findings when the audit ran, and otherwise on the first module that did, so
 | `tab`, `shift+tab` | Move between the left, list and detail panes |
 | up/down, pgup/pgdn, home/end | Move through the focused pane |
 | left/right | Pan the detail pane or the full report sideways |
-| `enter` | In the left pane, open a source, or apply a filter and move to the list it narrowed; in the list, open the selected item in the detail pane |
+| `enter` | In the left pane, open a source, or on the source already open move to its list, or apply a filter and move to the list it narrowed; in the list, open the selected item in the detail pane |
 | `esc` | In the list, clear a kept search, or with none kept go back to the left pane, to the filter last applied; in the detail pane, go back to the list |
 | `/` | Search the active tab: on Findings, titles, rule keys, descriptions, references and evidence, and the detail pane then shows only the matching evidence lines; on Software, package names and versions. `enter` keeps the search, `esc` clears it, and each tab keeps its own |
-| `a` | On Findings, show every evaluated rule, not only findings and rules that could not be evaluated |
+| `a` | On Findings, show every evaluated rule, not only findings and rules that could not be evaluated; on Software, switch between every package and the affected ones |
 | `x` | On Findings, load all of a finding's evidence when only the first 500 lines are shown |
 | `t` | Show the complete plain report; `t` or `esc` returns |
 | `esc` | Return from the detail pane to the list |

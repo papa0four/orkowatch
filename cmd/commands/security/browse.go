@@ -95,7 +95,7 @@ func sourceTabs(src BrowserSource) []tui.Tab {
 	}
 
 	if src.Software != nil {
-		tabs = append(tabs, softwareTab(*src.Software))
+		tabs = append(tabs, softwareTab(*src.Software, src.Vulns))
 	} else {
 		tabs = append(tabs, tui.Tab{ID: tui.TabSoftware, Name: "Software", Note: notRun(src.Modules, selection.NameSoftware)})
 	}
@@ -383,31 +383,6 @@ func socketRecord(s sockets.Socket) tui.Record {
 		Subtitle: safeLines(strings.TrimSpace(s.Protocol + " " + s.State)),
 		Fields:   fields,
 	}
-}
-
-// softwareTab is the installed packages, one record each.
-func softwareTab(software softwarelist.SoftwareView) tui.Tab {
-	records := make([]tui.Record, 0, len(software.Packages))
-	for _, pkg := range software.Packages {
-		fields := []tui.SummaryLine{{Label: "name", Value: safeLines(pkg.Name)}}
-		for _, field := range []tui.SummaryLine{
-			{Label: "version", Value: pkg.Version},
-			{Label: "architecture", Value: pkg.Architecture},
-			{Label: "package manager", Value: pkg.Manager},
-			{Label: "source package", Value: pkg.Source},
-			{Label: "source version", Value: pkg.SourceVersion},
-		} {
-			if field.Value != "" {
-				fields = append(fields, tui.SummaryLine{Label: field.Label, Value: safeLines(field.Value)})
-			}
-		}
-		records = append(records, tui.Record{
-			Title:    safeLines(pkg.Name),
-			Subtitle: safeLines(pkg.Version),
-			Fields:   fields,
-		})
-	}
-	return tui.Tab{ID: tui.TabSoftware, Name: "Software", Records: records}
 }
 
 // checkItem is the row for a check that has no conditions to list, one that

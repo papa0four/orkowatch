@@ -3,6 +3,7 @@
 package tui
 
 import (
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -12,7 +13,7 @@ import (
 // opening on the first status, and a second tab to leave it for.
 func filteredReport() Report {
 	record := func(title, status string) Record {
-		return Record{Title: title, Subtitle: status, Filters: []string{status}}
+		return Record{Title: title, Subtitle: status, Filters: [][]string{{status}}}
 	}
 	return Report{
 		Title: "owatch software",
@@ -167,6 +168,14 @@ func TestFilterFocus(t *testing.T) {
 	if b.focus != focusFilters || b.tabs[b.active].id != TabSystem {
 		t.Errorf("choosing a source left pane %d on %q, want the left pane on System", b.focus, b.tabs[b.active].id)
 	}
+
+	// Enter on the source already open goes into its list.
+	b.filterCursor = 0
+	b.onFilterKey("enter")
+	b.onFilterKey("enter")
+	if b.focus != focusList || b.active != 0 {
+		t.Errorf("enter on the open source left pane %d on tab %d, want its list", b.focus, b.active)
+	}
 }
 
 // v opens the Vulnerabilities tab.
@@ -185,5 +194,44 @@ func TestRecordTabWithoutFilters(t *testing.T) {
 	b = press(b, "2")
 	if frame := plain(b.View().Content); !strings.Contains(frame, "n/a") {
 		t.Errorf("a tab with no filters shows none:\n%s", frame)
+	}
+}
+
+// A record can fall under several options of a filter, and a tab's switch
+// key moves that filter between its two options from the list: to the second
+// from the first, and back to the first from any other. The hints name it.
+func TestFilterSwitch(t *testing.T) {
+	record := func(title string, options ...string) Record {
+		return Record{Title: title, Filters: [][]string{options}}
+	}
+	report := Report{Title: "owatch software", Tabs: []Tab{
+		{ID: TabSoftware, Name: "Software",
+			Filters: []Filter{{Name: "vulnerabilities", Options: []string{All, "affected", "fix available"}, Start: All}},
+			Switch:  Switch{Key: "a", Filter: "vulnerabilities", A: All, B: "affected", Hint: "affected or all"},
+			Records: []Record{record("clean"), record("both", "affected", "fix available"), record("unfixed", "affected")}},
+		{ID: TabSystem, Name: "System", Note: "system note"},
+	}}
+	b := sized(newBrowser(report), 200, 40)
+	if got := strings.Join(visibleTitles(b), ","); got != "clean,both,unfixed" {
+		t.Fatalf("the tab opened on %q", got)
+	}
+	if hints := plain(b.View().Content); !strings.Contains(hints, "affected or all") {
+		t.Errorf("the hints do not name the switch:\n%s", hints)
+	}
+	b = press(b, "a")
+	if got := strings.Join(visibleTitles(b), ","); got != "both,unfixed" {
+		t.Errorf("a shows %q, want the affected", got)
+	}
+	b = apply(b, 2)
+	if got := strings.Join(visibleTitles(b), ","); got != "both" {
+		t.Errorf("fix available shows %q", got)
+	}
+	b = press(b, "a")
+	if got := strings.Join(visibleTitles(b), ","); got != "clean,both,unfixed" {
+		t.Errorf("a from fix available shows %q, want all", got)
+	}
+	lines, _ := b.sidebarLines()
+	if joined := plain(strings.Join(lines, "\n")); !strings.Contains(joined, "affected") || !regexp.MustCompile(`affected\s+2`).MatchString(joined) || !regexp.MustCompile(`fix available\s+1`).MatchString(joined) {
+		t.Errorf("the counts are wrong:\n%s", joined)
 	}
 }

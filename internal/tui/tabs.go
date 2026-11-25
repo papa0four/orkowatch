@@ -52,8 +52,22 @@ type (
 		Records []Record
 
 		// Filters are the groups the left pane narrows the records by, each
-		// record falling under one option of each.
+		// record falling under one or more options of each.
 		Filters []Filter
+
+		// Switch, when it names a key, is a key that moves one of the
+		// filters between two of its options from the list.
+		Switch Switch
+	}
+
+	// Switch is a key that moves the filter named Filter between its
+	// options A and B: to B from A, and to A from any other. Hint says what
+	// the key does, for the key hints.
+	Switch struct {
+		Key    string
+		Filter string
+		A, B   string
+		Hint   string
 	}
 
 	// Filter is a group of options the left pane narrows a tab's records
@@ -66,13 +80,13 @@ type (
 	}
 
 	// Record is one row of a tab. Its fields are shown in the detail pane in
-	// the order given. Filters is the option of each of the tab's filters
+	// the order given. Filters is the options of each of the tab's filters
 	// the record falls under, in the tab's order.
 	Record struct {
 		Title    string
 		Subtitle string
 		Fields   []SummaryLine
-		Filters  []string
+		Filters  [][]string
 	}
 
 	// tabDef is a tab as the tab bar knows it.
@@ -194,7 +208,7 @@ func newRecordPane(tab Tab) *recordPane {
 		g.chosen = max(slices.Index(f.Options, f.Start), 0)
 		for i, option := range f.Options {
 			for _, r := range tab.Records {
-				if option == allFilter || (at < len(r.Filters) && r.Filters[at] == option) {
+				if option == allFilter || (at < len(r.Filters) && slices.Contains(r.Filters[at], option)) {
 					g.counts[i]++
 				}
 			}
@@ -209,7 +223,7 @@ func newRecordPane(tab Tab) *recordPane {
 func (p *recordPane) admits(i int) bool {
 	record := p.tab.Records[i]
 	for at, g := range p.groups {
-		if option := g.option(); option != "" && (at >= len(record.Filters) || record.Filters[at] != option) {
+		if option := g.option(); option != "" && (at >= len(record.Filters) || !slices.Contains(record.Filters[at], option)) {
 			return false
 		}
 	}
@@ -263,6 +277,26 @@ func (p *recordPane) show(rows, width int) {
 	p.detail.SetContent(recordText(p.tab.Records[index], width))
 	p.detail.SetYOffset(offset)
 	p.shown = index
+}
+
+// switchFilter moves the filter the tab's switch names between its two
+// options, and reports whether key is the switch's.
+func (p *recordPane) switchFilter(key string) bool {
+	sw := p.tab.Switch
+	if sw.Key == "" || key != sw.Key {
+		return false
+	}
+	for _, g := range p.groups {
+		if g.name != sw.Filter {
+			continue
+		}
+		to := sw.A
+		if g.options[g.chosen] == sw.A {
+			to = sw.B
+		}
+		g.chosen = max(slices.Index(g.options, to), 0)
+	}
+	return true
 }
 
 // onListKey moves the selection through the visible records.
@@ -455,6 +489,10 @@ func (b browser) onRecordKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			return b, nil
 		}
 		return b, scroll(&p.detail, msg)
+	}
+	if p.switchFilter(k) {
+		b.refilter()
+		return b, nil
 	}
 	if p.onListKey(k, b.listHeight()) {
 		b.focus = focusDetail

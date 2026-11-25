@@ -547,3 +547,56 @@ func TestRecords(t *testing.T) {
 		t.Errorf("a miscounted trailer gave %v after %d records", err, given)
 	}
 }
+
+// The rating an advisory's title opens with is kept, as written, and nothing
+// else of the title: Rocky Linux's and AlmaLinux's advisories open with one
+// and Alpine's records have no title. A title that opens with another word
+// gives none, a kept rating that is not one is refused, and records kept
+// before ratings were are still read.
+func TestRating(t *testing.T) {
+	for summary, want := range map[string]string{
+		"Important: kernel security update":            "Important",
+		"Critical: php:7.2 security update":            "Critical",
+		"Moderate: python36:3.6 security update":       "Moderate",
+		"Low: libwmf security update":                  "Low",
+		"None: kernel bug fix and enhancement update":  "",
+		"container-tools bug fix update":               "",
+		"Red Hat Security Advisory: quagga security":   "",
+		"ALSA-2022:5468: php:8.0 security (Important)": "",
+		"Important:kernel with no space":               "",
+		"":                                             "",
+	} {
+		if got := (record{Summary: summary}).rating(); got != want {
+			t.Errorf("%q: rating %q, want %q", summary, got, want)
+		}
+	}
+
+	rocky := recordings[2]
+	host := rocky.host
+	kept, err := keep(t, dump(t, rocky.id), recorded(t, rocky.file, rocky.sum), &host)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rated := map[string]int{}
+	if _, err := dump(t, rocky.id).Records(bytes.NewReader(kept), &host, func(r Record) error {
+		rated[r.Rating]++
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if rated["Important"] == 0 || rated["Moderate"] == 0 || rated[""] != 0 {
+		t.Errorf("Rocky Linux's excerpt kept the ratings %v, want every advisory rated", rated)
+	}
+
+	alpine := &osfingerprint.OSInfo{OS: "linux", Platform: "alpine", PlatformVersion: "3.20.10"}
+	head := `{"format":1,"release":"Alpine:v3.20"}`
+	line := `{"id":"A-1","cves":[],"modified":"2026-11-23T10:00:00Z","rating":"Severe","affected":[{"package":"openssl","ecosystem":"Alpine:v3.20","ranges":[[{"introduced":"0"}]]}]}`
+	tail := `{"records":1,"modified":"2026-11-23T10:00:00Z"}`
+	if _, err := dump(t, "osv-alpine").Check(bytes.NewReader(keptData(t, head, line, tail)), alpine); err == nil || !strings.Contains(err.Error(), "not an advisory's rating") {
+		t.Errorf("a kept rating that is not one gave %v", err)
+	}
+	unrated := strings.Replace(line, `"rating":"Severe",`, "", 1)
+	if _, err := dump(t, "osv-alpine").Check(bytes.NewReader(keptData(t, head, unrated, tail)), alpine); err != nil {
+		t.Errorf("records kept without a rating were refused: %v", err)
+	}
+}

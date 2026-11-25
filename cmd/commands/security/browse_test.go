@@ -165,7 +165,7 @@ func TestSoftwareTabShowsWhatTheManagerStates(t *testing.T) {
 	tab := softwareTab(softwarelist.SoftwareView{Packages: []softwarelist.SoftwareEntry{
 		{Name: "bash", Version: "5.2.15-2+b13", Manager: softwarelist.ManagerDpkg, Architecture: "amd64", Source: "bash", SourceVersion: "5.2.15-2"},
 		{Name: "Some Application", Version: "1.2"},
-	}})
+	}}, nil)
 	if len(tab.Records) != 2 {
 		t.Fatalf("%d records, want 2", len(tab.Records))
 	}

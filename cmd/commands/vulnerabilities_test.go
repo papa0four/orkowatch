@@ -142,7 +142,7 @@ func TestVulnerabilitiesInTheReports(t *testing.T) {
 
 	var text bytes.Buffer
 	if err := writeAllText(&text, view); err != nil || !strings.Contains(text.String(), "\nVulnerabilities\nMatched against records, Debian:12") ||
-		!strings.Contains(text.String(), "CVE-2026-1           openssl 3.0.11-1, fixed in 3.0.15-1") {
+		!strings.Contains(text.String(), "-           CVE-2026-1           openssl 3.0.11-1, fixed in 3.0.15-1") {
 		t.Errorf("software alone wrote %q, %v", text.String(), err)
 	}
 	view.Modules = append(view.Modules, moduleRun{Name: selection.NameOS, Result: finding.ResultInformational})
