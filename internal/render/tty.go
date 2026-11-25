@@ -16,6 +16,17 @@ func StdoutIsTerminal() bool {
 	return isTerminal(os.Stdout)
 }
 
+// StdoutWidth is how many columns wide the terminal standard output is
+// attached to is now, or 0 when it is not a terminal or will not say. A line
+// rewritten in place must fit it, since one that wraps cannot be rewritten.
+func StdoutWidth() int {
+	width, _, err := term.GetSize(os.Stdout.Fd())
+	if err != nil {
+		return 0
+	}
+	return width
+}
+
 // StdinIsTerminal reports whether standard input is attached to a terminal,
 // which is what makes it possible to ask the operator a question.
 func StdinIsTerminal() bool {
