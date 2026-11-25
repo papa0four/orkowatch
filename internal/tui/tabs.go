@@ -81,12 +81,23 @@ type (
 
 	// Record is one row of a tab. Its fields are shown in the detail pane in
 	// the order given. Filters is the options of each of the tab's filters
-	// the record falls under, in the tab's order.
+	// the record falls under, in the tab's order. Band is the part of the
+	// list the record is in, which the list heads with the band's name where
+	// it changes, so a tab gives the records of one band together; a tab
+	// whose records have none has no headings.
 	Record struct {
 		Title    string
 		Subtitle string
 		Fields   []SummaryLine
 		Filters  [][]string
+		Band     string
+	}
+
+	// listLine is one line of a record tab's list: the heading of a band, or
+	// the visible record at row.
+	listLine struct {
+		heading string
+		row     int
 	}
 
 	// tabDef is a tab as the tab bar knows it.
@@ -99,12 +110,16 @@ type (
 	// recordPane is the list and detail of one record tab. Its state is
 	// reached through a pointer, so it survives the value copies the Bubble
 	// Tea model goes through. groups are the tab's filters as the left pane
-	// walks them.
+	// walks them. lines are the visible records with the headings of their
+	// bands, and lineOf the line of each visible record; listTop counts
+	// lines, and cursor visible records.
 	recordPane struct {
 		tab     Tab
 		index   []string
 		groups  []*filterGroup
 		visible []int
+		lines   []listLine
+		lineOf  []int
 		cursor  int
 		listTop int
 		shown   int
@@ -237,7 +252,8 @@ func (p *recordPane) listless() bool {
 }
 
 // refilter keeps the records the chosen filters admit that contain needle,
-// already lower-case, and selects the first.
+// already lower-case, heads each band among them where it changes, and
+// selects the first.
 func (p *recordPane) refilter(needle string) {
 	p.visible = p.visible[:0]
 	for i, text := range p.index {
@@ -245,19 +261,36 @@ func (p *recordPane) refilter(needle string) {
 			p.visible = append(p.visible, i)
 		}
 	}
+	p.lines, p.lineOf = p.lines[:0], p.lineOf[:0]
+	band := ""
+	for row, i := range p.visible {
+		if b := p.tab.Records[i].Band; b != "" && b != band {
+			p.lines = append(p.lines, listLine{heading: b, row: -1})
+		}
+		band = p.tab.Records[i].Band
+		p.lineOf = append(p.lineOf, len(p.lines))
+		p.lines = append(p.lines, listLine{row: row})
+	}
 	p.cursor = 0
 	p.listTop = 0
 	p.shown = -1
 }
 
-// show keeps the selection inside the list's rows and loads it into the
-// detail pane, which keeps its place when the same record is redrawn.
+// show keeps the selection inside the list's rows, with the heading of its
+// band when it is the band's first, and loads it into the detail pane, which
+// keeps its place when the same record is redrawn.
 func (p *recordPane) show(rows, width int) {
-	switch {
-	case p.cursor < p.listTop:
-		p.listTop = p.cursor
-	case p.cursor >= p.listTop+rows:
-		p.listTop = p.cursor - rows + 1
+	if len(p.visible) > 0 {
+		line := p.lineOf[p.cursor]
+		switch {
+		case line < p.listTop:
+			p.listTop = line
+			if line > 0 && p.lines[line-1].row < 0 {
+				p.listTop--
+			}
+		case line >= p.listTop+rows:
+			p.listTop = line - rows + 1
+		}
 	}
 
 	if len(p.visible) == 0 {
@@ -324,10 +357,15 @@ func (p *recordPane) onListKey(key string, rows int) bool {
 	return false
 }
 
-// listView renders the rows of the list that fall inside its window.
+// listView renders the lines of the list that fall inside its window.
 func (p *recordPane) listView(rows, width int, selected bool) string {
 	lines := make([]string, 0, rows)
-	for row := p.listTop; row < min(p.listTop+rows, len(p.visible)); row++ {
+	for _, at := range p.lines[min(p.listTop, len(p.lines)):min(p.listTop+rows, len(p.lines))] {
+		if at.row < 0 {
+			lines = append(lines, styleMuted.Bold(true).Render(truncate(at.heading, width)))
+			continue
+		}
+		row := at.row
 		record := p.tab.Records[p.visible[row]]
 		text := record.Title
 		if record.Subtitle != "" {

@@ -178,6 +178,43 @@ func TestFilterFocus(t *testing.T) {
 	}
 }
 
+// A tab's records in bands are listed under the heading of each band, drawn
+// where the band changes; a search that leaves one band shows its heading
+// alone; and a record scrolled up to that is its band's first is shown under
+// its heading.
+func TestRecordBands(t *testing.T) {
+	record := func(title, band string) Record { return Record{Title: title, Band: band} }
+	p := newRecordPane(Tab{ID: TabVulnerabilities, Name: "Vulnerabilities", Records: []Record{
+		record("alpha", "first"), record("bravo", "first"), record("charlie", "second"), record("delta", "second"), record("echo", "second")}})
+	listed := func(rows int) string {
+		p.show(rows, 40)
+		var lines []string
+		for _, line := range strings.Split(plain(p.listView(rows, 40, true)), "\n") {
+			if line = strings.TrimSpace(line); line != "" {
+				lines = append(lines, line)
+			}
+		}
+		return strings.Join(lines, ",")
+	}
+
+	p.refilter("")
+	if got := listed(10); got != "first,alpha,bravo,second,charlie,delta,echo" {
+		t.Errorf("the list is %q, want each band under its heading", got)
+	}
+	p.cursor = len(p.visible) - 1
+	if got := listed(2); got != "delta,echo" {
+		t.Errorf("at the end the list shows %q", got)
+	}
+	p.cursor = 2
+	if got := listed(2); got != "second,charlie" {
+		t.Errorf("scrolled up to the band's first, the list shows %q, want it under its heading", got)
+	}
+	p.refilter("delta")
+	if got := listed(10); got != "second,delta" {
+		t.Errorf("a search within one band shows %q", got)
+	}
+}
+
 // v opens the Vulnerabilities tab.
 func TestVulnerabilitiesKey(t *testing.T) {
 	report := filteredReport()

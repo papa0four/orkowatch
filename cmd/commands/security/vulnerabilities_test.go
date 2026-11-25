@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/papa0four/orkowatch/internal/dataset"
+	"github.com/papa0four/orkowatch/internal/dataset/kev"
 	"github.com/papa0four/orkowatch/internal/dataset/osv"
 	"github.com/papa0four/orkowatch/internal/tui"
 	"github.com/papa0four/orkowatch/internal/vulnmatch"
@@ -90,6 +91,49 @@ func TestVulnerabilitiesTab(t *testing.T) {
 	}
 	if got := field(tab.Records[3], "not matched"); got != "a module build" {
 		t.Errorf("the pair not matched gives %q", got)
+	}
+}
+
+// With the catalog read, the vulnerabilities it lists come first under their
+// own band, the most severe first and whether fixed or not, marked on the row
+// with the entry and the catalog in the detail; the rest follow under theirs
+// in their order; and the tab filters by it. With the catalog not read there
+// are no bands and no filter, and the detail says why.
+func TestVulnerabilitiesTabKnownExploited(t *testing.T) {
+	v := matchedView()
+	v.Packages[1].Vulnerabilities[0].KnownExploited = &kev.Entry{Added: "2026-11-20", Due: "2026-12-11", Ransomware: "Known"}
+	v.Packages[0].Vulnerabilities[0].KnownExploited = &kev.Entry{Added: "2026-11-19", Due: "2026-12-10", Ransomware: "Unknown"}
+	v.KnownExploited = &dataset.Use{Provenance: dataset.Provenance{ID: "kev", DataDate: "2026-11-21", State: dataset.StateCurrent, Attribution: "As the catalog asks."}}
+	tab := vulnerabilitiesTab(v)
+
+	var rows []string
+	for _, r := range tab.Records {
+		rows = append(rows, r.Band+" | "+r.Title+" | "+r.Subtitle+" | "+r.Filters[2][0])
+	}
+	want := []string{
+		"known exploited | CVE-2026-1  openssl | exploited  fix 3.0.2-2  Important | known exploited",
+		"known exploited | CVE-2026-3  bash | exploited  unfixed | known exploited",
+		"not in the catalog | CVE-2026-2  openssl | unfixed  low | not in the catalog",
+		"not in the catalog | CVE-2026-4  nodejs | not matched | not in the catalog",
+	}
+	if !slices.Equal(rows, want) {
+		t.Errorf("rows\n%s\nwant\n%s", strings.Join(rows, "\n"), strings.Join(want, "\n"))
+	}
+	if len(tab.Filters) != 3 || !slices.Equal(tab.Filters[2].Options, []string{tui.All, "known exploited", "not in the catalog"}) || tab.Filters[2].Start != tui.All {
+		t.Errorf("filters %+v", tab.Filters)
+	}
+	if got := field(tab.Records[0], "known to be exploited"); got != "added to the catalog 2026-11-20\ndue date 2026-12-11\nransomware use Known" {
+		t.Errorf("the entry reads %q", got)
+	}
+	if got := field(tab.Records[2], "known exploitation"); got != "kev, data of 2026-11-21, current\nAs the catalog asks." || field(tab.Records[2], "known to be exploited") != "" {
+		t.Errorf("a vulnerability the catalog does not list reads %q", got)
+	}
+
+	v = matchedView()
+	v.KnownExploited = &dataset.Use{Provenance: dataset.Provenance{ID: "kev"}, NotDone: "kev is not held"}
+	tab = vulnerabilitiesTab(v)
+	if len(tab.Filters) != 2 || tab.Records[0].Band != "" || field(tab.Records[0], "known exploitation") != "not read: kev is not held" {
+		t.Errorf("with the catalog not read: filters %+v, band %q, detail %q", tab.Filters, tab.Records[0].Band, field(tab.Records[0], "known exploitation"))
 	}
 }
 
