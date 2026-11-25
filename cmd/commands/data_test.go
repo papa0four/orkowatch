@@ -8,6 +8,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -66,16 +67,54 @@ func run(d *dataCmd, args ...string) (string, error) {
 	return out.String(), err
 }
 
+// installedLines is a pattern of the lines an install of id that succeeds
+// writes: each attempt as it begins, each that failed for a reason that
+// passes, the one that installed it, and its outcome, with the attempts when
+// there was more than one. An install may take more than one attempt where
+// another process holds a new file open for a moment, as a virus scanner on
+// Windows does, and the store tries it again by design.
+func installedLines(id string) string {
+	id = regexp.QuoteMeta(id)
+	attempt := `( \(attempt \d\))?`
+	took := `[0-9a-z.]+`
+	return `(` + id + `: installing` + attempt + `\n` + id + `: installing` + attempt + ` failed after ` + took + `: [^\n]*\n)*` +
+		id + `: installing` + attempt + `\n` + id + `: installed` + attempt + ` in ` + took + `\n` +
+		id + `: installed( after \d attempts)?\n`
+}
+
+// matchesWhole reports whether text is wholly what pattern describes.
+func matchesWhole(pattern, text string) bool {
+	return regexp.MustCompile(`^` + pattern + `$`).MatchString(text)
+}
+
+// The pattern of an install takes one that succeeded at once and one the
+// store had to try again, and not one that failed.
+func TestInstalledLines(t *testing.T) {
+	for name, tt := range map[string]struct {
+		out  string
+		want bool
+	}{
+		"at once": {"wanted: installing\nwanted: installed in 0s\nwanted: installed\n", true},
+		"tried again": {"wanted: installing\nwanted: installing failed after 0s: the file is in use\n" +
+			"wanted: installing (attempt 2)\nwanted: installed (attempt 2) in 0s\nwanted: installed after 2 attempts\n", true},
+		"failed": {"wanted: installing\nwanted: installing failed after 0s: the disk is full\nwanted: failed after 1 attempt: the disk is full\n", false},
+	} {
+		if got := matchesWhole(installedLines("wanted"), tt.out); got != tt.want {
+			t.Errorf("%s: matched %v, want %v", name, got, tt.want)
+		}
+	}
+}
+
 // A directory of sound datasets is imported with each step shown, a line for
-// each dataset, and no error; one with a refused dataset ends in an error naming how many; an
-// empty one is an error.
+// each dataset, and no error; one with a refused dataset ends in an error
+// naming how many; an empty one is an error.
 func TestDataImport(t *testing.T) {
 	d, _ := testData(t, false, "")
 	src := t.TempDir()
 	datasettest.Put(t, src, datasettest.Dataset{Name: "wanted"}, datasettest.Content, dataNow.Add(-time.Hour), nil)
 
 	out, err := run(d, "import", src)
-	if err != nil || out != "wanted: checking\nwanted: checked in 0s\nwanted: installing\nwanted: installed in 0s\nwanted: installed\n" {
+	if err != nil || !matchesWhole(regexp.QuoteMeta("wanted: checking\nwanted: checked in 0s\n")+installedLines("wanted"), out) {
 		t.Errorf("import printed %q, %v", out, err)
 	}
 
