@@ -49,9 +49,12 @@ var ErrUnusable = errors.New("dataset unusable")
 
 // Store is a directory of datasets. A protected one is made and judged as
 // protect says; any other is the account's own, or a directory to carry.
+// progress, when it is set, is told what a change of the store does with each
+// dataset.
 type Store struct {
-	root    string
-	protect *protection
+	root     string
+	protect  *protection
+	progress Progress
 }
 
 // ForProcess returns the store the process uses: the protected store when it

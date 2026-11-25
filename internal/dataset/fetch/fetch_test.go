@@ -368,6 +368,24 @@ func TestWhichFailuresPass(t *testing.T) {
 	}
 }
 
+// A server nothing answers at, as on a host with no network, is a failure
+// that says no connection could be made; one that answers is not.
+func TestUnreachable(t *testing.T) {
+	o := serve(t, map[string]http.HandlerFunc{"/missing": func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNotFound) }})
+	var got bytes.Buffer
+	var fe *Error
+	if err := o.client.Fetch(context.Background(), o.at("/missing"), &got); !errors.As(err, &fe) || fe.Unreachable() {
+		t.Errorf("a server that answered gave %v, want a failure that reached it", err)
+	}
+
+	gone := o.at("/missing")
+	o.Close()
+	err := o.client.Fetch(context.Background(), gone, &got)
+	if !errors.As(err, &fe) || !fe.Unreachable() || !fe.Passing() || !strings.Contains(err.Error(), "no connection could be made") {
+		t.Errorf("a server nothing answers at gave %v, want a failure that says no connection could be made", err)
+	}
+}
+
 // Only HTTPS_PROXY names a proxy, and one that is not an address is refused.
 func TestProxyFromEnvironment(t *testing.T) {
 	t.Setenv("HTTP_PROXY", "http://other.example:1")

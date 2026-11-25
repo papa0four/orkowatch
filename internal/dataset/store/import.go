@@ -136,16 +136,32 @@ func (s Store) importOne(ctx context.Context, op operation, src Store, e os.DirE
 		return Outcome{ID: id, Result: Skipped, Reason: "it does not apply to this host"}
 	}
 
-	m, err := src.read(d, now, checkWith(d, host))
-	if err != nil {
+	p := s.report()
+	var (
+		m    dataset.Manifest
+		held string
+	)
+	if err := step(p, id, StepCheck, 1, func() (err error) {
+		if m, err = src.read(d, now, checkWith(d, host)); err != nil {
+			return err
+		}
+		if h, err := s.read(d, now, checkWith(d, host)); err == nil && !m.Fetched.After(h.Fetched) {
+			held = h.Fetched.UTC().Format(time.RFC3339)
+		}
+		return nil
+	}); err != nil {
 		return refuse(err.Error())
 	}
-	if held, err := s.read(d, now, checkWith(d, host)); err == nil && !m.Fetched.After(held.Fetched) {
+	if held != "" {
 		return Outcome{ID: id, Result: Kept, Reason: fmt.Sprintf("the copy held was fetched at %s, no earlier than this one, fetched at %s",
-			held.Fetched.UTC().Format(time.RFC3339), m.Fetched.UTC().Format(time.RFC3339))}
+			held, m.Fetched.UTC().Format(time.RFC3339))}
 	}
 
-	attempts, err := retry(ctx, func() error { return s.install(src, d, m) })
+	attempt := 0
+	attempts, err := retry(ctx, func() error {
+		attempt++
+		return step(p, id, StepInstall, attempt, func() error { return s.install(src, d, m) })
+	})
 	if err != nil {
 		return s.failed(id, op, attempts, err, now)
 	}

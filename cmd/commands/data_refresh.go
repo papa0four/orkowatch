@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strconv"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -17,6 +18,7 @@ import (
 	"github.com/papa0four/orkowatch/cmd/commands/cliargs"
 	"github.com/papa0four/orkowatch/internal/dataset"
 	"github.com/papa0four/orkowatch/internal/dataset/fetch"
+	"github.com/papa0four/orkowatch/internal/dataset/progress"
 	"github.com/papa0four/orkowatch/internal/dataset/store"
 	"github.com/papa0four/orkowatch/internal/osfingerprint"
 	"github.com/papa0four/orkowatch/internal/render"
@@ -73,7 +75,16 @@ checked as any dataset is before it replaces the copy held. A download that
 fails because a server is briefly unable to answer, or that stalls, is tried
 three times; one that fails for another reason once. A dataset that could not
 be refreshed keeps the copy held, and owatch data status shows the failure
-until it is refreshed.
+until it is refreshed. A refresh that can make no connection at all, as on a
+host with no network, stops there, fetches nothing after it, and names the way
+to bring datasets to such a host: --to and --for on a host with a network, then
+owatch data import here.
+
+While it runs, each download shows what has been received of its size, for how
+long, and how fast, and how long nothing has come once that is five seconds;
+keeping the records this host needs, the check, and the install are each named
+as they run. On a terminal the line is rewritten in place; anywhere else each
+step gets a line as it begins and as it ends.
 
 --to writes the datasets to a directory to carry to another host, where owatch
 data import installs them. --for names that host by the Target line owatch
@@ -134,22 +145,42 @@ func (d *dataCmd) runRefresh(ctx context.Context, out, prompt io.Writer, to, for
 	if err != nil {
 		return err
 	}
-	chosen, declined, err := d.choose(ctx, out, prompt, f, wanted, yes)
+	report := progress.New(out, d.width, d.now)
+	chosen, declined, err := d.choose(ctx, out, prompt, f, wanted, yes, report)
 	if err != nil {
 		return err
 	}
-	outcomes, err := dest.Refresh(ctx, f.Fetch, chosen, host, d.now())
-	if err != nil {
+	report.Start()
+	outcomes, err := dest.Reporting(report).Refresh(ctx, f.Fetch, chosen, host, d.now())
+	err = errors.Join(err, report.Stop())
+	unreached := errors.Is(err, store.ErrUnreachable)
+	if err != nil && !unreached {
 		return err
 	}
-	failed, err := printOutcomes(out, outcomes)
-	if err != nil {
-		return err
+	failed, perr := printOutcomes(out, outcomes)
+	if perr != nil {
+		return perr
+	}
+	if unreached {
+		return noNetwork(err, host)
 	}
 	if failed+declined > 0 {
 		return fmt.Errorf("%d of %s not refreshed", failed+declined, render.Count(len(wanted), "dataset", "datasets"))
 	}
 	return nil
+}
+
+// noNetwork is the end of a refresh that could make no connection, with the
+// route for a host with no network: a refresh on a host with one, for this
+// host, carried here and imported. A host its target cannot name is pointed
+// to the Target line owatch osinfo prints.
+func noNetwork(cause error, host *osfingerprint.OSInfo) error {
+	forHost := "<the Target line owatch osinfo prints here>"
+	if target := host.Target(); target != "" {
+		forHost = strconv.Quote(target)
+	}
+	return fmt.Errorf("%w; nothing after it was fetched. On a host with no network, run "+
+		"owatch data refresh --to <directory> --for %s on a host with one, and owatch data import <directory> here", cause, forHost)
 }
 
 // refreshTarget settles which host is fetched for and where the datasets go:
@@ -179,11 +210,11 @@ func (d *dataCmd) refreshTarget(ctx context.Context, to, forHost string) (*osfin
 	return host, dest, err
 }
 
-// choose prints the size of each of wanted and returns those to fetch: every
-// one that is not large, and each large one the operator agrees to, or all
-// with yes. It returns how many large ones were declined, or could not be
-// asked about.
-func (d *dataCmd) choose(ctx context.Context, out, prompt io.Writer, f fetcher, wanted []dataset.Dataset, yes bool) (chosen []dataset.Dataset, declined int, err error) {
+// choose prints the size of each of wanted, tells report how large each is
+// to be, and returns those to fetch: every one that is not large, and each
+// large one the operator agrees to, or all with yes. It returns how many large
+// ones were declined, or could not be asked about.
+func (d *dataCmd) choose(ctx context.Context, out, prompt io.Writer, f fetcher, wanted []dataset.Dataset, yes bool, report *progress.Report) (chosen []dataset.Dataset, declined int, err error) {
 	ew := render.NewErrWriter(out)
 	for _, w := range wanted {
 		size, stated, sizeErr := f.Size(ctx, w)
@@ -193,6 +224,7 @@ func (d *dataCmd) choose(ctx context.Context, out, prompt io.Writer, f fetcher, 
 			// what a fetch could read.
 			size, described = dataset.FetchLimit(w), "up to "+dataset.Size(dataset.FetchLimit(w))
 		}
+		report.Expect(w.ID(), size, sizeErr == nil && stated)
 		ew.Printf("%s\n", render.HostText(fmt.Sprintf("%s: %s from %s, allowed %s", w.ID(), described, w.Origin().URL, f.TimeLimit(size))))
 
 		switch {

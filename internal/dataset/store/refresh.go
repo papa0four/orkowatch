@@ -35,8 +35,14 @@ const (
 
 // Fetch writes the data of d, as its origin serves it, to w. The store does
 // not know how data is fetched, and what fetches it does not know how the
-// store keeps it.
+// store keeps it. A failure that says it is Unreachable means no connection
+// could be made at all.
 type Fetch func(ctx context.Context, d dataset.Dataset, w io.Writer) error
+
+// ErrUnreachable means a refresh stopped because no connection could be made,
+// as on a host with no network, and fetched none of the datasets after the
+// one that could not be reached.
+var ErrUnreachable = errors.New("the network could not be reached")
 
 // Refresh fetches each of datasets and brings it into the store, one outcome
 // per dataset in name order. What is fetched is staged in the store's own
@@ -45,8 +51,11 @@ type Fetch func(ctx context.Context, d dataset.Dataset, w io.Writer) error
 // checked, installed over the copy held only when it passes, and recorded
 // when it does not. A fetch that fails for a reason that passes is tried
 // again; a dataset that cannot be fetched leaves the copy held in place and is
-// recorded beside it. The store is locked for the whole refresh, and staging
-// an earlier refresh left behind is removed first.
+// recorded beside it. A fetch that could make no connection at all stops the
+// refresh there: what was fetched before it is still brought in, its outcomes
+// are returned, and the error is ErrUnreachable with the fetch's reason. The
+// store is locked for the whole refresh, and staging an earlier refresh left
+// behind is removed first.
 func (s Store) Refresh(ctx context.Context, fetch Fetch, datasets []dataset.Dataset, host *osfingerprint.OSInfo, now time.Time) (outcomes []Outcome, err error) {
 	release, err := s.lock(ctx, lockWait)
 	if err != nil {
@@ -63,7 +72,7 @@ func (s Store) Refresh(ctx context.Context, fetch Fetch, datasets []dataset.Data
 	}
 	defer func() { err = errors.Join(err, os.RemoveAll(staging)) }()
 
-	outcomes, err = s.stageAll(ctx, fetch, datasets, staging, host, now)
+	outcomes, unreached, err := s.stageAll(ctx, fetch, datasets, staging, host, now)
 	if err != nil {
 		return nil, err
 	}
@@ -73,28 +82,36 @@ func (s Store) Refresh(ctx context.Context, fetch Fetch, datasets []dataset.Data
 	}
 	outcomes = append(outcomes, installed...)
 	slices.SortFunc(outcomes, func(a, b Outcome) int { return strings.Compare(a.ID, b.ID) })
-	return outcomes, nil
+	return outcomes, unreached
 }
 
 // stageAll fetches each of datasets into staging, trying again a fetch that
 // fails for a reason that passes, and returns the outcome of each that could
 // not be fetched. What a failed fetch staged is removed, so only whole
 // datasets are left to install. A dataset that keeps less than it fetches
-// keeps what host needs.
-func (s Store) stageAll(ctx context.Context, fetch Fetch, datasets []dataset.Dataset, staging string, host *osfingerprint.OSInfo, now time.Time) ([]Outcome, error) {
-	var failed []Outcome
+// keeps what host needs. A fetch that could make no connection at all stops
+// the staging, and unreached is ErrUnreachable with its reason.
+func (s Store) stageAll(ctx context.Context, fetch Fetch, datasets []dataset.Dataset, staging string, host *osfingerprint.OSInfo, now time.Time) (failed []Outcome, unreached, err error) {
 	for _, d := range datasets {
 		dir := filepath.Join(staging, d.ID())
-		attempts, ferr := retry(ctx, func() error { return stage(ctx, fetch, d, dir, host, now) })
+		attempt := 0
+		attempts, ferr := retry(ctx, func() error {
+			attempt++
+			return stage(ctx, s.report(), attempt, fetch, d, dir, host, now)
+		})
 		if ferr == nil {
 			continue
 		}
 		if err := os.RemoveAll(dir); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		failed = append(failed, s.failed(d.ID(), opRefresh, attempts, ferr, now))
+		var away interface{ Unreachable() bool }
+		if errors.As(ferr, &away) && away.Unreachable() {
+			return failed, fmt.Errorf("%w: %w", ErrUnreachable, ferr), nil
+		}
 	}
-	return failed, nil
+	return failed, nil, nil
 }
 
 // installStaged brings what was staged into the store by the path an import
@@ -134,14 +151,15 @@ func (s Store) clearStaging() error {
 	return nil
 }
 
-// stage fetches d into dir as a dataset in the store's layout. Whatever an
+// stage fetches d into dir as a dataset in the store's layout, as the
+// attempt-th try, telling p of the download and of what is kept. Whatever an
 // earlier attempt left in dir is removed first. The download is counted and
 // hashed as it is written, and refused past what d's origin may serve
 // whatever the fetch itself allows, since the limit is the store's to keep.
 // A dataset that keeps less than it fetches has what it keeps for host
 // written from the download, which is then deleted, and the manifest records
 // the download beside what was kept.
-func stage(ctx context.Context, fetch Fetch, d dataset.Dataset, dir string, host *osfingerprint.OSInfo, now time.Time) error {
+func stage(ctx context.Context, p Progress, attempt int, fetch Fetch, d dataset.Dataset, dir string, host *osfingerprint.OSInfo, now time.Time) error {
 	if err := os.RemoveAll(dir); err != nil {
 		return err
 	}
@@ -150,10 +168,16 @@ func stage(ctx context.Context, fetch Fetch, d dataset.Dataset, dir string, host
 	}
 
 	download := filepath.Join(dir, downloadName)
-	sum, size, err := writeCounted(download, dataset.FetchLimit(d), func(out io.Writer) error {
-		return fetch(ctx, d, out)
-	})
-	if err != nil {
+	var (
+		sum  string
+		size int64
+	)
+	if err := step(p, d.ID(), StepDownload, attempt, func() (err error) {
+		sum, size, err = writeCounted(download, dataset.FetchLimit(d), func(out io.Writer) error {
+			return fetch(ctx, d, &receiving{w: out, p: p, id: d.ID()})
+		})
+		return err
+	}); err != nil {
 		return err
 	}
 
@@ -172,7 +196,10 @@ func stage(ctx context.Context, fetch Fetch, d dataset.Dataset, dir string, host
 	if k, ok := d.(dataset.Keeper); ok {
 		m.OriginSHA256, m.OriginSize = sum, size
 		data = filepath.Join(dir, keptName)
-		if m.SHA256, m.Size, err = keep(k, download, data, host); err != nil {
+		if err := step(p, d.ID(), StepKeep, 1, func() (err error) {
+			m.SHA256, m.Size, err = keep(k, download, data, host)
+			return err
+		}); err != nil {
 			return err
 		}
 		if err := os.Remove(download); err != nil {

@@ -67,10 +67,13 @@ var ErrElevated = errors.New("datasets are never fetched by an elevated run")
 // Error is a fetch that failed. Passing says whether trying again could
 // succeed: a server briefly unable to answer or a dropped connection may
 // clear, where a refused redirect, a certificate that does not verify, or a
-// body past the limit will not.
+// body past the limit will not. Unreachable says no connection could be made
+// at all, as on a host with no network, where no other dataset can be fetched
+// either.
 type Error struct {
-	err     error
-	passing bool
+	err         error
+	passing     bool
+	unreachable bool
 }
 
 func (e *Error) Error() string { return e.err.Error() }
@@ -78,6 +81,10 @@ func (e *Error) Unwrap() error { return e.err }
 
 // Passing reports whether the failure is one that may clear.
 func (e *Error) Passing() bool { return e.passing }
+
+// Unreachable reports whether no connection could be made: the server's name
+// could not be resolved, or nothing answered where it or the proxy is.
+func (e *Error) Unreachable() bool { return e.unreachable }
 
 // lasting is a failure trying again cannot change.
 func lasting(format string, args ...any) *Error {
@@ -275,14 +282,17 @@ func redirectWithin(hosts []string) func(*http.Request, []*http.Request) error {
 
 // failure says whether a request that did not complete may clear. A download
 // that stalled may; the time limit, a refused redirect, a certificate that
-// does not verify, and a run that was canceled will not; anything else on the
-// way to a server may.
+// does not verify, and a run that was canceled will not; a connection that
+// could not be made at all may, and says so; anything else on the way to a
+// server may.
 func failure(ctx context.Context, err error) *Error {
 	var (
 		unknownAuthority x509.UnknownAuthorityError
 		hostname         x509.HostnameError
 		invalid          x509.CertificateInvalidError
 		verification     *tls.CertificateVerificationError
+		lookup           *net.DNSError
+		dial             *net.OpError
 	)
 	cause := context.Cause(ctx)
 	switch {
@@ -296,6 +306,8 @@ func failure(ctx context.Context, err error) *Error {
 		return &Error{err: err}
 	case errors.As(err, &unknownAuthority), errors.As(err, &hostname), errors.As(err, &invalid), errors.As(err, &verification):
 		return &Error{err: err}
+	case errors.As(err, &lookup), errors.As(err, &dial) && dial.Op == "dial":
+		return &Error{err: fmt.Errorf("no connection could be made: %w", err), passing: true, unreachable: true}
 	}
 	return &Error{err: err, passing: true}
 }
