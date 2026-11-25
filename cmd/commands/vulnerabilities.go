@@ -97,16 +97,13 @@ func (m inventoryMatching) run(ctx context.Context, host *osfingerprint.OSInfo, 
 	}
 
 	v := matcher.Result()
-	v.Dataset, v.Release, v.Source = source.ID(), facts.Version, manifest.Source
-	v.DataDate = facts.Date.UTC().Format(time.DateOnly)
-	v.Fetched = manifest.Fetched.UTC().Format(time.RFC3339)
-	v.State = string(dataset.StateAt(manifest.Fetched, now))
+	v.Provenance = dataset.ProvenanceOf(source.ID(), manifest, facts, now)
 	return &v
 }
 
 // notDone is the view of a match that was not made, for the dataset named id
 // when one was chosen.
 func notDone(id, reason string) *vulnmatch.View {
-	v := vulnmatch.View{Dataset: id, NotDone: reason, Packages: []vulnmatch.PackageMatches{}}
+	v := vulnmatch.View{Provenance: dataset.Provenance{ID: id}, NotDone: reason, Packages: []vulnmatch.PackageMatches{}}
 	return &v
 }

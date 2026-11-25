@@ -198,7 +198,7 @@ func TestDatasetsTabOnlyWhenHeld(t *testing.T) {
 		}
 	}
 	report := BrowserReport(BrowserSource{
-		Datasets: &dataset.View{Store: "/store", Datasets: []dataset.Row{{ID: "kev", State: dataset.StateNotHeld}}},
+		Datasets: &dataset.View{Store: "/store", Datasets: []dataset.Row{{Provenance: dataset.Provenance{ID: "kev", State: dataset.StateNotHeld}}}},
 		Modules:  []ModuleNote{{Name: selection.NameDatasets, Result: finding.ResultInformational}},
 	})
 	if report.Start != tui.TabDatasets {
@@ -214,7 +214,7 @@ func TestDatasetsTabOnlyWhenHeld(t *testing.T) {
 // record, with the same sentences the text report prints.
 func TestDatasetsTabSaysWhatWasInstalled(t *testing.T) {
 	operator := &dataset.Operator{Store: "/home/a/store", Installed: []string{"kev"}, Refused: []dataset.Refusal{{ID: "epss", Reason: "it is a link"}}, Advice: "run import"}
-	tab := datasetsTab(dataset.View{Store: "/store", Operator: operator, Datasets: []dataset.Row{{ID: "kev", State: dataset.StateCurrent}}})
+	tab := datasetsTab(dataset.View{Store: "/store", Operator: operator, Datasets: []dataset.Row{{Provenance: dataset.Provenance{ID: "kev", State: dataset.StateCurrent}}}})
 	if len(tab.Records) != 2 || tab.Records[0].Title != "from the operator" || tab.Records[1].Title != "kev" {
 		t.Fatalf("records %+v, want the operator's ahead of the dataset's", tab.Records)
 	}
@@ -225,7 +225,7 @@ func TestDatasetsTabSaysWhatWasInstalled(t *testing.T) {
 	if !slices.Equal(got, operator.Lines()) {
 		t.Errorf("the record says %q, want %q", got, operator.Lines())
 	}
-	if plain := datasetsTab(dataset.View{Store: "/store", Datasets: []dataset.Row{{ID: "kev", State: dataset.StateCurrent}}}); len(plain.Records) != 1 {
+	if plain := datasetsTab(dataset.View{Store: "/store", Datasets: []dataset.Row{{Provenance: dataset.Provenance{ID: "kev", State: dataset.StateCurrent}}}}); len(plain.Records) != 1 {
 		t.Errorf("with nothing from an operator: %+v", plain.Records)
 	}
 }
@@ -234,7 +234,7 @@ func TestDatasetsTabSaysWhatWasInstalled(t *testing.T) {
 // version its source gives the data.
 func TestDatasetsTabShowsTheVersion(t *testing.T) {
 	tab := datasetsTab(dataset.View{Store: "/store", Datasets: []dataset.Row{
-		{ID: "kev", State: dataset.StateCurrent, DataDate: "2026-11-23", Version: "2026.11.23"},
+		{Provenance: dataset.Provenance{ID: "kev", State: dataset.StateCurrent, DataDate: "2026-11-23", Version: "2026.11.23"}},
 	}})
 	var got []string
 	for _, f := range tab.Records[0].Fields {

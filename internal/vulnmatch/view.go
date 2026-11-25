@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/papa0four/orkowatch/internal/dataset"
 	"github.com/papa0four/orkowatch/internal/dataset/osv"
 	"github.com/papa0four/orkowatch/internal/render"
 )
@@ -27,12 +28,9 @@ const (
 // that could not be judged, and the counts. This is the one shape the
 // vulnerabilities section has in every report.
 type View struct {
-	Dataset  string `json:"dataset,omitempty" yaml:"dataset,omitempty"`
-	Release  string `json:"release,omitempty" yaml:"release,omitempty"`
-	Source   string `json:"source,omitempty" yaml:"source,omitempty"`
-	DataDate string `json:"data_date,omitempty" yaml:"data_date,omitempty"`
-	Fetched  string `json:"fetched,omitempty" yaml:"fetched,omitempty"`
-	State    string `json:"state,omitempty" yaml:"state,omitempty"`
+	// Provenance is the dataset matched against, whose version is the
+	// release its records are of.
+	dataset.Provenance `yaml:",inline"`
 
 	// NotDone says why no match was made, and what to do; a view that has
 	// it has nothing else of a match.
@@ -139,7 +137,7 @@ func WriteText(w io.Writer, v View) error {
 		ew.Printf("%s\n", render.HostText("Matching was not done: "+v.NotDone))
 		return ew.Err()
 	}
-	ew.Printf("%s\n", render.HostText(fmt.Sprintf("Matched against %s, %s, data of %s, %s", v.Dataset, v.Release, v.DataDate, v.State)))
+	ew.Printf("%s\n", render.HostText(fmt.Sprintf("Matched against %s, %s, data of %s, %s", v.ID, v.Version, v.DataDate, v.State)))
 	c := v.Counts
 	ew.Printf("%s\n", render.HostText(fmt.Sprintf("%s matched: %s with a fix available in %s, %s in %s, %s not matched, %s no record covers",
 		render.Count(c.Packages, "package", "packages"),

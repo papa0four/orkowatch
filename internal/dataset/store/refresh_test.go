@@ -83,10 +83,10 @@ func TestRefreshInstalls(t *testing.T) {
 		t.Fatalf("outcome %+v after %d fetches", got, *calls)
 	}
 	row := rowOf(t, s, []dataset.Dataset{served}, "wanted")
-	want := dataset.Row{
+	want := dataset.Row{Provenance: dataset.Provenance{
 		ID: "wanted", State: dataset.StateCurrent, Source: "https://data.example/wanted", DataDate: "2026-11-20", Version: datasettest.Version,
-		Fetched: "2026-11-22T12:00:00Z", Size: int64(len(content)), License: "CC0 1.0", Attribution: "Served for the tests",
-	}
+		Fetched: "2026-11-22T12:00:00Z", License: "CC0 1.0", Attribution: "Served for the tests",
+	}, Size: int64(len(content))}
 	if row != want {
 		t.Errorf("row %+v, want %+v", row, want)
 	}

@@ -196,8 +196,10 @@ JSON and YAML reports hold every match under `vulnerabilities.packages`, each af
 package once with its installed version and the binaries built from it, and its
 vulnerabilities under it with their status, fixed version, `severity` (its label,
 level, and basis), `scores` as the records give them, and the records that name them,
-beside `not_matched` and `counts`. With
-no dataset held, or one that cannot be used, the section says matching was not done,
+beside `not_matched` and `counts`. The section names the dataset it was matched
+against with the keys `owatch data status` uses: `id`, `version` (the release its
+records are of), `source`, `data_date`, `fetched`, `state`, `license`, and
+`attribution`. With no dataset held, or one that cannot be used, the section says matching was not done,
 why, and what to run. Fixes published only in Ubuntu Pro or Red Hat's
 extended-support streams are not read, so a host on those streams can be shown a fix
 it already has. `owatch audit` does not match.

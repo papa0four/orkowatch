@@ -73,7 +73,7 @@ func vulnerabilitiesTab(v vulnmatch.View) tui.Tab {
 // matchedAgainst names the dataset a match was made against, its release, its
 // date, and its state, on one line.
 func matchedAgainst(v vulnmatch.View) string {
-	return safeLines(strings.Join([]string{v.Dataset, v.Release, "data of " + v.DataDate, v.State}, ", "))
+	return safeLines(strings.Join([]string{v.ID, v.Version, "data of " + v.DataDate, string(v.State)}, ", "))
 }
 
 // vulnerabilityRecord is one vulnerability of an affected package as the tab

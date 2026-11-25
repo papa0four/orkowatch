@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/papa0four/orkowatch/internal/dataset"
 	"github.com/papa0four/orkowatch/internal/dataset/osv"
 	"github.com/papa0four/orkowatch/internal/pkgversion"
 	"github.com/papa0four/orkowatch/internal/softwarelist"
@@ -215,7 +216,7 @@ func TestMatchCannotCompare(t *testing.T) {
 // the unfixed counted by package, and those not matched; with no match made,
 // why.
 func TestWriteText(t *testing.T) {
-	v := View{Dataset: "osv-ubuntu", Release: "Ubuntu:22.04", DataDate: "2026-11-24", State: "current", Order: "dpkg",
+	v := View{Provenance: dataset.Provenance{ID: "osv-ubuntu", Version: "Ubuntu:22.04", DataDate: "2026-11-24", State: dataset.StateCurrent}, Order: "dpkg",
 		Packages: []PackageMatches{{Package: "openssl", Installed: "3.0.2-1", Vulnerabilities: []Vulnerability{
 			{ID: "CVE-2026-1", Status: StatusFixAvailable, Fixed: "3.0.2-2", Severity: Severity{Label: "medium", Level: LevelMedium, Basis: "Ubuntu priority"}},
 			{ID: "CVE-2026-2", Status: StatusUnfixed},

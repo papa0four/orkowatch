@@ -77,7 +77,7 @@ func TestMatchingHeld(t *testing.T) {
 	datasettest.Put(t, s.Root(), datasettest.Dataset{Name: "records"}, datasettest.Content, dataNow.Add(-9*24*time.Hour), nil)
 
 	v := m.run(context.Background(), nil, installed("3.0.11-1"))
-	if v.NotDone != "" || v.Dataset != "records" || v.Release != "Debian:12" || v.DataDate != "2026-11-20" || v.State != string(dataset.StateOutOfSync) || v.Source == "" {
+	if v.NotDone != "" || v.ID != "records" || v.Version != "Debian:12" || v.DataDate != "2026-11-20" || v.State != dataset.StateOutOfSync || v.Source == "" {
 		t.Fatalf("view %+v", v)
 	}
 	if len(v.Packages) != 1 || len(v.Packages[0].Vulnerabilities) != 1 || v.Packages[0].Vulnerabilities[0].ID != "CVE-2026-1" || v.Packages[0].Vulnerabilities[0].Fixed != "3.0.15-1" {
@@ -136,8 +136,11 @@ func TestVulnerabilitiesInTheReports(t *testing.T) {
 	}
 	view := toAllResult(result, "")
 	data, err := json.Marshal(view)
-	if err != nil || !bytes.Contains(data, []byte(`"vulnerabilities":{"dataset":"records"`)) {
+	if err != nil || !bytes.Contains(data, []byte(`"vulnerabilities":{"id":"records","state":"current","source":"https://data.example/records","data_date":"2026-11-20","version":"Debian:12"`)) {
 		t.Fatalf("JSON %s, %v", data, err)
+	}
+	if data, err := delivery.Encode(view, delivery.FormatYAML); err != nil || !bytes.Contains(data, []byte("vulnerabilities:\n    id: records\n    state: current\n")) {
+		t.Fatalf("YAML %s, %v", data, err)
 	}
 
 	var text bytes.Buffer
@@ -184,7 +187,7 @@ func TestSoftwareModuleMatches(t *testing.T) {
 	if ran := result.Modules[len(result.Modules)-1]; ran.Result == finding.ResultError {
 		t.Skipf("this host's inventory cannot be read: %s", ran.Reason)
 	}
-	if result.Vulns == nil || (result.Vulns.NotDone == "" && result.Vulns.Dataset == "") {
+	if result.Vulns == nil || (result.Vulns.NotDone == "" && result.Vulns.ID == "") {
 		t.Errorf("the software module's run carries %+v", result.Vulns)
 	}
 }

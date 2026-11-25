@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/papa0four/orkowatch/internal/dataset"
 	"github.com/papa0four/orkowatch/internal/dataset/osv"
 	"github.com/papa0four/orkowatch/internal/tui"
 	"github.com/papa0four/orkowatch/internal/vulnmatch"
@@ -16,7 +17,7 @@ import (
 // fixable and labeled high by its records and one unfixed labeled low, bash
 // with one unfixed that states only a CVSS vector, and one pair not matched.
 func matchedView() vulnmatch.View {
-	v := vulnmatch.View{Dataset: "osv-ubuntu", Release: "Ubuntu:22.04", DataDate: "2026-11-24", State: "current",
+	v := vulnmatch.View{Provenance: dataset.Provenance{ID: "osv-ubuntu", Version: "Ubuntu:22.04", DataDate: "2026-11-24", State: dataset.StateCurrent},
 		Packages: []vulnmatch.PackageMatches{
 			{Package: "bash", Installed: "5.1-6ubuntu1", Vulnerabilities: []vulnmatch.Vulnerability{
 				{ID: "CVE-2026-3", Status: vulnmatch.StatusUnfixed, Severity: vulnmatch.Severity{Level: vulnmatch.LevelNone}, Records: []string{"UBUNTU-CVE-2026-3"}},

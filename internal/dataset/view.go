@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"strconv"
+	"time"
 
 	"github.com/papa0four/orkowatch/internal/render"
 )
@@ -74,22 +75,45 @@ func (o Operator) Lines() []string {
 	return lines
 }
 
-// Row is one dataset as status shows it. A held dataset carries what its
-// manifest and its data say, the date of its data as time.DateOnly writes it,
-// the version its source gives the data, and its fetch time as time.RFC3339
-// writes it; any other carries its state and, where there is one, the reason
-// or its size.
-type Row struct {
-	ID          string `json:"id" yaml:"id"`
-	State       State  `json:"state" yaml:"state"`
-	Reason      string `json:"reason,omitempty" yaml:"reason,omitempty"`
+// Provenance is what a dataset read was: the dataset and its state then and,
+// for one that was held, what its manifest and its data say, the date of its
+// data as time.DateOnly writes it, the version its source gives the data, its
+// fetch time as time.RFC3339 writes it, and the terms its data comes under.
+// The store's status and every result read from a dataset state it in this
+// one form, so a report names its data as status does.
+type Provenance struct {
+	ID          string `json:"id,omitempty" yaml:"id,omitempty"`
+	State       State  `json:"state,omitempty" yaml:"state,omitempty"`
 	Source      string `json:"source,omitempty" yaml:"source,omitempty"`
 	DataDate    string `json:"data_date,omitempty" yaml:"data_date,omitempty"`
 	Version     string `json:"version,omitempty" yaml:"version,omitempty"`
 	Fetched     string `json:"fetched,omitempty" yaml:"fetched,omitempty"`
-	Size        int64  `json:"size,omitempty" yaml:"size,omitempty"`
 	License     string `json:"license,omitempty" yaml:"license,omitempty"`
 	Attribution string `json:"attribution,omitempty" yaml:"attribution,omitempty"`
+}
+
+// ProvenanceOf is the provenance of the dataset id held under m, whose data
+// its check gave facts of, read at now.
+func ProvenanceOf(id string, m Manifest, facts Facts, now time.Time) Provenance {
+	return Provenance{
+		ID:          id,
+		State:       StateAt(m.Fetched, now),
+		Source:      m.Source,
+		DataDate:    facts.Date.UTC().Format(time.DateOnly),
+		Version:     facts.Version,
+		Fetched:     m.Fetched.UTC().Format(time.RFC3339),
+		License:     m.License,
+		Attribution: m.Attribution,
+	}
+}
+
+// Row is one dataset as status shows it: its provenance and, for one that is
+// not read, the reason or its size.
+type Row struct {
+	Provenance `yaml:",inline"`
+
+	Reason string `json:"reason,omitempty" yaml:"reason,omitempty"`
+	Size   int64  `json:"size,omitempty" yaml:"size,omitempty"`
 
 	// Attention is what about the dataset the operator must deal with,
 	// whatever its state: an import of it that failed, with the reason, or
