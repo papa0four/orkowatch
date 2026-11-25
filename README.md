@@ -29,9 +29,12 @@ and open an issue against this doc.
   and find nothing on a localized Windows; and files owned by a SID that no
   longer resolves go undetected. Tracked as a single fix (#111). Linux/Unix
   audit checks are not affected.
-- **No CVE matching yet.** Installed software and the operating system are
-  not matched to CVEs, and findings carry no CVE data. There is no `--enrich`
-  flag; passing it fails as an unknown flag.
+- **CVE matching covers five distributions' packages.** `owatch software` and
+  `owatch all` match installed packages on AlmaLinux, Alpine, Red Hat
+  Enterprise Linux, Rocky Linux, and Ubuntu against the OSV dataset held for
+  the host, shown in the results browser's Vulnerabilities tab. The operating
+  system and kernel as such are not matched, and findings carry no CVE data.
+  There is no `--enrich` flag; passing it fails as an unknown flag.
 - **There is no `--mitre` flag.** MITRE ATT&CK® mapping is registry data shown
   by default; see MITRE ATT&CK below. Passing `--mitre` fails as an unknown flag.
 - **macOS and BSD are implemented but not yet fully verified.** The Unix
@@ -155,6 +158,50 @@ still remembers, and the signing keys rpm keeps in its package database, are not
 software and are left out. On Windows and macOS an entry is an application's name and
 version.
 
+`owatch software`, and `owatch all` when its software module runs, then match the
+packages against the vulnerability dataset of the host's distribution (see
+Vulnerability Datasets below) and add a Vulnerabilities section to the report. A
+package is found by the name the distribution's records use: the source package and
+its version on Ubuntu and Alpine, the binary package and its version, with its epoch,
+on AlmaLinux, Rocky Linux, and Red Hat. Each record's ranges are evaluated as the OSV
+schema states, in the distribution's own version order. For each CVE and package:
+
+| Result | Meaning |
+|---|---|
+| Fix available | The installed version is below the lowest version any record gives as fixing it |
+| Unfixed | The installed version is in an affected range and no record gives a fixed version |
+| Not matched | The versions cannot be compared, or the package is a module build and the records give fixes for several module streams without saying which is its |
+| Not covered | No record names the package; this is not a statement that it is clean |
+
+A package at or above any record's fixed version is not affected: a host on an
+earlier minor release's update is not told it lacks a later release's build of the
+same fix.
+
+Each vulnerability has a severity, and says what it rests on:
+
+| Basis | Where | Severity |
+|---|---|---|
+| Ubuntu priority | Ubuntu | The priority its records state: critical, high, medium, low, or negligible |
+| Advisory rating | AlmaLinux, Rocky Linux | The rating the advisory's title opens with: Critical, Important, Moderate, or Low. It is the advisory's, so every CVE the advisory names carries it |
+| CVSS base score | Where the records state neither, as on Red Hat and Alpine | The CVSS band (critical, high, medium, low) of the highest base score among the vectors the records give, computed from the vector and shown with its version and score |
+
+The label shown is the source's own word. For filtering and ordering, Important is
+placed with high and Moderate with medium. A CVSS v3.0 vector has the metrics of a
+v3.1 one and is scored with the v3.1 base equations, and is named as v3.0. A
+vulnerability whose records give nothing that can be read has none stated.
+
+The text report gives the counts, every vulnerability with a fix available led by its
+severity, and the unfixed counted by package, since a release can carry thousands; the
+JSON and YAML reports hold every match under `vulnerabilities.packages`, each affected
+package once with its installed version and the binaries built from it, and its
+vulnerabilities under it with their status, fixed version, `severity` (its label,
+level, and basis), `scores` as the records give them, and the records that name them,
+beside `not_matched` and `counts`. With
+no dataset held, or one that cannot be used, the section says matching was not done,
+why, and what to run. Fixes published only in Ubuntu Pro or Red Hat's
+extended-support streams are not read, so a host on those streams can be shown a fix
+it already has. `owatch audit` does not match.
+
 `owatch listeners` reads every socket the host reports, in every state, from the
 host's own tables, and connects to nothing. On Linux it lists TCP, UDP, raw,
 unix-domain and packet sockets; on Windows, TCP and UDP, and it says the others are
@@ -239,14 +286,26 @@ On a terminal, `owatch audit`, `owatch osinfo`, `owatch software`, `owatch liste
 end in an interactive results browser instead of printing the report, because a
 whole-filesystem scan produces far more lines than a terminal keeps. Every
 command opens the same layout. The left pane lists the sources, each with the
-key that opens it, above the findings filters and the run's summary; it scrolls
-when it is taller than the window, and a window too narrow for it shows the
-sources as a bar along the top. The filters and the summary belong to findings,
-so they read n/a on a source that has none. The browser has a source for each
+key that opens it, above the active source's filters and the run's summary; it
+scrolls when it is taller than the window, and a window too narrow for it shows
+the sources as a bar along the top. Findings and Vulnerabilities have filters,
+and a source with none reads n/a there; the summary belongs to findings. The
+browser has a source for each
 part of the run: Findings lists each finding with its severity and shows the selected one in
 full with what triggered it (the rule that failed, what it found, the severity the registry
 gives it, the techniques it is mapped to) and its evidence; System shows the host's fingerprint; Software lists the
-installed packages and can be searched; Sockets lists each socket with its state, ends,
+installed packages and can be searched, and when the software was matched each
+package's row gives how many of its CVEs have a fix available and how many are
+unfixed, with the worst severity among them, its detail lists them, and its
+filter chooses all, the affected packages, or those with a fix available;
+Vulnerabilities, when the software was
+matched, lists each CVE of each affected package, those with a fix available
+first, and opens filtered to them: its filters choose fix available, unfixed,
+not matched, or all, and a severity, each option with how many fall under it,
+and `/` searches within them; the detail gives the package and what was built
+from it, the installed and fixed versions, the severity and its basis, the
+scores as the records give them, the records that name the CVE, and the
+dataset; Sockets lists each socket with its state, ends,
 scope and the processes holding it, or why they could not be read; MITRE ATT&CK® groups the findings by the
 technique each makes available, with the finding, rule and evidence behind each. A source a command did not run, or a module
 that was skipped or failed, is still listed and says so. A run opens on
@@ -255,14 +314,15 @@ Findings when the audit ran, and otherwise on the first module that did, so
 
 | Key | Action |
 |---|---|
-| the key in the left pane's `key` column (`f`, `o`, `s`, `l`, `m`) | Switch to that source from any pane; the left pane lists each source under the headings `key` and `source`, so a new source adds a row |
+| the key in the left pane's `key` column (`f`, `o`, `s`, `v`, `l`, `m`, `d`) | Switch to that source from any pane; the left pane lists each source under the headings `key` and `source`, so a new source adds a row |
 | `[`, `]`, `1` to `9` | Step to the previous or next source, or go to a source by its number |
 | `tab`, `shift+tab` | Move between the left, list and detail panes |
 | up/down, pgup/pgdn, home/end | Move through the focused pane |
 | left/right | Pan the detail pane or the full report sideways |
-| `enter` | In the left pane, open a source or apply a filter; in the list, open the selected item in the detail pane |
+| `enter` | In the left pane, open a source, or on the source already open move to its list, or apply a filter and move to the list it narrowed; in the list, open the selected item in the detail pane |
+| `esc` | In the list, clear a kept search, or with none kept go back to the left pane, to the filter last applied; in the detail pane, go back to the list |
 | `/` | Search the active tab: on Findings, titles, rule keys, descriptions, references and evidence, and the detail pane then shows only the matching evidence lines; on Software, package names and versions. `enter` keeps the search, `esc` clears it, and each tab keeps its own |
-| `a` | On Findings, show every evaluated rule, not only findings and rules that could not be evaluated |
+| `a` | On Findings, show every evaluated rule, not only findings and rules that could not be evaluated; on Software, switch between every package and the affected ones |
 | `x` | On Findings, load all of a finding's evidence when only the first 500 lines are shown |
 | `t` | Show the complete plain report; `t` or `esc` returns |
 | `esc` | Return from the detail pane to the list |
@@ -417,6 +477,25 @@ gives for it:
 |---|---|---|---|---|
 | `epss` | FIRST's daily Exploit Prediction Scoring System scores | `epss.empiricalsecurity.com` | Every host | None stated |
 | `kev` | CISA's Known Exploited Vulnerabilities catalog | `www.cisa.gov` | Every host | CC0 1.0 |
+| `osv-almalinux` | OSV's data for AlmaLinux | `storage.googleapis.com` | AlmaLinux hosts | MIT |
+| `osv-alpine` | OSV's data for Alpine Linux | `storage.googleapis.com` | Alpine hosts | CC-BY-SA 4.0 |
+| `osv-redhat` | OSV's data for Red Hat Enterprise Linux | `storage.googleapis.com` | Red Hat hosts | CC-BY 4.0 |
+| `osv-rocky` | OSV's data for Rocky Linux | `storage.googleapis.com` | Rocky Linux hosts | BSD |
+| `osv-ubuntu` | OSV's data for Ubuntu | `storage.googleapis.com` | Ubuntu hosts | CC-BY-SA 4.0 |
+
+OSV publishes each distribution's data in one file holding every release, which
+OSV converts from the distribution's own security data, and the license of each
+is the one OSV states for that distribution. `refresh` reads the whole file and
+keeps the records of the host's release alone, and `status` shows that release
+as the dataset's version: `Ubuntu:22.04`, `Alpine:v3.20`, `AlmaLinux:9`, `Rocky
+Linux:9`, or for Red Hat Enterprise Linux 9 every repository's stream of the
+release, and for 10 and later the minor release, `Red Hat:enterprise_linux:10.3`.
+Ubuntu Pro, FIPS, and Realtime streams, and Red Hat's extended-support streams,
+are not kept: a host's version does not show them. Ubuntu's file was 845 MB on
+2026-11-24, so its refresh asks first and is allowed the time it needs. A file
+holding a record of the release that is not in the OSV schema's form is refused
+whole, naming the record, and the copy held stays. Debian, SUSE, and openSUSE
+wait on the terms of the data OSV republishes for them.
 
 EPSS scores are from FIRST, https://www.first.org/epss, and are generated by
 Empirical Security. FIRST publishes them free of charge, names no license, and
@@ -426,8 +505,9 @@ CISA distributes the catalog under the Creative Commons 0 1.0 license. Use of it
 does not authorize use of the CISA Logo or DHS Seal and is not an endorsement by
 CISA or DHS.
 
-owatch holds both and reports their state, with the date and version of each;
-no report reads their entries yet.
+owatch holds those that apply to the host and reports their state, with the date
+and version of each. `owatch software` and `owatch all` match installed packages
+against the OSV dataset; no report reads KEV's or EPSS's entries yet.
 
 ```bash
 # Fetch the datasets this host needs, over HTTPS
@@ -453,13 +533,15 @@ owatch data status -o json --report-file /path/to/reports
 `owatch data refresh` connects over HTTPS to the address each dataset's source
 publishes it at, follows a redirect only to a host that dataset names, and sends
 nothing about the host: every request carries `User-Agent: owatch` and no other
-detail. It reads no more than a dataset may hold and gives up on a download after
-10 minutes. A proxy named by `HTTPS_PROXY` is used, and no other environment
-variable changes where it connects. It prints each dataset's size before fetching
-it and asks before one larger than 100 MiB; `--yes` skips the question. What is
-fetched is checked as any dataset is before it replaces the copy held, a download
-that fails because a server is briefly unable to answer is tried three times, and
-a dataset that could not be refreshed keeps the copy held. `--for` names another
+detail. It reads no more than a dataset's origin may serve, allows a download its
+size at 256 KiB a second and never less than 10 minutes, and gives up on one that
+receives nothing for a minute. A proxy named by `HTTPS_PROXY` is used, and no
+other environment variable changes where it connects. It prints each dataset's
+size and the time its download is allowed before fetching it, and asks before one
+larger than 100 MiB; `--yes` skips the question. What is fetched is checked as any
+dataset is before it replaces the copy held, a download that fails because a
+server is briefly unable to answer, or that stalls, is tried three times, and a
+dataset that could not be refreshed keeps the copy held. `--for` names another
 host by the `Target` line `owatch osinfo` prints there, `os/platform/version`,
 copied as printed and quoted when it holds a space, as on Windows. It needs
 `--to`. `refresh` never runs as root or from an elevated terminal, and no flag

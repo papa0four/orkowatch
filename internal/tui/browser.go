@@ -153,10 +153,8 @@ type (
 		height int
 		focus  focus
 
-		severities   []string
-		checks       []string
-		severity     int
-		check        int
+		// findings are the Findings tab's filters: severity, then check.
+		findings     []*filterGroup
 		filterCursor int
 		sideTop      int
 		findingsOnly bool
@@ -232,8 +230,6 @@ func newBrowser(report Report) browser {
 		width:        defaultWidth,
 		height:       defaultHeight,
 		focus:        focusList,
-		severities:   []string{allFilter},
-		checks:       []string{allFilter},
 		findingsOnly: true,
 		shown:        -1,
 		detail:       viewport.New(),
@@ -251,17 +247,22 @@ func newBrowser(report Report) browser {
 	b.text.SetHorizontalStep(sideScroll)
 	b.text.SetContent(report.Text)
 
+	severity := &filterGroup{name: "severity", options: []string{allFilter}, labels: []string{allFilter}}
 	levels := finding.Severities()
 	for i := len(levels) - 1; i >= 0; i-- {
-		b.severities = append(b.severities, levels[i])
+		severity.options = append(severity.options, levels[i])
+		severity.labels = append(severity.labels, strings.ToLower(levels[i]))
 	}
+	check := &filterGroup{name: "check", options: []string{allFilter}}
 	seen := make(map[string]bool)
 	for _, item := range report.Items {
 		if !seen[item.Check] {
 			seen[item.Check] = true
-			b.checks = append(b.checks, item.Check)
+			check.options = append(check.options, item.Check)
 		}
 	}
+	check.labels = check.options
+	b.findings = []*filterGroup{severity, check}
 
 	b.index = buildIndex(report.Items)
 
@@ -348,6 +349,11 @@ func (b browser) onKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		b.query = ""
 		b.refilter()
 		return b, nil
+	case key == "esc" && b.escToFilters():
+		// The cursor is where it was left, on the filter last applied.
+		b.focus = focusFilters
+		b.keepCursorVisible()
+		return b, nil
 	}
 
 	if next, ok := b.onTabKey(key); ok {
@@ -382,6 +388,13 @@ func (b browser) onKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 // keyboard is on the list or the left pane.
 func (b browser) clearsSearch() bool {
 	return b.query != "" && b.focus != focusDetail
+}
+
+// escToFilters reports whether esc takes the keyboard from the list back to
+// the left pane: no search is kept for esc to clear first, and the left pane
+// is shown.
+func (b browser) escToFilters() bool {
+	return b.focus == focusList && !b.clearsSearch() && b.sidebarShown()
 }
 
 // onTabKey switches tabs on a tab's letter, a digit, or a bracket, reporting
@@ -497,14 +510,23 @@ func (b *browser) cycleFocus(step focus) {
 	}
 }
 
-// onFilterKey moves through the left pane as one column: the sources, then,
-// on the findings tab, the two filter groups. Enter or space applies the
+// filterGroups are the filters of the active tab, as the left pane walks
+// them: the findings' severity and check, or the record tab's own.
+func (b browser) filterGroups() []*filterGroup {
+	if p := b.activePane(); p != nil {
+		return p.groups
+	}
+	return b.findings
+}
+
+// onFilterKey moves through the left pane as one column: the sources, then
+// the options of each of the active tab's filters. Enter or space applies the
 // option under the cursor: it opens a source or sets a filter.
 func (b *browser) onFilterKey(key string) {
 	sources := len(b.tabs)
 	last := sources - 1
-	if b.isFindings() {
-		last += len(b.severities) + len(b.checks)
+	for _, g := range b.filterGroups() {
+		last += len(g.options)
 	}
 	defer b.keepCursorVisible()
 	switch key {
@@ -521,15 +543,28 @@ func (b *browser) onFilterKey(key string) {
 	case "end":
 		b.filterCursor = last
 	case "enter", "space":
-		switch option := b.filterCursor - sources; {
-		case option < 0:
+		option := b.filterCursor - sources
+		// Enter on the source already open goes into its list, as enter on
+		// a filter does; on another source it opens that one and the
+		// keyboard stays here, so the next source is one key away.
+		if option < 0 && b.filterCursor == b.active {
+			b.focus = focusList
+			return
+		}
+		if option < 0 {
 			b.selectTab(b.filterCursor)
-		case option < len(b.severities):
-			b.severity = option
-			b.refilter()
-		default:
-			b.check = option - len(b.severities)
-			b.refilter()
+			return
+		}
+		// A filter applied hands the keyboard to the list it narrowed, ready
+		// to move through or search; esc or shift+tab comes back.
+		for _, g := range b.filterGroups() {
+			if option < len(g.options) {
+				g.chosen = option
+				b.refilter()
+				b.focus = focusList
+				return
+			}
+			option -= len(g.options)
 		}
 	}
 }
@@ -576,11 +611,12 @@ func (b *browser) refilter() {
 func (b *browser) refilterFindings() {
 	needle := strings.ToLower(strings.TrimSpace(b.query))
 	b.visible = b.visible[:0]
+	severity, check := b.findings[0].option(), b.findings[1].option()
 	for i, item := range b.report.Items {
 		switch {
 		case !b.admits(item):
-		case b.severity > 0 && item.Severity != b.severities[b.severity]:
-		case b.check > 0 && item.Check != b.checks[b.check]:
+		case severity != "" && item.Severity != severity:
+		case check != "" && item.Check != check:
 		case needle != "" && !b.index[i].matches(needle):
 		default:
 			b.visible = append(b.visible, i)
@@ -929,6 +965,11 @@ func (b browser) help() []hint {
 	}
 
 	pn := b.activePane()
+	// From the list, esc goes back to the left pane once no search is kept.
+	var back []hint
+	if b.escToFilters() {
+		back = []hint{keyHint("left pane", "esc")}
+	}
 	switch {
 	case b.showText && len(b.tabs) == 0:
 		return []hint{label("full report"), scroll, pan, quit}
@@ -936,20 +977,24 @@ func (b browser) help() []hint {
 		return append([]hint{scroll, pan, keyHint("back", "t", "or", "esc")}, append(tabs, quit)...)
 	case b.searching:
 		return []hint{label("type to search"), keyHint("keep", "enter"), keyHint("clear", "esc")}
+	case b.focus == focusFilters && pn != nil && len(pn.groups) > 0:
+		return common([]hint{keyHint("move", "up/down"), keyHint("open or apply", "enter")})
 	case b.focus == focusFilters && pn != nil:
 		return common([]hint{keyHint("move", "up/down"), keyHint("open source", "enter")})
 	case pn != nil && pn.listless():
 		return append([]hint{scroll, pan}, append(tabs, report, quit)...)
 	case pn != nil && b.focus == focusDetail:
 		return common([]hint{scroll, pan, keyHint("list", "esc")})
+	case pn != nil && pn.tab.Switch.Key != "":
+		return common(append([]hint{move, keyHint("detail", "enter")}, back...), keyHint(pn.tab.Switch.Hint, pn.tab.Switch.Key))
 	case pn != nil:
-		return common([]hint{move, keyHint("detail", "enter")})
+		return common(append([]hint{move, keyHint("detail", "enter")}, back...))
 	case b.focus == focusFilters:
 		return common([]hint{keyHint("move", "up/down"), keyHint("apply", "enter")}, findings...)
 	case b.focus == focusDetail:
 		return common([]hint{scroll, pan, keyHint("list", "esc")}, findings...)
 	default:
-		return common([]hint{move, keyHint("detail", "enter")}, findings...)
+		return common(append([]hint{move, keyHint("detail", "enter")}, back...), findings...)
 	}
 }
 
@@ -959,19 +1004,20 @@ func (b browser) help() []hint {
 // whatever they are, one included. A severity filter shows only findings, since no other rule
 // has a severity, and the line says so.
 func (b browser) searchView() string {
+	severity, check := b.findings[0].option(), b.findings[1].option()
 	scope := "findings and errors"
 	switch {
-	case b.severity > 0:
+	case severity != "":
 		scope = "findings"
 	case !b.findingsOnly:
 		scope = "rules"
 	}
 	status := fmt.Sprintf("%s: %d of %d", scope, len(b.visible), b.total())
-	if b.severity > 0 {
-		status += "  severity " + strings.ToLower(b.severities[b.severity])
+	if severity != "" {
+		status += "  severity " + strings.ToLower(severity)
 	}
-	if b.check > 0 {
-		status += "  check " + b.checks[b.check]
+	if check != "" {
+		status += "  check " + check
 	}
 	return b.queryLine(status)
 }
@@ -1001,7 +1047,7 @@ func (b browser) queryLine(status string) string {
 // default view; every rule once the toggle is on.
 func (b browser) admits(item Item) bool {
 	switch {
-	case b.severity > 0:
+	case b.findings[0].option() != "":
 		return item.isFinding()
 	case b.findingsOnly:
 		return item.needsAttention()
@@ -1098,17 +1144,9 @@ func (b browser) sidebarLines() (lines []string, cursorLine int) {
 		option(i, fmt.Sprintf("%-*s%s%s", keyWidth, t.letter, sourceGap, t.name), b.active == i)
 	}
 
-	sources := len(b.tabs)
 	notApplicable := styleMuted.Render("  n/a")
-	if b.isFindings() {
-		lines = append(lines, sourcesRule(), b.paneTitle("severity", focusFilters))
-		for i, level := range b.severities {
-			option(sources+i, strings.ToLower(level), b.severity == i)
-		}
-		lines = append(lines, "", b.paneTitle("check", focusFilters))
-		for i, check := range b.checks {
-			option(sources+len(b.severities)+i, check, b.check == i)
-		}
+	if groups := b.filterGroups(); len(groups) > 0 {
+		b.groupLines(groups, func(line string) { lines = append(lines, line) }, option)
 	} else {
 		lines = append(lines, sourcesRule(), styleMuted.Render("severity"), notApplicable)
 		lines = append(lines, "", styleMuted.Render("check"), notApplicable)
@@ -1124,6 +1162,29 @@ func (b browser) sidebarLines() (lines []string, cursorLine int) {
 		lines = append(lines, styleMuted.Render(label)+styleText.Render(value))
 	}
 	return lines, cursorLine
+}
+
+// groupLines lays out the active tab's filters in the left pane, after the
+// sources: each group under its heading, each option through option, which
+// knows where the cursor is, with its count where the tab counts them.
+// Headings and spacing go through heading.
+func (b browser) groupLines(groups []*filterGroup, heading func(string), option func(index int, label string, selected bool)) {
+	index := len(b.tabs)
+	for at, g := range groups {
+		if at == 0 {
+			heading(sourcesRule())
+		} else {
+			heading("")
+		}
+		heading(b.paneTitle(g.name, focusFilters))
+		for i, label := range g.labels {
+			if g.counts != nil {
+				label = fmt.Sprintf("%-*s%d", filterWidth-9, label, g.counts[i])
+			}
+			option(index, label, g.chosen == i)
+			index++
+		}
+	}
 }
 
 // paneTitle renders a heading, lit when its pane has the keyboard.

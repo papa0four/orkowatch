@@ -16,6 +16,7 @@ import (
 	"github.com/papa0four/orkowatch/internal/dataset"
 	"github.com/papa0four/orkowatch/internal/dataset/epss"
 	"github.com/papa0four/orkowatch/internal/dataset/kev"
+	"github.com/papa0four/orkowatch/internal/dataset/osv"
 	"github.com/papa0four/orkowatch/internal/dataset/store"
 	"github.com/papa0four/orkowatch/internal/elevation"
 	"github.com/papa0four/orkowatch/internal/osfingerprint"
@@ -45,7 +46,7 @@ type dataCmd struct {
 // store read every source through that interface and name none. They are
 // listed in name order, which is the order status shows them in.
 func knownDatasets() []dataset.Dataset {
-	return []dataset.Dataset{epss.Scores{}, kev.Catalog{}}
+	return append([]dataset.Dataset{epss.Scores{}, kev.Catalog{}}, osv.Datasets()...)
 }
 
 // newDataCmd returns the owatch data command and its subcommands, reading the
@@ -74,7 +75,14 @@ with no network. Each account has its own store, at a fixed place under the
 account's home. A run as root or from an elevated terminal uses another, the
 protected store in the system's data directory, which only the system and its
 administrators can change. Only owatch data refresh opens a network
-connection, and it never runs elevated.`,
+connection, and it never runs elevated.
+
+The datasets are CISA's Known Exploited Vulnerabilities catalog (kev), FIRST's
+EPSS scores (epss), and OSV's data for AlmaLinux, Alpine, Red Hat Enterprise
+Linux, Rocky Linux, and Ubuntu (osv-almalinux and the others), of which a host
+holds its own distribution's. OSV publishes every release of a distribution in
+one file; owatch keeps the records of the host's release alone, and status
+shows which release that is.`,
 		Args: cliargs.None,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if err := cmd.Help(); err != nil {

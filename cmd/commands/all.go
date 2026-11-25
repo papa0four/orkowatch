@@ -25,6 +25,7 @@ import (
 	"github.com/papa0four/orkowatch/internal/sockets"
 	"github.com/papa0four/orkowatch/internal/softwarelist"
 	"github.com/papa0four/orkowatch/internal/tui"
+	"github.com/papa0four/orkowatch/internal/vulnmatch"
 )
 
 type (
@@ -54,6 +55,7 @@ type (
 		Modules       []moduleRun
 		OSInfo        *osfingerprint.OSInfo
 		Software      []softwarelist.SoftwareEntry
+		Vulns         *vulnmatch.View
 		Sockets       *sockets.View
 		Datasets      *dataset.View
 		SecurityAudit *audit.Result
@@ -79,6 +81,7 @@ type (
 		Modules   []moduleRun                `json:"modules" yaml:"modules"`
 		System    *osfingerprint.SystemView  `json:"system,omitempty" yaml:"system,omitempty"`
 		Software  *softwarelist.SoftwareView `json:"software,omitempty" yaml:"software,omitempty"`
+		Vulns     *vulnmatch.View            `json:"vulnerabilities,omitempty" yaml:"vulnerabilities,omitempty"`
 		Sockets   *sockets.View              `json:"sockets,omitempty" yaml:"sockets,omitempty"`
 		Datasets  *dataset.View              `json:"datasets,omitempty" yaml:"datasets,omitempty"`
 		Security  *audit.View                `json:"security,omitempty" yaml:"security,omitempty"`
@@ -189,7 +192,8 @@ func toAllResult(result *ScanResult, minSeverity string) allResult {
 		out.Software = &view
 	}
 
-	// sockets and datasets
+	// what the software was matched against, the sockets, and the datasets
+	out.Vulns = result.Vulns
 	out.Sockets = result.Sockets
 	out.Datasets = result.Datasets
 
@@ -379,7 +383,9 @@ func collectOSInfo(_ context.Context, result *ScanResult) {
 }
 
 // collectSoftware runs the software inventory module and records how it ended
-// in result, as collectOSInfo does.
+// in result, as collectOSInfo does. The inventory is then matched against the
+// vulnerability dataset of the host's distribution, with the fingerprint the
+// run read or, when it read none, one read here.
 func collectSoftware(ctx context.Context, result *ScanResult) {
 	software, err := softwarelist.GetInstalledSoftwareList(ctx)
 	if err != nil {
@@ -388,6 +394,7 @@ func collectSoftware(ctx context.Context, result *ScanResult) {
 		return
 	}
 	result.Software = software
+	result.Vulns = hostMatching().run(ctx, result.OSInfo, software)
 	result.Modules = append(result.Modules, inventoryModule(selection.NameSoftware))
 }
 
@@ -505,6 +512,7 @@ func allSource(title string, v allResult, text string) security.BrowserSource {
 		System:   v.System,
 		Software: v.Software,
 		Sockets:  v.Sockets,
+		Vulns:    v.Vulns,
 		Datasets: v.Datasets,
 		Modules:  moduleNotes(v.Modules),
 		Text:     text,
@@ -555,6 +563,8 @@ func writeAllText(w io.Writer, v allResult) error {
 			func(w io.Writer) error { return osfingerprint.WriteViewText(w, *v.System) }},
 		{v.Software != nil, func() string { return fmt.Sprintf("Software: %d packages installed", v.Software.Count) },
 			func(w io.Writer) error { return softwarelist.WriteText(w, *v.Software) }},
+		{v.Vulns != nil, func() string { return "\nVulnerabilities" },
+			func(w io.Writer) error { return vulnmatch.WriteText(w, *v.Vulns) }},
 		{v.Sockets != nil, func() string { return "\nSockets" },
 			func(w io.Writer) error { return sockets.WriteText(w, *v.Sockets) }},
 	}
@@ -614,7 +624,13 @@ func writeSingleModuleText(w io.Writer, v allResult) error {
 		if v.Software != nil {
 			view = *v.Software
 		}
-		return softwarelist.WriteText(w, view)
+		if err := softwarelist.WriteText(w, view); err != nil || v.Vulns == nil {
+			return err
+		}
+		if _, err := io.WriteString(w, "\nVulnerabilities\n"); err != nil {
+			return err
+		}
+		return vulnmatch.WriteText(w, *v.Vulns)
 	case selection.NameListeners:
 		if v.Sockets != nil {
 			return sockets.WriteText(w, *v.Sockets)

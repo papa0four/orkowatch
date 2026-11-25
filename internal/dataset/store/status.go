@@ -40,7 +40,7 @@ func (s Store) Status(known []dataset.Dataset, host *osfingerprint.OSInfo, now t
 		case applies && !held:
 			view.Datasets = append(view.Datasets, dataset.Row{ID: d.ID(), State: dataset.StateNotHeld})
 		case applies:
-			row := s.heldRow(d, now)
+			row := s.heldRow(d, host, now)
 			row.Attention = attention(s.dir(d.ID()))
 			view.Datasets = append(view.Datasets, row)
 		case held:
@@ -58,12 +58,13 @@ func (s Store) Status(known []dataset.Dataset, host *osfingerprint.OSInfo, now t
 	return view, nil
 }
 
-// heldRow reads a held dataset with its own check and says what was found.
-func (s Store) heldRow(d dataset.Dataset, now time.Time) dataset.Row {
+// heldRow reads a held dataset with its own check for host and says what was
+// found.
+func (s Store) heldRow(d dataset.Dataset, host *osfingerprint.OSInfo, now time.Time) dataset.Row {
 	var facts dataset.Facts
 	m, err := s.read(d, now, func(data io.Reader) error {
 		var checkErr error
-		facts, checkErr = d.Check(data)
+		facts, checkErr = d.Check(data, host)
 		return checkErr
 	})
 	if err == nil && facts.Version == "" {

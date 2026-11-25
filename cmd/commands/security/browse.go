@@ -18,18 +18,20 @@ import (
 	"github.com/papa0four/orkowatch/internal/sockets"
 	"github.com/papa0four/orkowatch/internal/softwarelist"
 	"github.com/papa0four/orkowatch/internal/tui"
+	"github.com/papa0four/orkowatch/internal/vulnmatch"
 )
 
 // BrowserSource is what a finished run holds for the browser to show. Audit,
-// System, Software, Sockets, and Datasets are the projections a saved report
-// carries, so a live run and a saved file are shown from the same data. Modules says how each
-// module of an all run ended, which is what a tab with no data explains
-// itself with; the audit command has none.
+// System, Software, Vulns, Sockets, and Datasets are the projections a saved
+// report carries, so a live run and a saved file are shown from the same data.
+// Modules says how each module of an all run ended, which is what a tab with
+// no data explains itself with; the audit command has none.
 type BrowserSource struct {
 	Title    string
 	Audit    *audit.View
 	System   *osfingerprint.SystemView
 	Software *softwarelist.SoftwareView
+	Vulns    *vulnmatch.View
 	Sockets  *sockets.View
 	Datasets *dataset.View
 	Modules  []ModuleNote
@@ -93,9 +95,16 @@ func sourceTabs(src BrowserSource) []tui.Tab {
 	}
 
 	if src.Software != nil {
-		tabs = append(tabs, softwareTab(*src.Software))
+		tabs = append(tabs, softwareTab(*src.Software, src.Vulns))
 	} else {
 		tabs = append(tabs, tui.Tab{ID: tui.TabSoftware, Name: "Software", Note: notRun(src.Modules, selection.NameSoftware)})
+	}
+
+	// The vulnerabilities are offered by a report whose software was
+	// matched, which says why when no match was made; a report from before
+	// matching opens as it did.
+	if src.Vulns != nil {
+		tabs = append(tabs, vulnerabilitiesTab(*src.Vulns))
 	}
 
 	if src.Sockets != nil {
@@ -374,31 +383,6 @@ func socketRecord(s sockets.Socket) tui.Record {
 		Subtitle: safeLines(strings.TrimSpace(s.Protocol + " " + s.State)),
 		Fields:   fields,
 	}
-}
-
-// softwareTab is the installed packages, one record each.
-func softwareTab(software softwarelist.SoftwareView) tui.Tab {
-	records := make([]tui.Record, 0, len(software.Packages))
-	for _, pkg := range software.Packages {
-		fields := []tui.SummaryLine{{Label: "name", Value: safeLines(pkg.Name)}}
-		for _, field := range []tui.SummaryLine{
-			{Label: "version", Value: pkg.Version},
-			{Label: "architecture", Value: pkg.Architecture},
-			{Label: "package manager", Value: pkg.Manager},
-			{Label: "source package", Value: pkg.Source},
-			{Label: "source version", Value: pkg.SourceVersion},
-		} {
-			if field.Value != "" {
-				fields = append(fields, tui.SummaryLine{Label: field.Label, Value: safeLines(field.Value)})
-			}
-		}
-		records = append(records, tui.Record{
-			Title:    safeLines(pkg.Name),
-			Subtitle: safeLines(pkg.Version),
-			Fields:   fields,
-		})
-	}
-	return tui.Tab{ID: tui.TabSoftware, Name: "Software", Records: records}
 }
 
 // checkItem is the row for a check that has no conditions to list, one that

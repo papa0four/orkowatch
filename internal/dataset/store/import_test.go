@@ -282,7 +282,7 @@ func TestRetry(t *testing.T) {
 func TestCopyRefusesChangedData(t *testing.T) {
 	_, src := stores(t)
 	put(t, src, wanted, content, now.Add(-time.Hour), nil)
-	m, err := src.read(wanted, now, checkWith(wanted))
+	m, err := src.read(wanted, now, checkWith(wanted, &osfingerprint.OSInfo{}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -296,6 +296,42 @@ func TestCopyRefusesChangedData(t *testing.T) {
 	for _, path := range []string{to, to + partialSuffix} {
 		if _, err := os.Lstat(path); !errors.Is(err, os.ErrNotExist) {
 			t.Errorf("%s is there: %v", filepath.Base(path), err)
+		}
+	}
+}
+
+// Data a dataset keeps for one release is judged for the host it is read on:
+// brought to another by import or by an elevated install it is refused, and
+// held there it is unusable, while on its own release it is installed and
+// read.
+func TestDataForAnotherHostIsRefused(t *testing.T) {
+	kept := testDataset{Name: "kept", Applies: true, For: "alpine"}
+	byKept := []dataset.Dataset{kept}
+	alpine, ubuntu := &osfingerprint.OSInfo{Platform: "alpine"}, &osfingerprint.OSInfo{Platform: "ubuntu"}
+	ctx := context.Background()
+
+	for name, host := range map[string]*osfingerprint.OSInfo{"its own": alpine, "another": ubuntu} {
+		refused := host == ubuntu
+		s, src := stores(t)
+		put(t, src, kept, content, now.Add(-time.Hour), nil)
+
+		got, err := s.Import(ctx, src.root, byKept, host, now)
+		if err != nil || len(got) != 1 || (got[0].Result == Refused) != refused {
+			t.Errorf("import on %s host: %+v, %v", name, got, err)
+		}
+		adopted, err := Store{root: filepath.Join(t.TempDir(), "store")}.Adopt(ctx, src.root, ownerOf{}, byKept, host, now)
+		if err != nil || len(adopted) != 1 || (adopted[0].Result == Refused) != refused {
+			t.Errorf("elevated install on %s host: %+v, %v", name, adopted, err)
+		}
+
+		held := Store{root: t.TempDir()}
+		put(t, held, kept, content, now.Add(-time.Hour), nil)
+		view, err := held.Status(byKept, host, now)
+		if err != nil || len(view.Datasets) != 1 {
+			t.Fatalf("status on %s host: %+v, %v", name, view, err)
+		}
+		if row := view.Datasets[0]; (row.State == dataset.StateUnusable) != refused || (refused && !strings.Contains(row.Reason, "for alpine")) {
+			t.Errorf("status on %s host: %+v", name, row)
 		}
 	}
 }

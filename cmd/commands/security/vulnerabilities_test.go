@@ -1,0 +1,141 @@
+// cmd/commands/security/vulnerabilities_test.go
+
+package security
+
+import (
+	"slices"
+	"strings"
+	"testing"
+
+	"github.com/papa0four/orkowatch/internal/dataset/osv"
+	"github.com/papa0four/orkowatch/internal/tui"
+	"github.com/papa0four/orkowatch/internal/vulnmatch"
+)
+
+// matchedView is a match of two packages: openssl with one vulnerability
+// fixable and labeled high by its records and one unfixed labeled low, bash
+// with one unfixed that states only a CVSS vector, and one pair not matched.
+func matchedView() vulnmatch.View {
+	v := vulnmatch.View{Dataset: "osv-ubuntu", Release: "Ubuntu:22.04", DataDate: "2026-11-24", State: "current",
+		Packages: []vulnmatch.PackageMatches{
+			{Package: "bash", Installed: "5.1-6ubuntu1", Vulnerabilities: []vulnmatch.Vulnerability{
+				{ID: "CVE-2026-3", Status: vulnmatch.StatusUnfixed, Severity: vulnmatch.Severity{Level: vulnmatch.LevelNone}, Records: []string{"UBUNTU-CVE-2026-3"}},
+			}},
+			{Package: "openssl", Installed: "3.0.2-1", Binaries: []string{"libssl3", "openssl"}, Vulnerabilities: []vulnmatch.Vulnerability{
+				{ID: "CVE-2026-1", Status: vulnmatch.StatusFixAvailable, Fixed: "3.0.2-2", Severity: vulnmatch.Severity{Label: "Important", Level: vulnmatch.LevelHigh, Basis: "advisory rating"},
+					Scores: []osv.Severity{{Type: "CVSS_V3", Score: "CVSS:3.1/AV:N"}}, Records: []string{"UBUNTU-CVE-2026-1", "USN-1-1"}},
+				{ID: "CVE-2026-2", Status: vulnmatch.StatusUnfixed, Severity: vulnmatch.Severity{Label: "low", Level: vulnmatch.LevelLow, Basis: "CVSS v3.1 base 3.1"}, Records: []string{"UBUNTU-CVE-2026-2"}},
+			}},
+		},
+		NotMatched: []vulnmatch.NotMatched{{ID: "CVE-2026-4", Package: "nodejs", Installed: "1:20.1-1.module+el9", Reason: "a module build"}},
+		Counts:     vulnmatch.Counts{FixAvailable: 1, Unfixed: 2, NotMatched: 1},
+	}
+	return v
+}
+
+// field returns the value of the field labeled label in r.
+func field(r tui.Record, label string) string {
+	for _, f := range r.Fields {
+		if f.Label == label {
+			return f.Value
+		}
+	}
+	return ""
+}
+
+// The tab lists each vulnerability of each package, fixable first, then
+// unfixed, then not matched; each record falls under its status and its
+// records' severity label; it opens on those with a fix available; and its
+// detail gives the package, what was built from it, the versions, the scores
+// as the records give them, the records, and the dataset.
+func TestVulnerabilitiesTab(t *testing.T) {
+	tab := vulnerabilitiesTab(matchedView())
+	if tab.ID != tui.TabVulnerabilities || tab.Note != "" {
+		t.Fatalf("tab %q, note %q", tab.ID, tab.Note)
+	}
+	var rows []string
+	for _, r := range tab.Records {
+		rows = append(rows, r.Title+" | "+r.Subtitle+" | "+r.Filters[0][0]+","+r.Filters[1][0])
+	}
+	want := []string{
+		"CVE-2026-1  openssl | fix 3.0.2-2  Important | fix available,high",
+		"CVE-2026-3  bash | unfixed | unfixed,none stated",
+		"CVE-2026-2  openssl | unfixed  low | unfixed,low",
+		"CVE-2026-4  nodejs | not matched | not matched,none stated",
+	}
+	if !slices.Equal(rows, want) {
+		t.Errorf("rows\n%s\nwant\n%s", strings.Join(rows, "\n"), strings.Join(want, "\n"))
+	}
+	if len(tab.Filters) != 2 || tab.Filters[0].Start != vulnmatch.StatusFixAvailable ||
+		!slices.Equal(tab.Filters[0].Options, []string{tui.All, "fix available", "unfixed", "not matched"}) ||
+		!slices.Equal(tab.Filters[1].Options, []string{tui.All, "high", "low", "none stated"}) {
+		t.Errorf("filters %+v", tab.Filters)
+	}
+
+	fixable := tab.Records[0]
+	for label, value := range map[string]string{
+		"package":                          "openssl",
+		"installed packages built from it": "libssl3, openssl",
+		"installed":                        "3.0.2-1",
+		"fixed in":                         "3.0.2-2",
+		"severity":                         "Important, placed with high (advisory rating)",
+		"scores, as the records give them": "CVSS_V3: CVSS:3.1/AV:N",
+		"records":                          "UBUNTU-CVE-2026-1, USN-1-1",
+		"matched against":                  "osv-ubuntu, Ubuntu:22.04, data of 2026-11-24, current",
+	} {
+		if got := field(fixable, label); got != value {
+			t.Errorf("%s: %q, want %q", label, got, value)
+		}
+	}
+	if got := field(tab.Records[3], "not matched"); got != "a module build" {
+		t.Errorf("the pair not matched gives %q", got)
+	}
+}
+
+// With nothing fixable the tab opens on all; with no match made it says why.
+func TestVulnerabilitiesTabOpensAndNotes(t *testing.T) {
+	v := matchedView()
+	v.Packages = v.Packages[:1]
+	v.Counts.FixAvailable = 0
+	if tab := vulnerabilitiesTab(v); tab.Filters[0].Start != tui.All {
+		t.Errorf("with nothing fixable the tab opens on %q", tab.Filters[0].Start)
+	}
+	tab := vulnerabilitiesTab(vulnmatch.View{NotDone: "osv-ubuntu is not held; fetch it with owatch data refresh"})
+	if tab.Note != "Matching was not done: osv-ubuntu is not held; fetch it with owatch data refresh" || len(tab.Records) != 0 {
+		t.Errorf("a match not made: %+v", tab)
+	}
+}
+
+// A severity is shown with what it rests on, and with the level it is placed
+// at when the source's word is another; with none stated it says so.
+func TestSeverityText(t *testing.T) {
+	for want, s := range map[string]vulnmatch.Severity{
+		"medium (Ubuntu priority)":                       {Label: "medium", Level: vulnmatch.LevelMedium, Basis: "Ubuntu priority"},
+		"Moderate, placed with medium (advisory rating)": {Label: "Moderate", Level: vulnmatch.LevelMedium, Basis: "advisory rating"},
+		"high (CVSS v3.1 base 7.1)":                      {Label: "high", Level: vulnmatch.LevelHigh, Basis: "CVSS v3.1 base 7.1"},
+		"none stated":                                    {Level: vulnmatch.LevelNone},
+	} {
+		if got := severityText(s); got != want {
+			t.Errorf("%+v: %q, want %q", s, got, want)
+		}
+	}
+}
+
+// The tab is offered after Software by a report that holds a match, and by
+// no other, so a report from before matching opens as it did.
+func TestVulnerabilitiesTabOffered(t *testing.T) {
+	ids := func(src BrowserSource) []string {
+		var out []string
+		for _, tab := range BrowserReport(src).Tabs {
+			out = append(out, tab.ID)
+		}
+		return out
+	}
+	v := matchedView()
+	if got := ids(BrowserSource{Vulns: &v}); !slices.Equal(got[:3], []string{tui.TabSystem, tui.TabSoftware, tui.TabVulnerabilities}) {
+		t.Errorf("with a match the tabs are %q", got)
+	}
+	if got := ids(BrowserSource{}); slices.Contains(got, tui.TabVulnerabilities) {
+		t.Errorf("without a match the tabs are %q", got)
+	}
+}

@@ -31,9 +31,11 @@ type (
 		MaxBytes() int64
 
 		// Check reads the data and refuses it when it is not what the source
-		// publishes. It reads no further than it needs to decide, and the
-		// caller bounds what it can read to MaxBytes.
-		Check(data io.Reader) (Facts, error)
+		// publishes, or is not for host: data kept for one release of a
+		// system is refused on another, wherever it was brought from. It
+		// reads no further than it needs to decide, and the caller bounds
+		// what it can read to MaxBytes.
+		Check(data io.Reader, host *osfingerprint.OSInfo) (Facts, error)
 	}
 
 	// Facts is what Check learns from the data itself, which no manifest can

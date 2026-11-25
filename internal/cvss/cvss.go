@@ -1,6 +1,6 @@
 // internal/cvss/cvss.go
 
-// Package cvss computes a CVSS v3.1 base score from a vector string and maps
+// Package cvss computes a CVSS v3.1 or v3.0 base score from a vector string and maps
 // a score to its qualitative severity band, following the equations in the
 // FIRST CVSS v3.1 specification. The registry's baselines are CVSS v4.0 and are
 // scored by internal/cvss/v4; this package remains for the v3.x scores NVD
@@ -22,7 +22,8 @@ import (
 // The constants of the base score equations, as the specification defines
 // them in section 7.1.
 const (
-	version = "CVSS:3.1"
+	version    = "CVSS:3.1"
+	versionOld = "CVSS:3.0"
 
 	unchangedImpactScale = 6.42
 	changedImpactScale   = 7.52
@@ -52,9 +53,10 @@ const (
 )
 
 type (
-	// Vector is a parsed CVSS v3.1 base vector, each metric held as the
-	// letter it is written with.
+	// Vector is a parsed CVSS v3.1 or v3.0 base vector, each metric held as
+	// the letter it is written with, and the version it states.
 	Vector struct {
+		version                                                                                            string
 		attackVector, complexity, privileges, interaction, scope, confidentiality, integrity, availability byte
 	}
 
@@ -93,15 +95,24 @@ var (
 )
 
 // Parse reads a CVSS v3.1 base vector such as
-// "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N". It refuses a vector of
-// another version, one that omits or repeats a metric, one with a value the
-// metric does not allow, and one carrying a metric outside the base set.
+// "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N", or a v3.0 one, which has
+// the same metrics and values. It refuses a vector of another version, one
+// that omits or repeats a metric, one with a value the metric does not
+// allow, and one carrying a metric outside the base set.
+//
+// A v3.0 vector is scored with the v3.1 base equations. FIRST's v3.1 user
+// guide says v3.1 was made "without introducing new metrics or metric
+// values, and without making major changes to existing formulas", that its
+// restructuring of the formulas is "purely clarifications and do not alter
+// the scoring", and that the rounding function "is now defined more
+// precisely"; the scores it names as changed are Temporal and Environmental.
 func Parse(vector string) (Vector, error) {
 	var v Vector
 	parts := strings.Split(vector, "/")
-	if parts[0] != version {
-		return v, fmt.Errorf("%q does not begin with %s", vector, version)
+	if parts[0] != version && parts[0] != versionOld {
+		return v, fmt.Errorf("%q does not begin with %s or %s", vector, version, versionOld)
 	}
+	v.version = strings.TrimPrefix(parts[0], "CVSS:")
 
 	seen := make(map[string]bool, len(metrics))
 	for _, part := range parts[1:] {
@@ -129,6 +140,9 @@ func Parse(vector string) (Vector, error) {
 	}
 	return v, nil
 }
+
+// Version is the version the vector states, 3.1 or 3.0.
+func (v Vector) Version() string { return v.version }
 
 func lookup(key string) (metric, bool) {
 	for _, m := range metrics {

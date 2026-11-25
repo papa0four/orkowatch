@@ -4,6 +4,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -80,8 +81,8 @@ func TestStatusOfAHeldDataset(t *testing.T) {
 // unversioned is the test dataset with a check that states no version.
 type unversioned struct{ testDataset }
 
-func (u unversioned) Check(data io.Reader) (dataset.Facts, error) {
-	facts, err := u.testDataset.Check(data)
+func (u unversioned) Check(data io.Reader, host *osfingerprint.OSInfo) (dataset.Facts, error) {
+	facts, err := u.testDataset.Check(data, host)
 	facts.Version = ""
 	return facts, err
 }
@@ -282,5 +283,33 @@ func TestForProcess(t *testing.T) {
 	}
 	if s.Root() != want || !strings.HasSuffix(s.Root(), filepath.Join("owatch", "datasets")) {
 		t.Errorf("the store is %s, want %s", s.Root(), want)
+	}
+}
+
+// Read gives a run the data of a held dataset, checked as it is given: a
+// dataset not held is ErrNotHeld, and one whose data is not what its manifest
+// says is ErrUnusable even though consume saw it.
+func TestRead(t *testing.T) {
+	s := Store{root: t.TempDir()}
+	d := testDataset{Name: "test-data", Applies: true}
+	var got strings.Builder
+	consume := func(data io.Reader) error {
+		got.Reset()
+		_, err := io.Copy(&got, data)
+		return err
+	}
+
+	if _, err := s.Read(d, now, consume); !errors.Is(err, ErrNotHeld) {
+		t.Errorf("a dataset not held gave %v, want ErrNotHeld", err)
+	}
+	put(t, s, d, content, now.Add(-time.Hour), nil)
+	if m, err := s.Read(d, now, consume); err != nil || got.String() != content || m.ID != d.Name {
+		t.Errorf("a held dataset gave %q, %+v, %v", got.String(), m, err)
+	}
+	if err := os.WriteFile(dataFile(s, d, content), []byte(strings.ToUpper(content)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Read(d, now, consume); !errors.Is(err, ErrUnusable) || got.Len() == 0 {
+		t.Errorf("damaged data gave %v after consume saw %d bytes, want ErrUnusable", err, got.Len())
 	}
 }

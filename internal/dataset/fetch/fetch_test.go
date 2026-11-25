@@ -7,6 +7,7 @@ import (
 	"context"
 	"crypto/x509"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -20,6 +21,7 @@ import (
 	"github.com/papa0four/orkowatch/internal/dataset"
 	"github.com/papa0four/orkowatch/internal/dataset/datasettest"
 	"github.com/papa0four/orkowatch/internal/elevation"
+	"github.com/papa0four/orkowatch/internal/osfingerprint"
 )
 
 // origin is a TLS server standing in for the source of a dataset, with the
@@ -188,7 +190,31 @@ func TestRedirectWithin(t *testing.T) {
 	}
 }
 
-// A body over what the dataset may hold is refused, whether the server states
+// keeping is a dataset that keeps less than its origin serves, whose origin
+// may serve twice what it keeps.
+type keeping struct{ datasettest.Dataset }
+
+func (keeping) FetchMaxBytes() int64 { return 2 * datasettest.MaxBytes }
+
+func (keeping) Keep(io.ReaderAt, int64, *osfingerprint.OSInfo, io.Writer) error { return nil }
+
+// A dataset that keeps less than its origin serves is fetched up to the
+// origin's limit, not its own, and past it is refused.
+func TestFetchLimitOfAKeepingDataset(t *testing.T) {
+	within := strings.Repeat("x", datasettest.MaxBytes+1)
+	past := strings.Repeat("x", 2*datasettest.MaxBytes+1)
+	o := serve(t, map[string]http.HandlerFunc{"/within": send(t, within, true), "/past": send(t, past, false)})
+
+	var got bytes.Buffer
+	if err := o.client.Fetch(context.Background(), keeping{o.at("/within").(datasettest.Dataset)}, &got); err != nil || got.String() != within {
+		t.Errorf("a file within the origin's limit gave %v and %d bytes", err, got.Len())
+	}
+	if err := o.client.Fetch(context.Background(), keeping{o.at("/past").(datasettest.Dataset)}, &got); !refused(err, "the dataset's origin may serve") {
+		t.Errorf("a file past the origin's limit gave %v, want it refused for good", err)
+	}
+}
+
+// A body over what the dataset's origin may serve is refused, whether the server states
 // its length or not, and a download past the time limit is refused. Neither
 // is tried again.
 func TestLimits(t *testing.T) {
@@ -206,7 +232,7 @@ func TestLimits(t *testing.T) {
 
 	var got bytes.Buffer
 	for _, path := range []string{"/stated", "/unstated"} {
-		if err := o.client.Fetch(context.Background(), o.at(path), &got); !refused(err, "the dataset may hold") {
+		if err := o.client.Fetch(context.Background(), o.at(path), &got); !refused(err, "the dataset's origin may serve") {
 			t.Errorf("%s gave %v, want it refused for good", path, err)
 		}
 	}
@@ -218,6 +244,92 @@ func TestLimits(t *testing.T) {
 	}
 	if waited := time.Since(started); waited > 5*time.Second {
 		t.Errorf("gave up after %v", waited)
+	}
+}
+
+// A download is allowed its size at 256 KiB a second, and never less than ten
+// minutes: an 838 MB file is allowed the 54 minutes it needs at that rate.
+func TestTimeLimit(t *testing.T) {
+	c := newClient(nil, nil)
+	for size, want := range map[int64]time.Duration{
+		0:           10 * time.Minute,
+		1 << 20:     10 * time.Minute,
+		150 << 20:   10 * time.Minute,
+		160 << 20:   640 * time.Second,
+		837_827_112: 3197 * time.Second,
+		2 << 30:     8192 * time.Second,
+	} {
+		if got := c.TimeLimit(size); got != want {
+			t.Errorf("a download of %d bytes is allowed %v, want %v", size, got, want)
+		}
+	}
+}
+
+// A download that receives nothing for the stall time is ended as a failure
+// that may clear, while one that keeps receiving runs past it.
+func TestStall(t *testing.T) {
+	release := make(chan struct{})
+	write := func(w http.ResponseWriter, text string) {
+		if _, err := w.Write([]byte(text)); err != nil {
+			t.Logf("the test server could not answer: %v", err)
+		}
+		w.(http.Flusher).Flush()
+	}
+	o := serve(t, map[string]http.HandlerFunc{
+		"/stalls": func(w http.ResponseWriter, _ *http.Request) {
+			write(w, "owatch")
+			<-release
+		},
+		"/trickles": func(w http.ResponseWriter, _ *http.Request) {
+			for range 6 {
+				write(w, "x")
+				time.Sleep(50 * time.Millisecond)
+			}
+		},
+	})
+	// Released before the server closes, which waits for its handlers.
+	t.Cleanup(func() { close(release) })
+	o.client.stall = 150 * time.Millisecond
+
+	var got bytes.Buffer
+	err := o.client.Fetch(context.Background(), o.at("/stalls"), &got)
+	var fetchErr *Error
+	if !errors.As(err, &fetchErr) || !fetchErr.Passing() || !strings.Contains(err.Error(), "nothing was received for 150ms") {
+		t.Errorf("a stalled download gave %v, want a failure that may clear naming the stall", err)
+	}
+	got.Reset()
+	if err := o.client.Fetch(context.Background(), o.at("/trickles"), &got); err != nil || got.String() != "xxxxxx" {
+		t.Errorf("a download that kept receiving gave %v and %q", err, got.String())
+	}
+}
+
+// wide is a dataset whose origin may serve two seconds' worth at the floor
+// rate.
+type wide struct{ datasettest.Dataset }
+
+func (wide) FetchMaxBytes() int64 { return 2 * floorRate }
+
+func (wide) Keep(io.ReaderAt, int64, *osfingerprint.OSInfo, io.Writer) error { return nil }
+
+// A download whose size the server does not state is allowed the time the
+// most its origin may serve needs, not only the floor.
+func TestUnstatedSizeIsAllowedTheMost(t *testing.T) {
+	o := serve(t, map[string]http.HandlerFunc{
+		"/unstated": func(w http.ResponseWriter, _ *http.Request) {
+			for range 8 {
+				if _, err := w.Write([]byte("x")); err != nil {
+					t.Logf("the test server could not answer: %v", err)
+				}
+				w.(http.Flusher).Flush()
+				time.Sleep(100 * time.Millisecond)
+			}
+		},
+	})
+	o.client.timeout = 300 * time.Millisecond
+
+	var got bytes.Buffer
+	if err := o.client.Fetch(context.Background(), wide{o.at("/unstated").(datasettest.Dataset)}, &got); err != nil || got.Len() != 8 {
+		t.Errorf("a download of unstated size within the most its origin may serve gave %v and %d bytes", err, got.Len())
 	}
 }
 

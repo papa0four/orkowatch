@@ -25,6 +25,7 @@ import (
 	"github.com/papa0four/orkowatch/internal/sockets"
 	"github.com/papa0four/orkowatch/internal/softwarelist"
 	"github.com/papa0four/orkowatch/internal/tui"
+	"github.com/papa0four/orkowatch/internal/vulnmatch"
 )
 
 // maxReportBytes is the largest report file browse reads. A whole-filesystem
@@ -51,6 +52,7 @@ type (
 		Modules  []moduleRun                `json:"modules" yaml:"modules"`
 		System   *osfingerprint.SystemView  `json:"system" yaml:"system"`
 		Software *softwarelist.SoftwareView `json:"software" yaml:"software"`
+		Vulns    *vulnmatch.View            `json:"vulnerabilities" yaml:"vulnerabilities"`
 		Sockets  *sockets.View              `json:"sockets" yaml:"sockets"`
 		Datasets *dataset.View              `json:"datasets" yaml:"datasets"`
 		Security *audit.View                `json:"security" yaml:"security"`
@@ -251,6 +253,7 @@ func decodeReport(path string, format, view delivery.Format, data []byte) (tui.R
 			Modules:   saved.Modules,
 			System:    saved.System,
 			Software:  saved.Software,
+			Vulns:     saved.Vulns,
 			Sockets:   saved.Sockets,
 			Datasets:  saved.Datasets,
 			Security:  saved.Security,
