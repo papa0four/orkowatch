@@ -17,7 +17,7 @@ import (
 // opening on the first status, and a second tab to leave it for.
 func filteredReport() Report {
 	record := func(title, status string) Record {
-		return Record{Title: title, Subtitle: status, Filters: [][]string{{status}}}
+		return Record{Title: title, Subtitle: Plain(status), Filters: [][]string{{status}}}
 	}
 	return Report{
 		Title: "owatch software",

@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/papa0four/orkowatch/internal/softwarelist"
+	"github.com/papa0four/orkowatch/internal/tone"
 	"github.com/papa0four/orkowatch/internal/tui"
 	"github.com/papa0four/orkowatch/internal/vulnmatch"
 )
@@ -54,7 +55,7 @@ func softwareTab(software softwarelist.SoftwareView, vulns *vulnmatch.View) tui.
 				fields = append(fields, tui.SummaryLine{Label: field.Label, Value: safeLines(field.Value)})
 			}
 		}
-		record := tui.Record{Title: safeLines(pkg.Name), Subtitle: safeLines(pkg.Version)}
+		record := tui.Record{Title: safeLines(pkg.Name), Subtitle: tui.Plain(safeLines(pkg.Version))}
 		switch {
 		case matched && pkg.Manager == vulns.Order:
 			name, version := vulnmatch.Named(pkg)
@@ -62,9 +63,9 @@ func softwareTab(software softwarelist.SoftwareView, vulns *vulnmatch.View) tui.
 			record.Filters = [][]string{matchedOptions(found, affected)}
 			if affected {
 				summary := packageSummary(found)
-				record.Subtitle = safeLines(pkg.Version + "  " + summary)
+				record.Subtitle = append(tui.Plain(safeLines(pkg.Version+"  ")), summary...)
 				fields = append(fields,
-					tui.SummaryLine{Label: "vulnerabilities", Value: safeLines(summary)},
+					tui.SummaryLine{Label: "vulnerabilities", Value: summary.String()},
 					tui.SummaryLine{Label: "matched against " + matchedAgainst(*vulns), Value: safeLines(vulnerabilityLines(found))})
 			} else {
 				fields = append(fields, tui.SummaryLine{Label: "vulnerabilities", Value: "none matched; this does not say the package has none"})
@@ -97,8 +98,8 @@ func matchedOptions(found vulnmatch.PackageMatches, affected bool) []string {
 }
 
 // packageSummary counts a package's vulnerabilities, those with a fix and
-// those unfixed, and names the worst severity among them.
-func packageSummary(found vulnmatch.PackageMatches) string {
+// those unfixed, and names the worst severity among them, in its tone.
+func packageSummary(found vulnmatch.PackageMatches) tui.Line {
 	fixable, unfixed := 0, 0
 	worst := vulnmatch.Severity{Level: vulnmatch.LevelNone}
 	for _, v := range found.Vulnerabilities {
@@ -118,9 +119,9 @@ func packageSummary(found vulnmatch.PackageMatches) string {
 	if unfixed > 0 {
 		parts = append(parts, fmt.Sprintf("%d unfixed", unfixed))
 	}
-	summary := strings.Join(parts, ", ")
+	summary := tui.Plain(strings.Join(parts, ", "))
 	if worst.Level != vulnmatch.LevelNone {
-		summary += "; worst " + worst.Label
+		summary = append(summary, tui.Span{Text: "; worst "}, tui.Span{Text: safeLines(worst.Label), Tone: tone.ForSeverity(worst.Level)})
 	}
 	return summary
 }

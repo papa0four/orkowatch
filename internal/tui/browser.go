@@ -15,6 +15,7 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/papa0four/orkowatch/internal/security/finding"
+	"github.com/papa0four/orkowatch/internal/tone"
 )
 
 const (
@@ -106,10 +107,13 @@ type (
 		Text  string
 	}
 
-	// SummaryLine is one labeled figure in the browser's summary.
+	// SummaryLine is one labeled figure in the browser's summary, or one
+	// field of a record's detail. Tone colors the whole value, for a field
+	// whose value is one meaning, such as a severity.
 	SummaryLine struct {
 		Label string
 		Value string
+		Tone  tone.Tone
 	}
 
 	// Item is one evaluated rule. A finding carries the registry's text and

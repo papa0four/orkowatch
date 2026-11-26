@@ -207,7 +207,7 @@ func TestDataStatusReport(t *testing.T) {
 			t.Errorf("%s: opens on %q, want the datasets", format, report.Start)
 		}
 		at := slices.IndexFunc(report.Tabs, func(tab tui.Tab) bool { return tab.ID == tui.TabDatasets })
-		if at < 0 || len(report.Tabs[at].Records) != 1 || report.Tabs[at].Records[0].Subtitle != string(dataset.StateOutOfSync) {
+		if at < 0 || len(report.Tabs[at].Records) != 1 || report.Tabs[at].Records[0].Subtitle.String() != string(dataset.StateOutOfSync) {
 			t.Errorf("%s: tabs %+v, want the dataset out of sync", format, report.Tabs)
 		}
 		if !strings.HasPrefix(report.Text, "Store: "+s.Root()) || !strings.Contains(report.Text, "wanted  out of sync: data of 2026-11-20") {

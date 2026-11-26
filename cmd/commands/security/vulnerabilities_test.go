@@ -11,6 +11,7 @@ import (
 	"github.com/papa0four/orkowatch/internal/dataset/epss"
 	"github.com/papa0four/orkowatch/internal/dataset/kev"
 	"github.com/papa0four/orkowatch/internal/dataset/osv"
+	"github.com/papa0four/orkowatch/internal/tone"
 	"github.com/papa0four/orkowatch/internal/tui"
 	"github.com/papa0four/orkowatch/internal/vulnmatch"
 )
@@ -58,7 +59,7 @@ func TestVulnerabilitiesTab(t *testing.T) {
 	}
 	var rows []string
 	for _, r := range tab.Records {
-		rows = append(rows, r.Title+" | "+r.Subtitle+" | "+r.Filters[0][0]+","+r.Filters[1][0])
+		rows = append(rows, r.Title+" | "+r.Subtitle.String()+" | "+r.Filters[0][0]+","+r.Filters[1][0])
 	}
 	want := []string{
 		"CVE-2026-1  openssl | Important  fix 3.0.2-2 | fix available,high",
@@ -109,7 +110,7 @@ func TestVulnerabilitiesTabKnownExploited(t *testing.T) {
 
 	var rows []string
 	for _, r := range tab.Records {
-		rows = append(rows, r.Band+" | "+r.Title+" | "+r.Subtitle+" | "+r.Filters[2][0])
+		rows = append(rows, r.Band+" | "+r.Title+" | "+r.Subtitle.String()+" | "+r.Filters[2][0])
 	}
 	want := []string{
 		"known exploited | CVE-2026-1  openssl | exploited  Important  fix 3.0.2-2 | known exploited",
@@ -155,7 +156,7 @@ func TestVulnerabilitiesTabPredicted(t *testing.T) {
 
 	var rows []string
 	for _, r := range tab.Records {
-		rows = append(rows, r.Title+" | "+r.Subtitle)
+		rows = append(rows, r.Title+" | "+r.Subtitle.String())
 	}
 	want := []string{
 		"CVE-2026-1  openssl | Important  EPSS 0.043%  fix 3.0.2-2",
@@ -177,8 +178,8 @@ func TestVulnerabilitiesTabPredicted(t *testing.T) {
 	v = matchedView()
 	v.ExploitPrediction = &dataset.Use{Provenance: dataset.Provenance{ID: "epss"}, NotDone: "epss is not held"}
 	tab = vulnerabilitiesTab(v)
-	if strings.Contains(tab.Records[0].Subtitle, "EPSS") || field(tab.Records[0], "exploit prediction data") != "not read: epss is not held" {
-		t.Errorf("with the scores not read: subtitle %q, detail %q", tab.Records[0].Subtitle, field(tab.Records[0], "exploit prediction data"))
+	if strings.Contains(tab.Records[0].Subtitle.String(), "EPSS") || field(tab.Records[0], "exploit prediction data") != "not read: epss is not held" {
+		t.Errorf("with the scores not read: subtitle %q, detail %q", tab.Records[0].Subtitle.String(), field(tab.Records[0], "exploit prediction data"))
 	}
 }
 
@@ -227,5 +228,30 @@ func TestVulnerabilitiesTabOffered(t *testing.T) {
 	}
 	if got := ids(BrowserSource{}); slices.Contains(got, tui.TabVulnerabilities) {
 		t.Errorf("without a match the tabs are %q", got)
+	}
+}
+
+// A vulnerability's subtitle colors known exploitation and the severity, each
+// in its own tone, and nothing else; its severity field is in the severity's
+// tone.
+func TestVulnerabilityRecordTones(t *testing.T) {
+	v := matchedView()
+	v.Packages[1].Vulnerabilities[0].KnownExploited = &kev.Entry{Added: "2026-11-20"}
+	v.KnownExploited = &dataset.Use{Provenance: dataset.Provenance{ID: "kev"}}
+	r := vulnerabilitiesTab(v).Records[0]
+	var toned []tui.Span
+	for _, s := range r.Subtitle {
+		if s.Tone != tone.Plain {
+			toned = append(toned, s)
+		}
+	}
+	want := []tui.Span{{Text: "exploited", Tone: tone.KnownExploited}, {Text: "Important", Tone: tone.High}}
+	if !slices.Equal(toned, want) {
+		t.Errorf("the toned words are %+v, want %+v", toned, want)
+	}
+	for _, f := range r.Fields {
+		if f.Label == "severity" && f.Tone != tone.High {
+			t.Errorf("the severity field is in tone %d", f.Tone)
+		}
 	}
 }

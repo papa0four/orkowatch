@@ -108,10 +108,21 @@ type (
 	// whose records have none has no headings.
 	Record struct {
 		Title    string
-		Subtitle string
+		Subtitle Line
 		Fields   []SummaryLine
 		Filters  [][]string
 		Band     string
+	}
+
+	// Line is text in runs, each drawn in its tone, so only the words that
+	// carry a meaning are colored and the rest keeps the terminal's own
+	// color.
+	Line []Span
+
+	// Span is a run of a Line's text and the tone it is drawn in.
+	Span struct {
+		Text string
+		Tone tone.Tone
 	}
 
 	// listLine is one line of a record tab's list: the heading of a band with
@@ -248,7 +259,7 @@ func newRecordPane(tab Tab) *recordPane {
 	p.index = make([]string, len(tab.Records))
 	for i, r := range tab.Records {
 		var text strings.Builder
-		text.WriteString(r.Title + "\n" + r.Subtitle)
+		text.WriteString(r.Title + "\n" + r.Subtitle.String())
 		for _, f := range r.Fields {
 			text.WriteString("\n" + f.Label + " " + f.Value)
 		}
@@ -415,15 +426,19 @@ func (p *recordPane) listView(rows, width int, selected bool) string {
 		}
 		row := at.row
 		record := p.tab.Records[p.visible[row]]
-		text := record.Title
-		if record.Subtitle != "" {
-			text += "  " + record.Subtitle
+		text, toned := record.Title, record.Title
+		if len(record.Subtitle) > 0 {
+			text += "  " + record.Subtitle.String()
+			toned += "  " + record.Subtitle.render(lipgloss.NewStyle())
 		}
-		line := truncate(text, width)
-		if row == p.cursor && selected {
-			line = styleSelected.Render(fmt.Sprintf("%-*s", width, line))
-		} else {
-			line = style.Render(line)
+		var line string
+		switch {
+		case row == p.cursor && selected:
+			line = styleSelected.Render(fmt.Sprintf("%-*s", width, truncate(text, width)))
+		case band != "" && band == p.tab.Alert:
+			line = style.Render(truncate(text, width))
+		default:
+			line = truncate(toned, width)
 		}
 		lines = append(lines, line)
 	}
@@ -434,13 +449,43 @@ func (p *recordPane) listView(rows, width int, selected bool) string {
 }
 
 // bandStyle is how the list draws a line of band: whole in the
-// known-exploited tone when it is the tab's alert band, as plain text
-// otherwise.
+// known-exploited tone when it is the tab's alert band, and in the terminal's
+// own color otherwise.
 func (p *recordPane) bandStyle(band string) lipgloss.Style {
 	if band != "" && band == p.tab.Alert {
 		return tone.KnownExploited.Style()
 	}
-	return styleText
+	return lipgloss.NewStyle()
+}
+
+// Plain is text as a Line in no tone, or no Line for no text.
+func Plain(text string) Line {
+	if text == "" {
+		return nil
+	}
+	return Line{{Text: text}}
+}
+
+// String is the Line's text without its tones.
+func (l Line) String() string {
+	var b strings.Builder
+	for _, s := range l {
+		b.WriteString(s.Text)
+	}
+	return b.String()
+}
+
+// render draws the Line: each run in its tone, and a run in no tone in plain.
+func (l Line) render(plain lipgloss.Style) string {
+	var b strings.Builder
+	for _, s := range l {
+		if s.Tone == tone.Plain {
+			b.WriteString(plain.Render(s.Text))
+		} else {
+			b.WriteString(s.Tone.Render(s.Text))
+		}
+	}
+	return b.String()
 }
 
 // bandRule is the heading of a band as a rule across the list: the band's
@@ -463,11 +508,11 @@ func recordText(r Record, width int) string {
 	wrap := detailWrap(width)
 	var out strings.Builder
 	out.WriteString(styleText.Bold(true).Render(wrap.Render(r.Title)) + "\n")
-	if r.Subtitle != "" {
-		out.WriteString(styleMuted.Render(wrap.Render(r.Subtitle)) + "\n")
+	if len(r.Subtitle) > 0 {
+		out.WriteString(wrap.Render(r.Subtitle.render(styleMuted)) + "\n")
 	}
 	for _, f := range r.Fields {
-		out.WriteString("\n" + styleMuted.Render(f.Label) + "\n" + wrap.Render(f.Value) + "\n")
+		out.WriteString("\n" + styleMuted.Render(f.Label) + "\n" + wrap.Render(f.Tone.Render(f.Value)) + "\n")
 	}
 	return out.String()
 }

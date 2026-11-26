@@ -8,6 +8,7 @@ import (
 
 	"github.com/papa0four/orkowatch/internal/dataset"
 	"github.com/papa0four/orkowatch/internal/dataset/epss"
+	"github.com/papa0four/orkowatch/internal/tone"
 	"github.com/papa0four/orkowatch/internal/tui"
 	"github.com/papa0four/orkowatch/internal/vulnmatch"
 )
@@ -49,7 +50,7 @@ func vulnerabilitiesTab(v vulnmatch.View) tui.Tab {
 		present[vulnmatch.LevelNone] = true
 		record := tui.Record{
 			Title:    safeLines(n.ID + "  " + n.Package),
-			Subtitle: statusNotMatched,
+			Subtitle: tui.Plain(statusNotMatched),
 			Fields: []tui.SummaryLine{
 				{Label: "package", Value: safeLines(n.Package)},
 				{Label: "installed", Value: safeLines(n.Installed)},
@@ -116,24 +117,31 @@ type matchData struct {
 // vulnerabilityRecord is one vulnerability of an affected package as the tab
 // shows it, with data's description of the match, and in its band when the
 // records are banded. Its subtitle is in the order the tab lists by: known
-// exploitation, severity, the EPSS score, then the status.
+// exploitation, severity, the EPSS score, then the status, with the known
+// exploitation and the severity in their tones.
 func vulnerabilityRecord(pkg vulnmatch.PackageMatches, found vulnmatch.Vulnerability, data matchData) tui.Record {
-	var parts []string
+	var parts []tui.Span
 	if found.KnownExploited != nil {
-		parts = append(parts, "exploited")
+		parts = append(parts, tui.Span{Text: "exploited", Tone: tone.KnownExploited})
 	}
 	if found.Severity.Label != "" {
-		parts = append(parts, found.Severity.Label)
+		parts = append(parts, tui.Span{Text: safeLines(found.Severity.Label), Tone: tone.ForSeverity(found.Severity.Level)})
 	}
 	if word := data.view.PredictionWord(found); word != "" {
-		parts = append(parts, word)
+		parts = append(parts, tui.Span{Text: word})
 	}
 	if found.Fixed != "" {
-		parts = append(parts, "fix "+found.Fixed)
+		parts = append(parts, tui.Span{Text: safeLines("fix " + found.Fixed)})
 	} else {
-		parts = append(parts, found.Status)
+		parts = append(parts, tui.Span{Text: found.Status})
 	}
-	subtitle := strings.Join(parts, "  ")
+	var subtitle tui.Line
+	for i, part := range parts {
+		if i > 0 {
+			subtitle = append(subtitle, tui.Span{Text: "  "})
+		}
+		subtitle = append(subtitle, part)
+	}
 	fields := []tui.SummaryLine{{Label: "package", Value: safeLines(pkg.Package)}}
 	if len(pkg.Binaries) > 0 {
 		fields = append(fields, tui.SummaryLine{Label: "installed packages built from it", Value: safeLines(strings.Join(pkg.Binaries, ", "))})
@@ -144,7 +152,7 @@ func vulnerabilityRecord(pkg vulnmatch.PackageMatches, found vulnmatch.Vulnerabi
 	if found.Fixed != "" {
 		fields = append(fields, tui.SummaryLine{Label: "fixed in", Value: safeLines(found.Fixed)})
 	}
-	fields = append(fields, tui.SummaryLine{Label: "severity", Value: safeLines(severityText(found.Severity))})
+	fields = append(fields, tui.SummaryLine{Label: "severity", Value: safeLines(severityText(found.Severity)), Tone: tone.ForSeverity(found.Severity.Level)})
 	if len(found.Scores) > 0 {
 		scores := make([]string, 0, len(found.Scores))
 		for _, s := range found.Scores {
@@ -173,7 +181,7 @@ func vulnerabilityRecord(pkg vulnmatch.PackageMatches, found vulnmatch.Vulnerabi
 	}
 	record := tui.Record{
 		Title:    safeLines(found.ID + "  " + pkg.Package),
-		Subtitle: safeLines(subtitle),
+		Subtitle: subtitle,
 		Fields:   fields,
 		Filters:  [][]string{{found.Status}, {found.Severity.Level}},
 	}
