@@ -1037,7 +1037,9 @@ func (b browser) searchView() string {
 }
 
 // queryLine renders the line above a list: the search text when there is any,
-// then the status the tab gives of what the list holds.
+// then the status the tab gives of what the list holds. With no search in it,
+// it is the list's heading, lit while the list has the keyboard as the left
+// pane's headings are.
 func (b browser) queryLine(status string) string {
 	var query string
 	switch {
@@ -1050,7 +1052,7 @@ func (b browser) queryLine(status string) string {
 	}
 	line := truncate(query+status, b.mainWidth())
 	if query == "" {
-		return styleMuted.Render(line)
+		return b.paneTitle(line, focusList)
 	}
 	return styleText.Render(line)
 }

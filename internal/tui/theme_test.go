@@ -120,3 +120,27 @@ func TestFilterOptionTones(t *testing.T) {
 		t.Errorf("the tab's filters are drawn %q", lines)
 	}
 }
+
+// The line above a list is lit as a heading while the list has the keyboard
+// and muted while another pane has it, on the findings and on a record tab;
+// a search in it is drawn as before.
+func TestListHeadingShowsTheKeyboard(t *testing.T) {
+	for name, b := range map[string]browser{
+		"findings": newBrowser(Report{Title: "owatch audit", Items: []Item{{Check: "ssh", Key: "ssh.root", Result: "fail", Severity: "HIGH", Title: "x"}}}),
+		"records":  newBrowser(Report{Title: "owatch all", Tabs: []Tab{{ID: TabSoftware, Name: "Software", Records: []Record{{Title: "bash"}}}}}),
+	} {
+		b.width, b.height = 160, 40
+		b.focus = focusList
+		if got := b.queryLine("status"); got != styleTitle.Render("status   / to search") {
+			t.Errorf("%s with the keyboard: %q", name, got)
+		}
+		b.focus = focusFilters
+		if got := b.queryLine("status"); got != styleMuted.Render("status   / to search") {
+			t.Errorf("%s without the keyboard: %q", name, got)
+		}
+		b.query = "ssh"
+		if got := b.queryLine("status"); got != styleText.Render("/ ssh  status") {
+			t.Errorf("%s with a search: %q", name, got)
+		}
+	}
+}
