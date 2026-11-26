@@ -161,22 +161,9 @@ func Encode(v any, format Format) ([]byte, error) {
 // format added to report.formats and not handled here fails loudly instead of
 // silently falling back to text.
 func (f *Flags) Deliver(r Report, mask selection.CheckMask) error {
-	var payload []byte
-	switch f.format {
-	case FormatJSON, FormatYAML:
-		encoded, err := Encode(r.View(), f.format)
-		if err != nil {
-			return err
-		}
-		payload = encoded
-	case FormatText:
-		var buf bytes.Buffer
-		if err := r.WriteText(&buf); err != nil {
-			return fmt.Errorf("failed to render text output: %w", err)
-		}
-		payload = buf.Bytes()
-	default:
-		return fmt.Errorf("unsupported output format: %s", f.format)
+	payload, err := f.Payload(r)
+	if err != nil {
+		return err
 	}
 
 	if b, ok := r.(Browsable); ok && f.browses() {
@@ -186,6 +173,23 @@ func (f *Flags) Deliver(r Report, mask selection.CheckMask) error {
 		return nil
 	}
 	return f.emit(payload, mask)
+}
+
+// Payload is r encoded at the resolved format: what Deliver prints, writes,
+// or gives the results browser as the full report under t, and what a report
+// the browser replaces is rendered as, so the two cannot differ in format.
+func (f *Flags) Payload(r Report) ([]byte, error) {
+	switch f.format {
+	case FormatJSON, FormatYAML:
+		return Encode(r.View(), f.format)
+	case FormatText:
+		var buf bytes.Buffer
+		if err := r.WriteText(&buf); err != nil {
+			return nil, fmt.Errorf("failed to render text output: %w", err)
+		}
+		return buf.Bytes(), nil
+	}
+	return nil, fmt.Errorf("unsupported output format: %s", f.format)
 }
 
 // emit writes payload to the resolved destination: a file under --report-file
