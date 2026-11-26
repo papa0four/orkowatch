@@ -45,7 +45,14 @@ type dataCmd struct {
 // newDataCmd returns the owatch data command and its subcommands, reading the
 // host itself.
 func newDataCmd() *cobra.Command {
-	return dataCommand(&dataCmd{
+	return dataCommand(hostData())
+}
+
+// hostData is the data commands' state for this host, which the results
+// browser's refresh shares, so both refresh through one fetcher, one store,
+// and one check of elevation.
+func hostData() *dataCmd {
+	return &dataCmd{
 		known:       held.Known(),
 		open:        store.ForProcess,
 		run:         held.ForHost,
@@ -56,7 +63,7 @@ func newDataCmd() *cobra.Command {
 		elevated:    elevation.Elevated,
 		fetcher:     newFetcher,
 		width:       progressWidth(),
-	})
+	}
 }
 
 // progressWidth is how the data commands ask the width of the terminal their
