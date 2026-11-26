@@ -59,6 +59,10 @@ func (d Dataset) ID() string { return d.Name }
 // AppliesTo reports Applies whatever the host.
 func (d Dataset) AppliesTo(*osfingerprint.OSInfo) bool { return d.Applies }
 
+// Gives names what the dataset gives by its name, so each test dataset gives
+// something of its own.
+func (d Dataset) Gives() string { return "what " + d.Name + " gives" }
+
 // Origin is From.
 func (d Dataset) Origin() dataset.Origin { return d.From }
 

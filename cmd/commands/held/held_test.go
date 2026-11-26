@@ -42,6 +42,24 @@ func check(d dataset.Dataset) func(io.Reader) (dataset.Facts, error) {
 	return func(data io.Reader) (dataset.Facts, error) { return d.Check(data, host) }
 }
 
+// Every dataset owatch knows says what a run lacks without it: matching for
+// each distribution's records, known exploitation for the catalog, and
+// exploit prediction for the scores.
+func TestKnownGive(t *testing.T) {
+	for _, d := range Known() {
+		want := "matching of the installed packages"
+		switch d.ID() {
+		case "kev":
+			want = "known exploitation"
+		case "epss":
+			want = "exploit prediction"
+		}
+		if got := d.Gives(); got != want {
+			t.Errorf("%s gives %q, want %q", d.ID(), got, want)
+		}
+	}
+}
+
 // A run opens its store once, however many datasets it reads and whether or
 // not each is held, and a held dataset reads as its provenance.
 func TestReadOpensTheStoreOnce(t *testing.T) {

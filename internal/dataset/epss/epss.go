@@ -123,6 +123,10 @@ func (Scores) ID() string { return id }
 // system owatch runs on.
 func (Scores) AppliesTo(*osfingerprint.OSInfo) bool { return true }
 
+// Gives is what the scores give a run: a prediction of each matched CVE's
+// exploitation.
+func (Scores) Gives() string { return "exploit prediction" }
+
 // MaxBytes is the most the compressed file may hold.
 func (Scores) MaxBytes() int64 { return maxBytes }
 
