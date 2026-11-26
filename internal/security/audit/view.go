@@ -180,8 +180,41 @@ func conditionView(condition finding.Condition, minSeverity string, counts Class
 		CVSS:        condition.Finding.CVSS,
 		Host:        condition.Finding.Host,
 	}
-	if w := condition.Finding.Weakness; w != nil && counts != nil {
-		view.Finding.KnownExploitedInClass = counts.ClassCount(string(w.ID))
-	}
+	view.Finding.KnownExploitedInClass = classCount(counts, condition.Finding.Weakness)
 	return view, true
+}
+
+// classCount is how many vulnerabilities known to be exploited counts gives
+// the weakness w's class: none for a finding with no weakness or when there
+// are no counts. A result's view and a recounted view count by it alike.
+func classCount(counts ClassCounts, w *finding.Weakness) int {
+	if w == nil || counts == nil {
+		return 0
+	}
+	return counts.ClassCount(string(w.ID))
+}
+
+// Recounted is the view with each finding's count of known-exploited
+// vulnerabilities in its weakness class taken from counts and the data they
+// were read from, or why none was, as when a saved report is matched again
+// after the catalog is refreshed. The view it is made from is not changed:
+// its checks, conditions, and findings are copied before they are counted.
+func (v View) Recounted(counts ClassCounts, use dataset.Use) View {
+	v.KnownExploited = &use
+	results := make([]CheckView, len(v.Results))
+	for i, check := range v.Results {
+		conditions := make([]ConditionView, len(check.Conditions))
+		for j, condition := range check.Conditions {
+			if condition.Finding != nil {
+				counted := *condition.Finding
+				counted.KnownExploitedInClass = classCount(counts, counted.Weakness)
+				condition.Finding = &counted
+			}
+			conditions[j] = condition
+		}
+		check.Conditions = conditions
+		results[i] = check
+	}
+	v.Results = results
+	return v
 }
