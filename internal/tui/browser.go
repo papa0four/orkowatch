@@ -260,11 +260,12 @@ func newBrowser(report Report) browser {
 	b.text.SetHorizontalStep(sideScroll)
 	b.text.SetContent(report.Text)
 
-	severity := &filterGroup{name: "severity", options: []string{allFilter}, labels: []string{allFilter}}
+	severity := &filterGroup{name: "severity", options: []string{allFilter}, labels: []string{allFilter}, tones: map[string]tone.Tone{}}
 	levels := finding.Severities()
 	for i := len(levels) - 1; i >= 0; i-- {
 		severity.options = append(severity.options, levels[i])
 		severity.labels = append(severity.labels, strings.ToLower(levels[i]))
+		severity.tones[levels[i]] = tone.ForSeverity(levels[i])
 	}
 	check := &filterGroup{name: "check", options: []string{allFilter}}
 	seen := make(map[string]bool)
@@ -1127,11 +1128,12 @@ func (b *browser) keepCursorVisible() {
 // findings can later attach to them without it changing. It returns the line
 // the cursor is on as well, which is what scrolling follows.
 func (b browser) sidebarLines() (lines []string, cursorLine int) {
-	option := func(index int, label string, selected bool) {
-		line := "  " + label
+	option := func(index int, label string, t tone.Tone, selected bool) {
+		lead := "  "
 		if selected {
-			line = "> " + label
+			lead = "> "
 		}
+		line := fmt.Sprintf("%-*s", filterWidth-1, lead+label)
 		style := styleMuted
 		if selected {
 			style = styleText
@@ -1139,13 +1141,19 @@ func (b browser) sidebarLines() (lines []string, cursorLine int) {
 		if index < len(b.tabs) {
 			style = b.tabs[index].nameStyle(style)
 		}
-		if b.focus == focusFilters && b.filterCursor == index {
+		cursor := b.focus == focusFilters && b.filterCursor == index
+		if cursor {
 			style = styleSelected
 		}
 		if b.filterCursor == index {
 			cursorLine = len(lines)
 		}
-		lines = append(lines, style.Render(fmt.Sprintf("%-*s", filterWidth-1, line)))
+		word, rest, _ := strings.Cut(line[len(lead):], " ")
+		if t == tone.Plain || cursor {
+			lines = append(lines, style.Render(line))
+			return
+		}
+		lines = append(lines, style.Render(lead)+t.Render(word)+style.Render(" "+rest))
 	}
 
 	// The sources are a table: the key that opens each, then its name, under
@@ -1157,7 +1165,7 @@ func (b browser) sidebarLines() (lines []string, cursorLine int) {
 	}
 	lines = append(lines, b.paneTitle(fmt.Sprintf("  %-*s%s%s", keyWidth, keyHeading, sourceGap, sourceHeading), focusFilters))
 	for i, t := range b.tabs {
-		option(i, fmt.Sprintf("%-*s%s%s", keyWidth, t.letter, sourceGap, t.name), b.active == i)
+		option(i, fmt.Sprintf("%-*s%s%s", keyWidth, t.letter, sourceGap, t.name), tone.Plain, b.active == i)
 	}
 
 	notApplicable := styleMuted.Render("  n/a")
@@ -1182,9 +1190,10 @@ func (b browser) sidebarLines() (lines []string, cursorLine int) {
 
 // groupLines lays out the active tab's filters in the left pane, after the
 // sources: each group under its heading, each option through option, which
-// knows where the cursor is, with its count where the tab counts them.
-// Headings and spacing go through heading.
-func (b browser) groupLines(groups []*filterGroup, heading func(string), option func(index int, label string, selected bool)) {
+// knows where the cursor is, with its count where the tab counts them and in
+// its tone where it carries a meaning. Headings and spacing go through
+// heading.
+func (b browser) groupLines(groups []*filterGroup, heading func(string), option func(index int, label string, t tone.Tone, selected bool)) {
 	index := len(b.tabs)
 	for at, g := range groups {
 		if at == 0 {
@@ -1201,7 +1210,7 @@ func (b browser) groupLines(groups []*filterGroup, heading func(string), option 
 			if g.counts != nil {
 				label = countedLabel(label, g.counts[i], widest)
 			}
-			option(index, label, g.chosen == i)
+			option(index, label, g.tones[g.options[i]], g.chosen == i)
 			index++
 		}
 	}

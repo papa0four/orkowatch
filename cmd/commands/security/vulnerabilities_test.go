@@ -255,3 +255,14 @@ func TestVulnerabilityRecordTones(t *testing.T) {
 		}
 	}
 }
+
+// The severity filter tones each level it offers, and the status filter none.
+func TestVulnerabilityFilterTones(t *testing.T) {
+	tab := vulnerabilitiesTab(matchedView())
+	if tab.Filters[0].Tones != nil {
+		t.Errorf("the status filter has tones %v", tab.Filters[0].Tones)
+	}
+	if got := tab.Filters[1].Tones; got["high"] != tone.High || got["low"] != tone.Low || got["none stated"] != tone.Plain {
+		t.Errorf("the severity filter's tones are %v", got)
+	}
+}

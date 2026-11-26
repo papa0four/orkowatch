@@ -71,14 +71,16 @@ func vulnerabilitiesTab(v vulnmatch.View) tui.Tab {
 		start = tui.All
 	}
 	severities := []string{tui.All}
+	tones := map[string]tone.Tone{}
 	for _, level := range vulnmatch.Levels() {
 		if present[level] {
 			severities = append(severities, level)
+			tones[level] = tone.ForSeverity(level)
 		}
 	}
 	tab.Filters = []tui.Filter{
 		{Name: "status", Options: []string{tui.All, vulnmatch.StatusFixAvailable, vulnmatch.StatusUnfixed, statusNotMatched}, Start: start},
-		{Name: "severity", Options: severities, Start: tui.All},
+		{Name: "severity", Options: severities, Start: tui.All, Tones: tones},
 	}
 	if banded {
 		tab.Alert = knownExploited

@@ -92,12 +92,15 @@ type (
 	// by: its name, its options in the order shown, and the option the tab
 	// opens on. An option named All admits every record. Spares names a band
 	// whose records the filter does not narrow, so they stay listed
-	// whichever option is chosen.
+	// whichever option is chosen. Tones gives the options that carry a
+	// meaning, such as a severity, the tone the option's first word is drawn
+	// in.
 	Filter struct {
 		Name    string
 		Options []string
 		Start   string
 		Spares  string
+		Tones   map[string]tone.Tone
 	}
 
 	// Record is one row of a tab. Its fields are shown in the detail pane in
@@ -173,6 +176,7 @@ type (
 		chosen  int
 		counts  []int
 		spares  string
+		tones   map[string]tone.Tone
 	}
 )
 
@@ -266,7 +270,7 @@ func newRecordPane(tab Tab) *recordPane {
 		p.index[i] = strings.ToLower(text.String())
 	}
 	for at, f := range tab.Filters {
-		g := &filterGroup{name: f.Name, options: f.Options, labels: f.Options, counts: make([]int, len(f.Options)), spares: f.Spares}
+		g := &filterGroup{name: f.Name, options: f.Options, labels: f.Options, counts: make([]int, len(f.Options)), spares: f.Spares, tones: f.Tones}
 		g.chosen = max(slices.Index(f.Options, f.Start), 0)
 		for i, option := range f.Options {
 			for _, r := range tab.Records {

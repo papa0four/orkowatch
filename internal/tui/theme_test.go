@@ -95,3 +95,28 @@ func TestRecordRowTones(t *testing.T) {
 		t.Errorf("the selected row keeps a tone: %q", rows[2])
 	}
 }
+
+// The findings' severity options are drawn with their word in its tone, and
+// an option of a tab's filter that names no tone is drawn plain.
+func TestFilterOptionTones(t *testing.T) {
+	b := newBrowser(Report{Title: "owatch audit", Items: []Item{{Check: "ssh", Key: "ssh.root", Result: "fail", Severity: "HIGH", Title: "x"}}})
+	b.width, b.height = 160, 40
+	lines, _ := b.sidebarLines()
+	text := strings.Join(lines, "\n")
+	for _, want := range []string{tone.Critical.Render("critical"), tone.High.Render("high"), tone.Low.Render("low")} {
+		if !strings.Contains(text, want) {
+			t.Errorf("the findings filter lacks %q", want)
+		}
+	}
+
+	r := newBrowser(Report{Title: "owatch all", Tabs: []Tab{{ID: TabVulnerabilities, Name: "Vulnerabilities",
+		Records: []Record{{Title: "CVE-1", Filters: [][]string{{"unfixed"}, {"high"}}}},
+		Filters: []Filter{{Name: "status", Options: []string{All, "unfixed"}, Start: All},
+			{Name: "severity", Options: []string{All, "high"}, Start: All, Tones: map[string]tone.Tone{"high": tone.High}}}}}})
+	r.width, r.height = 160, 40
+	lines, _ = r.sidebarLines()
+	text = strings.Join(lines, "\n")
+	if !strings.Contains(text, tone.High.Render("high")) || strings.Contains(text, "unfixed\x1b") || strings.Contains(text, tone.High.Render("unfixed")) {
+		t.Errorf("the tab's filters are drawn %q", lines)
+	}
+}
