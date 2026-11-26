@@ -1129,31 +1129,10 @@ func (b *browser) keepCursorVisible() {
 // the cursor is on as well, which is what scrolling follows.
 func (b browser) sidebarLines() (lines []string, cursorLine int) {
 	option := func(index int, label string, t tone.Tone, selected bool) {
-		lead := "  "
-		if selected {
-			lead = "> "
-		}
-		line := fmt.Sprintf("%-*s", filterWidth-1, lead+label)
-		style := styleMuted
-		if selected {
-			style = styleText
-		}
-		if index < len(b.tabs) {
-			style = b.tabs[index].nameStyle(style)
-		}
-		cursor := b.focus == focusFilters && b.filterCursor == index
-		if cursor {
-			style = styleSelected
-		}
 		if b.filterCursor == index {
 			cursorLine = len(lines)
 		}
-		word, rest, _ := strings.Cut(line[len(lead):], " ")
-		if t == tone.Plain || cursor {
-			lines = append(lines, style.Render(line))
-			return
-		}
-		lines = append(lines, style.Render(lead)+t.Render(word)+style.Render(" "+rest))
+		lines = append(lines, b.optionLine(index, label, t, selected))
 	}
 
 	// The sources are a table: the key that opens each, then its name, under
@@ -1186,6 +1165,30 @@ func (b browser) sidebarLines() (lines []string, cursorLine int) {
 		lines = append(lines, styleMuted.Render(label)+styleText.Render(value))
 	}
 	return lines, cursorLine
+}
+
+// optionLine draws one option of the left pane at index: marked when it is
+// selected, muted when it is not, a source in its name's style, the option
+// the keyboard is on reversed, and the first word of an option with a tone in
+// that tone.
+func (b browser) optionLine(index int, label string, t tone.Tone, selected bool) string {
+	lead := "  "
+	style := styleMuted
+	if selected {
+		lead, style = "> ", styleText
+	}
+	if index < len(b.tabs) {
+		style = b.tabs[index].nameStyle(style)
+	}
+	line := fmt.Sprintf("%-*s", filterWidth-1, lead+label)
+	if b.focus == focusFilters && b.filterCursor == index {
+		return styleSelected.Render(line)
+	}
+	if t == tone.Plain {
+		return style.Render(line)
+	}
+	word, rest, _ := strings.Cut(line[len(lead):], " ")
+	return style.Render(lead) + t.Render(word) + style.Render(" "+rest)
 }
 
 // groupLines lays out the active tab's filters in the left pane, after the
