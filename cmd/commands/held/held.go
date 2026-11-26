@@ -189,6 +189,10 @@ func (r *Run) Exploited(ctx context.Context, host *osfingerprint.OSInfo) (kev.In
 	return r.exploited, r.exploitedUse
 }
 
+// Catalog is the catalog of known-exploited vulnerabilities, which Exploited
+// reads, as a run that consults it names it among the datasets it reads.
+func Catalog() dataset.Dataset { return kev.Catalog{} }
+
 // ErrDeclined is a run the operator chose not to start without the datasets
 // it does not hold. The error that carries it says what to run to get them.
 var ErrDeclined = errors.New("run canceled: datasets it reads are not held")
@@ -204,13 +208,13 @@ func (g Gap) String() string {
 	return fmt.Sprintf("%s (%s): %s", g.ID, g.Gives, g.Reason)
 }
 
-// Missing is what of needed, the datasets a run reads, the run's store cannot
+// missing is what of needed, the datasets a run reads, the run's store cannot
 // give it for host, each named once in the order needed first gives it. It
 // opens the store as a read does, so an elevated run has installed what the
 // operator holds newer before it is judged, and judges each dataset that
 // applies to host as a read would before reading its data, without reading
 // any. A dataset that does not apply to host is not read, and is no gap.
-func (r *Run) Missing(ctx context.Context, host *osfingerprint.OSInfo, needed []dataset.Dataset) []Gap {
+func (r *Run) missing(ctx context.Context, host *osfingerprint.OSInfo, needed []dataset.Dataset) []Gap {
 	var gaps []Gap
 	seen := make(map[string]bool, len(needed))
 	for _, d := range needed {
@@ -240,14 +244,37 @@ func (r *Run) unreadable(ctx context.Context, d dataset.Dataset, host *osfingerp
 	return ""
 }
 
-// Ask settles whether a run goes on without gaps, the datasets it reads that
-// Missing found it cannot, before anything of the run is collected. With no
-// gaps, or yes, it goes on. With no one at the terminal to answer, it goes on
-// and says on out, in one line, what it goes without, since the report then
-// says what was not read and a script is not stopped. Otherwise it names each
-// gap and asks; anything but yes is ErrDeclined with what to run for host.
-func (r *Run) Ask(gaps []Gap, host *osfingerprint.OSInfo, yes, interactive bool, in io.Reader, out io.Writer) error {
-	if len(gaps) == 0 || yes {
+// Reads is what a run reads for host: the datasets each part of it would
+// read, which for some depend on the host's distribution.
+type Reads func(host *osfingerprint.OSInfo) []dataset.Dataset
+
+// Ask settles, before anything of a run is collected, whether the run goes on
+// without the datasets it reads that it cannot read here, so it learns at its
+// start, not in its report, what it would go without. With yes, or for a run
+// that reads no dataset, reads nil, it goes on, and nothing is judged and the
+// host is not identified. Otherwise the host is identified as its fingerprint
+// reads it, or taken as unknown when it cannot be, so only the datasets that
+// apply to every host are judged and the module that reads the fingerprint
+// reports why; the datasets are judged as missing does, and the run settles
+// as settle does.
+func (r *Run) Ask(ctx context.Context, reads Reads, yes, interactive bool, in io.Reader, out io.Writer) error {
+	if yes || reads == nil {
+		return nil
+	}
+	host, err := osfingerprint.GetOSFingerprint()
+	if err != nil {
+		host = nil
+	}
+	return r.settle(r.missing(ctx, host, reads(host)), host, interactive, in, out)
+}
+
+// settle is whether a run goes on without gaps. With none it goes on. With no
+// one at the terminal to answer, it goes on and says on out, in one line, what
+// it goes without, since the report then says what was not read and a script
+// is not stopped. Otherwise it names each gap and asks; anything but yes is
+// ErrDeclined with what to run for host.
+func (r *Run) settle(gaps []Gap, host *osfingerprint.OSInfo, interactive bool, in io.Reader, out io.Writer) error {
+	if len(gaps) == 0 {
 		return nil
 	}
 	named := make([]string, len(gaps))

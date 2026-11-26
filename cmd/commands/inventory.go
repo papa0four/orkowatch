@@ -12,6 +12,7 @@ import (
 	"github.com/papa0four/orkowatch/cmd/commands/cliargs"
 	"github.com/papa0four/orkowatch/cmd/commands/delivery"
 	"github.com/papa0four/orkowatch/cmd/commands/held"
+	"github.com/papa0four/orkowatch/internal/render"
 	"github.com/papa0four/orkowatch/internal/security/finding"
 )
 
@@ -38,16 +39,25 @@ func newInventoryCmd(m standaloneModule) *cobra.Command {
 	if at < 0 {
 		panic("cmd: no inventory module is named " + m.use)
 	}
-	return newModuleCmd(m, modules[at], m.use, held.ForHost)
+	return newModuleCmd(m, modules[at], m.use, held.ForHost, atTerminal)
+}
+
+// atTerminal reports whether a person is at the terminal to answer a
+// question: the command's input and output are both a terminal.
+func atTerminal() bool {
+	return render.StdinIsTerminal() && render.StdoutIsTerminal()
 }
 
 // newModuleCmd builds the command that runs module alone and delivers its
 // report as all would deliver a report of that one module. name is how the
 // command is invoked after owatch, which titles the report and prefixes an
-// error, and data gives the run the module reads datasets through. owatch
-// data status is built here with a module all does not run.
-func newModuleCmd(m standaloneModule, module inventory, name string, data func() *held.Run) *cobra.Command {
+// error, data gives the run the module reads datasets through, and
+// interactive reports whether a person is there to answer the question asked
+// before a module that reads datasets runs without them. owatch data status
+// is built here with a module all does not run.
+func newModuleCmd(m standaloneModule, module inventory, name string, data func() *held.Run, interactive func() bool) *cobra.Command {
 	var out *delivery.Flags
+	var yes bool
 	cmd := &cobra.Command{
 		Use:     m.use,
 		Args:    cliargs.None,
@@ -58,9 +68,12 @@ func newModuleCmd(m standaloneModule, module inventory, name string, data func()
 			if err := out.Resolve(cmd); err != nil {
 				return err
 			}
+			run := data()
+			if err := run.Ask(cmd.Context(), module.reads, yes, interactive(), cmd.InOrStdin(), cmd.ErrOrStderr()); err != nil {
+				return err
+			}
 			started := time.Now()
 			result := &ScanResult{Timestamp: started, Errors: make([]string, 0)}
-			run := data()
 			module.collect(cmd.Context(), run, result)
 			result.Operator = run.Operator()
 			if ran := result.Modules[len(result.Modules)-1]; ran.Result == finding.ResultError {
@@ -71,5 +84,8 @@ func newModuleCmd(m standaloneModule, module inventory, name string, data func()
 		},
 	}
 	out = delivery.Bind(cmd)
+	if module.reads != nil {
+		cmd.Flags().BoolVarP(&yes, "yes", "y", false, "Do not ask before a run whose datasets are not held")
+	}
 	return cmd
 }

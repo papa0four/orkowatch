@@ -51,7 +51,7 @@ func newDataCmd() *cobra.Command {
 		run:         held.ForHost,
 		host:        osfingerprint.GetOSFingerprint,
 		now:         time.Now,
-		interactive: func() bool { return render.StdinIsTerminal() && render.StdoutIsTerminal() },
+		interactive: atTerminal,
 		in:          os.Stdin,
 		elevated:    elevation.Elevated,
 		fetcher:     newFetcher,
@@ -137,7 +137,7 @@ audit.`,
 		mask:    selection.ModuleDatasets,
 		label:   "datasets",
 		collect: d.collectStatus,
-	}, "data status", d.run)
+	}, "data status", d.run, d.interactive)
 }
 
 // collectStatus reads the store's state through the run's store and records

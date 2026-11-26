@@ -212,7 +212,7 @@ func TestCarried(t *testing.T) {
 	}
 }
 
-// Missing names, once each and in the order needed gives them, the datasets
+// missing names, once each and in the order needed gives them, the datasets
 // that apply to the host and cannot be read: one not held, and one whose data
 // is not the size its manifest says; a held dataset that is sound, and one
 // that does not apply, are not gaps. A store that cannot be opened is a gap of
@@ -228,26 +228,47 @@ func TestMissing(t *testing.T) {
 	elsewhere := datasettest.Dataset{Name: "elsewhere"}
 	run, _ := counted(s, nil)
 
-	got := run.Missing(context.Background(), host, []dataset.Dataset{held, missing, elsewhere, damaged, missing})
+	got := run.missing(context.Background(), host, []dataset.Dataset{held, missing, elsewhere, damaged, missing})
 	if len(got) != 2 || got[0] != (Gap{ID: "missing", Gives: "what missing gives", Reason: "not held"}) ||
 		got[1].ID != "damaged" || !strings.HasPrefix(got[1].Reason, "cannot be used: dataset unusable: the data holds 5 bytes") {
 		t.Errorf("gaps %+v", got)
 	}
 
 	locked, opens := counted(store.Store{}, errors.New("locked"))
-	got = locked.Missing(context.Background(), host, []dataset.Dataset{held, missing})
+	got = locked.missing(context.Background(), host, []dataset.Dataset{held, missing})
 	if len(got) != 2 || got[0].Reason != "the dataset store could not be read: locked" || got[1].Reason != got[0].Reason || *opens != 1 {
 		t.Errorf("with no store, gaps %+v after %d opens", got, *opens)
 	}
 }
 
-// Ask goes on with no gaps and with yes, saying nothing; with no one at the
-// terminal it goes on and says in one line what the run goes without; at a
-// terminal it names each gap and asks, goes on at yes, and at anything else
-// is ErrDeclined with what to run: a refresh by an ordinary account, a
-// refresh by the account behind an elevated run and an install, or how
-// datasets reach a host with no account behind the run.
+// Ask with yes, and for a run that reads nothing, goes on and judges nothing,
+// not even opening the store; otherwise it judges the datasets the run reads
+// and settles on what it cannot.
 func TestAsk(t *testing.T) {
+	s := store.At(filepath.Join(t.TempDir(), "store"))
+	datasettest.Put(t, s.Root(), held, datasettest.Content, now.Add(-time.Hour), nil)
+	run, opens := counted(s, nil)
+	var out strings.Builder
+	reads := func(*osfingerprint.OSInfo) []dataset.Dataset { return []dataset.Dataset{held, missing} }
+	if err := run.Ask(context.Background(), reads, true, true, strings.NewReader(""), &out); err != nil || out.Len() > 0 || *opens != 0 {
+		t.Errorf("with yes: %v, said %q, opened the store %d times", err, out.String(), *opens)
+	}
+	if err := run.Ask(context.Background(), nil, false, true, strings.NewReader(""), &out); err != nil || out.Len() > 0 || *opens != 0 {
+		t.Errorf("reading nothing: %v, said %q, opened the store %d times", err, out.String(), *opens)
+	}
+	err := run.Ask(context.Background(), reads, false, false, strings.NewReader(""), &out)
+	if want := "This run goes without missing (what missing gives): not held; its report says what was not read.\n"; err != nil || out.String() != want {
+		t.Errorf("without yes: %v, said %q, want %q", err, out.String(), want)
+	}
+}
+
+// settle goes on with no gaps, saying nothing; with no one at the terminal it
+// goes on and says in one line what the run goes without; at a terminal it
+// names each gap and asks, goes on at yes, and at anything else is ErrDeclined
+// with what to run: a refresh by an ordinary account, a refresh by the account
+// behind an elevated run and an install, or how datasets reach a host with no
+// account behind the run.
+func TestSettle(t *testing.T) {
 	gaps := []Gap{{ID: "osv-ubuntu", Gives: "matching of the installed packages", Reason: "not held"}, {ID: "kev", Gives: "known exploitation", Reason: "not held"}}
 	ubuntu := &osfingerprint.OSInfo{OS: "linux", Platform: "ubuntu", PlatformVersion: "22.04"}
 	opened := func(a store.Adoption) *Run {
@@ -262,28 +283,27 @@ func TestAsk(t *testing.T) {
 	const carried = `On a host with no network, run owatch data refresh --to <directory> --for "linux/ubuntu/22.04" on a host with one, and owatch data import <directory> here.`
 
 	for name, c := range map[string]struct {
-		run              *Run
-		gaps             []Gap
-		yes, interactive bool
-		answer           string
-		asked            bool
-		said             string
-		err              string
+		run         *Run
+		gaps        []Gap
+		interactive bool
+		answer      string
+		asked       bool
+		said        string
+		err         string
 	}{
-		"no gaps": {opened(store.Adoption{}), nil, false, true, "", false, "", ""},
-		"yes":     {opened(store.Adoption{}), gaps, true, true, "", false, "", ""},
-		"no terminal": {opened(store.Adoption{}), gaps, false, false, "", false,
+		"no gaps": {opened(store.Adoption{}), nil, true, "", false, "", ""},
+		"no terminal": {opened(store.Adoption{}), gaps, false, "", false,
 			"This run goes without osv-ubuntu (matching of the installed packages): not held; kev (known exploitation): not held; its report says what was not read.\n", ""},
-		"answered yes": {opened(store.Adoption{}), gaps, false, true, "y\n", true, "Continue without them? [y/N] ", ""},
-		"answered no": {opened(store.Adoption{}), gaps, false, true, "\n", true, "Continue without them? [y/N] ",
+		"answered yes": {opened(store.Adoption{}), gaps, true, "y\n", true, "Continue without them? [y/N] ", ""},
+		"answered no": {opened(store.Adoption{}), gaps, true, "\n", true, "Continue without them? [y/N] ",
 			"run canceled: datasets it reads are not held. Run owatch data refresh. " + carried},
-		"elevated": {opened(store.Adoption{From: "/home/a/store"}), gaps, false, true, "n\n", true, "Continue without them? [y/N] ",
+		"elevated": {opened(store.Adoption{From: "/home/a/store"}), gaps, true, "n\n", true, "Continue without them? [y/N] ",
 			"run canceled: datasets it reads are not held. As the account whose store is /home/a/store, not elevated, run owatch data refresh, then run owatch data status elevated to install what it fetched. " + carried},
-		"no account behind it": {opened(store.Adoption{NoOperator: true}), gaps, false, true, "", true, "Continue without them? [y/N] ",
+		"no account behind it": {opened(store.Adoption{NoOperator: true}), gaps, true, "", true, "Continue without them? [y/N] ",
 			"run canceled: datasets it reads are not held. " + noOperatorAdvice},
 	} {
 		var out strings.Builder
-		err := c.run.Ask(c.gaps, ubuntu, c.yes, c.interactive, strings.NewReader(c.answer), &out)
+		err := c.run.settle(c.gaps, ubuntu, c.interactive, strings.NewReader(c.answer), &out)
 		switch {
 		case c.err == "" && err != nil, c.err != "" && (!errors.Is(err, ErrDeclined) || err.Error() != c.err):
 			t.Errorf("%s: %v, want %q", name, err, c.err)
