@@ -143,7 +143,7 @@ With no check flags given, all checks run by default.
 | `--timeout` | Maximum audit duration | 10m |
 | `--allow-elevated-write` | Permit an elevated write outside the allowlisted directories or into a directory other users control | false |
 | `-v, --verbose` | Add the live findings feed to the progress display, or print progress lines when output is not a terminal; does not change report content | false |
-| `-y, --yes` | Do not ask before a permissions check that scans the entire filesystem, or before a run whose datasets are not held | false |
+| `-y, --yes` | Do not ask before a permissions check that scans the entire filesystem; a run whose datasets are not held still asks | false |
 | `--plain` | Print the report to the terminal instead of opening the results browser; the format is text unless `-o` names another | false |
 
 ## `osinfo`, `software` and `listeners` Flags
@@ -249,7 +249,6 @@ every connection, and so who the host was talking to.
 | `-o, --output` | Format of the full report, wherever it goes (`--plain`, `--report-file`, or `t` in the browser): text, json, yaml. Unspecified, a report file is JSON and anything else is text | text |
 | `--report-file` | Save report to directory; filename is generated automatically | — |
 | `--allow-elevated-write` | Permit an elevated write outside the allowlisted directories or into a directory other users control | false |
-| `-y, --yes` | `owatch software` only: do not ask before a run whose datasets are not held | false |
 | `--plain` | Print the report to the terminal instead of opening the results browser; the format is text unless `-o` names another | false |
 
 The saved report is an `all` report holding that one module, so `owatch browse`
@@ -273,7 +272,7 @@ individual audit checks within the audit module, or both together.
 | `--timeout` | Maximum time to run all scans | 30m |
 | `--allow-elevated-write` | Permit an elevated write outside the allowlisted directories or into a directory other users control | false |
 | `-v, --verbose` | Add the live findings feed to the progress display; does not change report content | false |
-| `-y, --yes` | Do not ask before a permissions check that scans the entire filesystem, or before a run whose datasets are not held | false |
+| `-y, --yes` | Do not ask before a permissions check that scans the entire filesystem; a run whose datasets are not held still asks | false |
 | `--plain` | Print the report to the terminal instead of opening the results browser; the format is text unless `-o` names another | false |
 
 There is no individual audit check flag (`--ssh`, `--fwall`, etc.) on `all` —
@@ -293,18 +292,19 @@ distribution it matches, and the KEV catalog for the audit. Each is judged from
 its manifest and the size of its data, without reading the data, so no dataset
 is read twice. On a terminal, a run names each dataset that applies to the host
 and is not held, or is held and cannot be used, with what the run would lack
-without it, and asks `Continue without them? [y/N]`, after the question about a
+without it, and asks `Continue without them? [y/N]`, before the question about a
 scan of the whole filesystem when that is asked. Answer `y` to run without them.
 Anything else ends the command with an error, before any module runs, that says
 what to run: `owatch data refresh` as an ordinary account; in an elevated run,
 `owatch data refresh` as the account behind it and then `owatch data status`
 elevated, which installs what it fetched; and for a host with no network,
 `owatch data refresh --to <directory> --for "<target>"` on a host with one and
-`owatch data import <directory>` here. `--yes` skips the question. With no
-terminal there is no question: the run writes one line to standard error naming
-what it goes without, and goes on, and its report says what was not read, as it
-always has. Data whose content is damaged is found only when the run reads it,
-and the report says so.
+`owatch data import <directory>` here. No flag answers it; `--yes` on
+`owatch audit` and `owatch all` answers only the question about a scan of the
+whole filesystem. With no terminal there is no question: the run writes one
+line to standard error naming what it goes without, and goes on, and its report
+says what was not read, as it always has. Data whose content is damaged is
+found only when the run reads it, and the report says so.
 
 ## Progress Display
 

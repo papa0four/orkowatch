@@ -241,24 +241,21 @@ func TestMissing(t *testing.T) {
 	}
 }
 
-// Ask with yes, and for a run that reads nothing, goes on and judges nothing,
-// not even opening the store; otherwise it judges the datasets the run reads
-// and settles on what it cannot.
+// Ask for a run that reads nothing goes on and judges nothing, not even
+// opening the store; otherwise it judges the datasets the run reads and
+// settles on what it cannot.
 func TestAsk(t *testing.T) {
 	s := store.At(filepath.Join(t.TempDir(), "store"))
 	datasettest.Put(t, s.Root(), held, datasettest.Content, now.Add(-time.Hour), nil)
 	run, opens := counted(s, nil)
 	var out strings.Builder
 	reads := func(*osfingerprint.OSInfo) []dataset.Dataset { return []dataset.Dataset{held, missing} }
-	if err := run.Ask(context.Background(), reads, true, true, strings.NewReader(""), &out); err != nil || out.Len() > 0 || *opens != 0 {
-		t.Errorf("with yes: %v, said %q, opened the store %d times", err, out.String(), *opens)
-	}
-	if err := run.Ask(context.Background(), nil, false, true, strings.NewReader(""), &out); err != nil || out.Len() > 0 || *opens != 0 {
+	if err := run.Ask(context.Background(), nil, true, strings.NewReader(""), &out); err != nil || out.Len() > 0 || *opens != 0 {
 		t.Errorf("reading nothing: %v, said %q, opened the store %d times", err, out.String(), *opens)
 	}
-	err := run.Ask(context.Background(), reads, false, false, strings.NewReader(""), &out)
+	err := run.Ask(context.Background(), reads, false, strings.NewReader(""), &out)
 	if want := "This run goes without missing (what missing gives): not held; its report says what was not read.\n"; err != nil || out.String() != want {
-		t.Errorf("without yes: %v, said %q, want %q", err, out.String(), want)
+		t.Errorf("with no terminal: %v, said %q, want %q", err, out.String(), want)
 	}
 }
 

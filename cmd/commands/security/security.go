@@ -89,7 +89,7 @@ func BindAudit(cmd *cobra.Command) *AuditFlags {
 	cmd.Flags().StringVar(&a.minSeverity, "min-severity", finding.SeverityNone,
 		fmt.Sprintf("Minimum severity level to report, judged on the severity on this host (%s)", finding.SeverityNames()))
 	cmd.Flags().BoolVarP(&a.yes, "yes", "y", false,
-		"Do not ask before a permissions check that scans the entire filesystem, or before a run whose datasets are not held")
+		"Do not ask before a permissions check that scans the entire filesystem; a run whose datasets are not held still asks")
 	return a
 }
 
@@ -115,12 +115,6 @@ func (a *AuditFlags) Resolve() error {
 	a.minSeverity = normalized
 
 	return nil
-}
-
-// Yes is whether the operator answered yes, with --yes, to every question a
-// run asks before it starts.
-func (a *AuditFlags) Yes() bool {
-	return a.yes
 }
 
 // MinSeverity returns the canonical severity floor Resolve settled on.
@@ -219,8 +213,7 @@ known-exploited vulnerabilities in each finding's weakness class.
   # Report findings whose severity on this host is HIGH or above
   owatch audit --min-severity HIGH
 
-  # Run without being asked first, about a scan of the whole filesystem or
-  # about datasets not held
+  # Scan the whole filesystem without being asked first
   owatch audit --yes
 
   # Print the report as text instead of opening the results browser
@@ -353,6 +346,10 @@ func (c *auditCmd) runE(cmd *cobra.Command, _ []string) error {
 	}
 
 	interactive := render.StdoutIsTerminal() && render.StdinIsTerminal()
+	data := held.ForHost()
+	if err := data.Ask(cmd.Context(), AuditReads, interactive, os.Stdin, os.Stderr); err != nil {
+		return err
+	}
 	switch err := c.audit.ConfirmFullScan(mask, c.scanRoot, interactive, os.Stdin, os.Stderr); {
 	case errors.Is(err, ErrScanDeclined):
 		fmt.Fprintln(os.Stderr, "Scan canceled.")
@@ -366,10 +363,6 @@ func (c *auditCmd) runE(cmd *cobra.Command, _ []string) error {
 	}
 	c.logVerboseConfig(mask)
 
-	data := held.ForHost()
-	if err := data.Ask(cmd.Context(), AuditReads, c.audit.yes, interactive, os.Stdin, os.Stderr); err != nil {
-		return err
-	}
 	return c.runAuditWithTimeout(cmd, mask, data)
 }
 

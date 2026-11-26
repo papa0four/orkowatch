@@ -57,7 +57,6 @@ func atTerminal() bool {
 // is built here with a module all does not run.
 func newModuleCmd(m standaloneModule, module inventory, name string, data func() *held.Run, interactive func() bool) *cobra.Command {
 	var out *delivery.Flags
-	var yes bool
 	cmd := &cobra.Command{
 		Use:     m.use,
 		Args:    cliargs.None,
@@ -69,7 +68,7 @@ func newModuleCmd(m standaloneModule, module inventory, name string, data func()
 				return err
 			}
 			run := data()
-			if err := run.Ask(cmd.Context(), module.reads, yes, interactive(), cmd.InOrStdin(), cmd.ErrOrStderr()); err != nil {
+			if err := run.Ask(cmd.Context(), module.reads, interactive(), cmd.InOrStdin(), cmd.ErrOrStderr()); err != nil {
 				return err
 			}
 			started := time.Now()
@@ -84,8 +83,5 @@ func newModuleCmd(m standaloneModule, module inventory, name string, data func()
 		},
 	}
 	out = delivery.Bind(cmd)
-	if module.reads != nil {
-		cmd.Flags().BoolVarP(&yes, "yes", "y", false, "Do not ask before a run whose datasets are not held")
-	}
 	return cmd
 }

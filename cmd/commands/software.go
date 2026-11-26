@@ -36,9 +36,6 @@ The report opens in the results browser on a terminal, with the same layout as a
   # Print it as text instead of opening the results browser
   owatch software --plain
 
-  # Run without being asked first about datasets not held
-  owatch software --yes
-
   # Save it to a directory in YAML format
   owatch software -o yaml --report-file /path/to/reports`,
 	})

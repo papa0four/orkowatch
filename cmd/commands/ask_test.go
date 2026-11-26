@@ -26,20 +26,18 @@ import (
 // A module that reads a dataset its store does not hold is asked about
 // before it runs: at a terminal, no ends the command with ErrDeclined and
 // nothing collected, and yes runs it; with no one at the terminal it runs and
-// says in one line what it goes without; and --yes runs it without a word.
+// says in one line what it goes without.
 func TestModuleAsksBeforeCollecting(t *testing.T) {
 	missing := datasettest.Dataset{Name: "missing", Applies: true}
 	for name, c := range map[string]struct {
 		interactive bool
-		args        []string
 		answer      string
 		collected   bool
 		said        string
 	}{
-		"answered no":  {true, nil, "n\n", false, "Continue without them? [y/N] "},
-		"answered yes": {true, nil, "y\n", true, "Continue without them? [y/N] "},
-		"no terminal":  {false, nil, "", true, "This run goes without missing (what missing gives): not held; its report says what was not read.\n"},
-		"--yes":        {true, []string{"--yes"}, "", true, ""},
+		"answered no":  {true, "n\n", false, "Continue without them? [y/N] "},
+		"answered yes": {true, "y\n", true, "Continue without them? [y/N] "},
+		"no terminal":  {false, "", true, "This run goes without missing (what missing gives): not held; its report says what was not read.\n"},
 	} {
 		collected := false
 		module := inventory{
@@ -61,7 +59,7 @@ func TestModuleAsksBeforeCollecting(t *testing.T) {
 		cmd.SetIn(strings.NewReader(c.answer))
 		cmd.SetErr(&said)
 		cmd.SetOut(&bytes.Buffer{})
-		cmd.SetArgs(append([]string{"--plain"}, c.args...))
+		cmd.SetArgs([]string{"--plain"})
 		cmd.SilenceErrors, cmd.SilenceUsage = true, true
 		err := cmd.Execute()
 
@@ -71,31 +69,27 @@ func TestModuleAsksBeforeCollecting(t *testing.T) {
 		if collected != c.collected {
 			t.Errorf("%s: collected %v, want %v", name, collected, c.collected)
 		}
-		if !strings.HasSuffix(said.String(), c.said) || c.said == "" && said.Len() > 0 {
+		if !strings.HasSuffix(said.String(), c.said) {
 			t.Errorf("%s: said %q, want it to end %q", name, said.String(), c.said)
 		}
 	}
 }
 
-// Only a command whose module reads datasets has --yes: software does, and
-// osinfo, listeners, and data status, which read none for a run, do not.
-func TestYesWhereDatasetsAreRead(t *testing.T) {
+// No command that runs one module has --yes: the question about datasets not
+// held is the only one such a command asks, and no flag answers it.
+func TestNoModuleCommandHasYes(t *testing.T) {
 	status, _, err := dataCommand(&dataCmd{}).Find([]string{"status"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	for name, c := range map[string]struct {
-		cmd  *cobra.Command
-		want bool
-	}{
-		"software":    {newSoftwareCmd(), true},
-		"osinfo":      {newOsinfoCmd(), false},
-		"listeners":   {newListenersCmd(), false},
-		"data status": {status, false},
+	for name, cmd := range map[string]*cobra.Command{
+		"software":    newSoftwareCmd(),
+		"osinfo":      newOsinfoCmd(),
+		"listeners":   newListenersCmd(),
+		"data status": status,
 	} {
-		flag := c.cmd.Flags().Lookup("yes")
-		if has := flag != nil && flag.Shorthand == "y"; has != c.want {
-			t.Errorf("%s has --yes and -y: %v, want %v", name, has, c.want)
+		if cmd.Flags().Lookup("yes") != nil || cmd.Flags().ShorthandLookup("y") != nil {
+			t.Errorf("%s has --yes or -y", name)
 		}
 	}
 }

@@ -134,8 +134,7 @@ Results can be output in various formats and saved to a file.
   # Add the live findings feed to the progress display
   owatch all -v
 
-  # Run without being asked first, about a scan of the whole filesystem or
-  # about datasets not held
+  # Scan the whole filesystem without being asked first
   owatch all --yes
 
   # Skip modules; skipped modules are still reported
@@ -263,15 +262,15 @@ func (c *allCmd) runAllScans(cmd *cobra.Command, args []string) error {
 	}
 
 	interactive := render.StdoutIsTerminal()
-	switch err := c.audit.ConfirmFullScan(c.auditMask(mask), "", interactive && render.StdinIsTerminal(), os.Stdin, os.Stderr); {
+	data := held.ForHost()
+	if err := data.Ask(cmd.Context(), c.reads(), atTerminal(), os.Stdin, os.Stderr); err != nil {
+		return err
+	}
+	switch err := c.audit.ConfirmFullScan(c.auditMask(mask), "", atTerminal(), os.Stdin, os.Stderr); {
 	case errors.Is(err, security.ErrScanDeclined):
 		fmt.Fprintln(os.Stderr, "Scan canceled.")
 		return nil
 	case err != nil:
-		return err
-	}
-	data := held.ForHost()
-	if err := data.Ask(cmd.Context(), c.reads(), c.audit.Yes(), interactive && render.StdinIsTerminal(), os.Stdin, os.Stderr); err != nil {
 		return err
 	}
 

@@ -120,9 +120,10 @@ func Carried(host *osfingerprint.OSInfo) string {
 const AskHelp = `Before it collects anything, the command checks the datasets it reads, each
 judged from its manifest and the size of its data without reading the data. On
 a terminal, it names each that is not held or cannot be used, with what the run
-would lack without it, and asks whether to go on; anything but y ends it with
-what to run to get them, and --yes skips the question. With no terminal it goes
-on and says in one line on standard error what it goes without.`
+would lack without it, and asks whether to go on before it asks anything else;
+anything but y ends it with what to run to get them, and no flag answers it.
+With no terminal it goes on and says in one line on standard error what it goes
+without.`
 
 // noOperatorAdvice is what an elevated run with no one behind it is told,
 // since it has no account's store to install from and never fetches itself.
@@ -259,15 +260,16 @@ type Reads func(host *osfingerprint.OSInfo) []dataset.Dataset
 
 // Ask settles, before anything of a run is collected, whether the run goes on
 // without the datasets it reads that it cannot read here, so it learns at its
-// start, not in its report, what it would go without. With yes, or for a run
-// that reads no dataset, reads nil, it goes on, and nothing is judged and the
-// host is not identified. Otherwise the host is identified as its fingerprint
+// start, not in its report, what it would go without. No flag answers it: a
+// flag given to answer another question would hide this one. A run that reads
+// no dataset, reads nil, goes on, and nothing is judged and the host is not
+// identified. Otherwise the host is identified as its fingerprint
 // reads it, or taken as unknown when it cannot be, so only the datasets that
 // apply to every host are judged and the module that reads the fingerprint
 // reports why; the datasets are judged as missing does, and the run settles
 // as settle does.
-func (r *Run) Ask(ctx context.Context, reads Reads, yes, interactive bool, in io.Reader, out io.Writer) error {
-	if yes || reads == nil {
+func (r *Run) Ask(ctx context.Context, reads Reads, interactive bool, in io.Reader, out io.Writer) error {
+	if reads == nil {
 		return nil
 	}
 	host, err := osfingerprint.GetOSFingerprint()
