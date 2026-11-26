@@ -20,17 +20,19 @@ import (
 	"github.com/papa0four/orkowatch/internal/osfingerprint"
 )
 
-// served stands in for the datasets' origins: the size each states, what
-// each sends, and a record of which were fetched.
+// served stands in for the datasets' origins: the size each states, or the
+// error asking for it gives, what each sends, and a record of which were
+// fetched.
 type served struct {
-	sizes   map[string]int64
-	fails   map[string]error
-	fetched []string
+	sizes    map[string]int64
+	sizeErrs map[string]error
+	fails    map[string]error
+	fetched  []string
 }
 
 func (s *served) Size(_ context.Context, d dataset.Dataset) (int64, bool, error) {
 	size, stated := s.sizes[d.ID()]
-	return size, stated, nil
+	return size, stated, s.sizeErrs[d.ID()]
 }
 
 // TimeLimit allows every download ten minutes.
@@ -232,5 +234,175 @@ func TestDataRefreshRefusesElevated(t *testing.T) {
 	}
 	if len(origins.fetched) != 0 || holds(s.Root(), "wanted") {
 		t.Errorf("an elevated refresh fetched %q", origins.fetched)
+	}
+}
+
+// A plan holds each dataset that applies to the host with its download as its
+// origin states it, or the most a fetch may read when it states none, and
+// whether it is large; it fetches nothing, builds no fetcher when nothing
+// applies, and refuses an elevated process before building one.
+func TestPlanRefresh(t *testing.T) {
+	debian := &osfingerprint.OSInfo{OS: "linux", Platform: "debian", PlatformVersion: "12"}
+	d, _, origins := refreshing(t, false, "")
+	origins.sizes["debian-data"] = largeDownload + 1
+	plan, err := d.planRefresh(context.Background(), debian)
+	if err != nil || len(plan.datasets) != 2 || plan.host != debian {
+		t.Fatalf("plan %+v, %v", plan, err)
+	}
+	wanted, debianData := plan.datasets[0], plan.datasets[1]
+	if wanted.dataset.ID() != "wanted" || wanted.size != int64(len(datasettest.Content)) || !wanted.stated || wanted.allowed != 10*time.Minute || wanted.large() {
+		t.Errorf("wanted planned as %+v", wanted)
+	}
+	if debianData.dataset.ID() != "debian-data" || !debianData.large() {
+		t.Errorf("debian-data planned as %+v", debianData)
+	}
+	if got, want := wanted.String(), "wanted: 39 B from https://data.example/wanted, allowed 10m0s"; got != want {
+		t.Errorf("the line is %q, want %q", got, want)
+	}
+
+	delete(origins.sizes, "wanted")
+	plan, err = d.planRefresh(context.Background(), &osfingerprint.OSInfo{OS: "linux", Platform: "ubuntu"})
+	if err != nil || len(plan.datasets) != 1 || plan.datasets[0].stated || plan.datasets[0].size != dataset.FetchLimit(plan.datasets[0].dataset) ||
+		!strings.HasPrefix(plan.datasets[0].String(), "wanted: up to ") {
+		t.Errorf("with no size stated, on a host only wanted applies to: %+v, %v", plan, err)
+	}
+
+	built := false
+	d.fetcher = func() (fetcher, error) { built = true; return origins, nil }
+	d.known = nil
+	if plan, err := d.planRefresh(context.Background(), debian); err != nil || len(plan.datasets) != 0 || built {
+		t.Errorf("with nothing known: %+v, %v, a fetcher built %v", plan, err, built)
+	}
+	d.known = []dataset.Dataset{datasettest.Dataset{Name: "wanted", Applies: true}}
+	d.elevated = func() bool { return true }
+	if _, err := d.planRefresh(context.Background(), debian); !errors.Is(err, errRefreshElevated) || built {
+		t.Errorf("elevated: %v, a fetcher built %v", err, built)
+	}
+	if len(origins.fetched) != 0 {
+		t.Errorf("planning fetched %q", origins.fetched)
+	}
+}
+
+// steps records the steps a store reports, as id and step.
+type steps []string
+
+func (s *steps) Began(id string, step store.Step, _ int) { *s = append(*s, id+" "+string(step)) }
+func (*steps) Received(string, int64)                    {}
+func (*steps) Ended(string, store.Step, error)           {}
+
+// A plan fetches what was chosen of it and no other, telling the progress it
+// is given each step, and a fetch that can make no connection ends the
+// refresh as unreachable.
+func TestRefreshPlanFetch(t *testing.T) {
+	debian := &osfingerprint.OSInfo{OS: "linux", Platform: "debian", PlatformVersion: "12"}
+	d, s, origins := refreshing(t, false, "")
+	plan, err := d.planRefresh(context.Background(), debian)
+	if err != nil || len(plan.datasets) != 2 {
+		t.Fatalf("plan %+v, %v", plan, err)
+	}
+	var told steps
+	outcomes, err := plan.fetch(context.Background(), s, plan.datasets[:1], dataNow, &told)
+	if err != nil || len(outcomes) != 1 || outcomes[0].ID != "wanted" || outcomes[0].Result != store.Installed {
+		t.Errorf("outcomes %+v, %v", outcomes, err)
+	}
+	if !fetchedOnly(origins.fetched, "wanted") || !holds(s.Root(), "wanted") || holds(s.Root(), "debian-data") {
+		t.Errorf("fetched %q", origins.fetched)
+	}
+	if !slices.Contains(told, "wanted download") || !slices.Contains(told, "wanted check") || !slices.Contains(told, "wanted install") {
+		t.Errorf("the progress was told %q", told)
+	}
+
+	origins.fails["debian-data"] = unreachable{}
+	if _, err := plan.fetch(context.Background(), s, plan.datasets[1:], dataNow, &told); !errors.Is(err, store.ErrUnreachable) {
+		t.Errorf("with no network the fetch ended with %v", err)
+	}
+}
+
+// A download of exactly 100 MiB is not large: it is planned as not large and
+// fetched without a question, where one byte more is asked about.
+func TestDataRefreshAtTheLargeLimit(t *testing.T) {
+	d, s, origins := refreshing(t, false, "")
+	origins.sizes["wanted"] = largeDownload
+	plan, err := d.planRefresh(context.Background(), &osfingerprint.OSInfo{})
+	if err != nil || len(plan.datasets) != 1 || plan.datasets[0].large() {
+		t.Fatalf("at the limit planned %+v, %v", plan, err)
+	}
+	if out, err := run(d, "refresh"); err != nil || !holds(s.Root(), "wanted") || strings.Contains(out, "not fetched") {
+		t.Errorf("at the limit refresh printed %q, %v", out, err)
+	}
+}
+
+// A size request that fails is taken as no size stated: the most the dataset
+// may hold, named as up to that.
+func TestPlanRefreshWithASizeRequestThatFails(t *testing.T) {
+	d, _, origins := refreshing(t, false, "")
+	origins.sizeErrs = map[string]error{"wanted": errors.New("HEAD answered 500")}
+	plan, err := d.planRefresh(context.Background(), &osfingerprint.OSInfo{})
+	if err != nil || len(plan.datasets) != 1 {
+		t.Fatalf("plan %+v, %v", plan, err)
+	}
+	if p := plan.datasets[0]; p.stated || p.size != dataset.FetchLimit(p.dataset) || !strings.HasPrefix(p.String(), "wanted: up to ") {
+		t.Errorf("with the size request failing, planned %+v as %q", p, p.String())
+	}
+}
+
+// A fetcher that cannot be built ends the plan with its error and plans
+// nothing.
+func TestPlanRefreshWithNoFetcher(t *testing.T) {
+	d, _, _ := refreshing(t, false, "")
+	broken := errors.New("no trusted roots")
+	d.fetcher = func() (fetcher, error) { return nil, broken }
+	if plan, err := d.planRefresh(context.Background(), &osfingerprint.OSInfo{}); !errors.Is(err, broken) || len(plan.datasets) != 0 || plan.f != nil {
+		t.Errorf("with no fetcher: %+v, %v", plan, err)
+	}
+}
+
+// A refresh for a host --for names that no dataset applies to says so, by
+// that host's name, and fetches nothing.
+func TestDataRefreshForAHostNoDatasetCovers(t *testing.T) {
+	d, _, origins := refreshing(t, false, "")
+	d.known = d.known[1:]
+	out, err := run(d, "refresh", "--to", t.TempDir(), "--for", "linux/ubuntu/26.04")
+	if err != nil || !strings.Contains(out, "knows no dataset for the host linux/ubuntu/26.04; nothing was fetched") || len(origins.fetched) != 0 {
+		t.Errorf("printed %q, %v, fetched %q", out, err, origins.fetched)
+	}
+}
+
+// A plan of which nothing is chosen fetches nothing, as when every large
+// dataset is declined.
+func TestRefreshPlanFetchesNothingChosen(t *testing.T) {
+	d, s, origins := refreshing(t, false, "")
+	plan, err := d.planRefresh(context.Background(), &osfingerprint.OSInfo{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var told steps
+	outcomes, err := plan.fetch(context.Background(), s, nil, dataNow, &told)
+	if err != nil || len(outcomes) != 0 || len(origins.fetched) != 0 || len(told) != 0 || holds(s.Root(), "wanted") {
+		t.Errorf("outcomes %+v, %v, fetched %q, told %q", outcomes, err, origins.fetched, told)
+	}
+}
+
+// In an elevated process, a malformed --for, or --for without --to, is
+// refused for what is wrong with it, before anything is planned: no fetcher
+// is built and no store is opened.
+func TestDataRefreshElevatedWithAMalformedFor(t *testing.T) {
+	d, _, _ := refreshing(t, false, "")
+	d.elevated = func() bool { return true }
+	d.fetcher = func() (fetcher, error) {
+		t.Error("an elevated refresh asked for a fetcher")
+		return nil, errors.New("not built")
+	}
+	d.open = func(context.Context) (store.Store, error) {
+		t.Error("an elevated refresh opened a store")
+		return store.Store{}, errors.New("not opened")
+	}
+	for _, args := range [][]string{
+		{"refresh", "--for", "linux/debian/12"},
+		{"refresh", "--to", t.TempDir(), "--for", "plan9"},
+	} {
+		if _, err := run(d, args...); err == nil || errors.Is(err, errRefreshElevated) || !strings.Contains(err.Error(), "--for") {
+			t.Errorf("%v gave %v, want the --for refusal", args, err)
+		}
 	}
 }

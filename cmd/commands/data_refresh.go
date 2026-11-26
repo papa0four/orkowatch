@@ -118,21 +118,15 @@ refreshed.`,
 // runRefresh fetches the datasets that apply to the host into the store, or
 // into the directory to.
 func (d *dataCmd) runRefresh(ctx context.Context, out, prompt io.Writer, to, forHost string, yes bool) error {
-	if d.elevated() {
-		return errRefreshElevated
-	}
-	host, dest, err := d.refreshTarget(ctx, to, forHost)
+	host, err := d.refreshHost(to, forHost)
 	if err != nil {
 		return err
 	}
-
-	var wanted []dataset.Dataset
-	for _, known := range d.known {
-		if known.AppliesTo(host) {
-			wanted = append(wanted, known)
-		}
+	plan, err := d.planRefresh(ctx, host)
+	if err != nil {
+		return err
 	}
-	if len(wanted) == 0 {
+	if len(plan.datasets) == 0 {
 		whose := "this host"
 		if forHost != "" {
 			whose = "the host " + forHost
@@ -140,18 +134,18 @@ func (d *dataCmd) runRefresh(ctx context.Context, out, prompt io.Writer, to, for
 		_, err := fmt.Fprintln(out, render.HostText("This version of owatch knows no dataset for "+whose+"; nothing was fetched."))
 		return err
 	}
-
-	f, err := d.fetcher()
+	dest, err := d.refreshDest(ctx, to)
 	if err != nil {
 		return err
 	}
+
 	report := progress.New(out, d.width, d.now)
-	chosen, declined, err := d.choose(ctx, out, prompt, f, wanted, yes, report)
+	chosen, declined, err := d.choose(out, prompt, plan.datasets, yes, report)
 	if err != nil {
 		return err
 	}
 	report.Start()
-	outcomes, err := dest.Reporting(report).Refresh(ctx, f.Fetch, chosen, host, d.now())
+	outcomes, err := plan.fetch(ctx, dest, chosen, d.now(), report)
 	err = errors.Join(err, report.Stop())
 	unreached := errors.Is(err, store.ErrUnreachable)
 	if err != nil && !unreached {
@@ -165,9 +159,91 @@ func (d *dataCmd) runRefresh(ctx context.Context, out, prompt io.Writer, to, for
 		return noNetwork(err, host)
 	}
 	if failed+declined > 0 {
-		return fmt.Errorf("%d of %s not refreshed", failed+declined, render.Count(len(wanted), "dataset", "datasets"))
+		return fmt.Errorf("%d of %s not refreshed", failed+declined, render.Count(len(plan.datasets), "dataset", "datasets"))
 	}
 	return nil
+}
+
+// planned is a dataset a refresh would fetch and what its download is to be:
+// its size, as its origin states it or, when the origin states none, the most
+// a fetch may read, and the time the download is allowed.
+type planned struct {
+	dataset dataset.Dataset
+	size    int64
+	stated  bool
+	allowed time.Duration
+}
+
+// large reports whether the download is asked about before it is fetched.
+func (p planned) large() bool { return p.size > largeDownload }
+
+// described is the download's size as a refresh names it: as stated, or as
+// what it may be at most.
+func (p planned) described() string {
+	if !p.stated {
+		return "up to " + dataset.Size(p.size)
+	}
+	return dataset.Size(p.size)
+}
+
+// String is the line a refresh states the download in before it begins.
+func (p planned) String() string {
+	return fmt.Sprintf("%s: %s from %s, allowed %s", p.dataset.ID(), p.described(), p.dataset.Origin().URL, p.allowed)
+}
+
+// refreshPlan is what a refresh for host would fetch: each dataset that
+// applies to host with its download, and the fetcher that sized them, which
+// alone fetches them.
+type refreshPlan struct {
+	host     *osfingerprint.OSInfo
+	datasets []planned
+	f        fetcher
+}
+
+// planRefresh is the refresh of the datasets that apply to host, each sized
+// by its origin. It writes and asks nothing, opens no connection but the size
+// requests, and refuses an elevated process before building a fetcher, so no
+// caller can plan a refresh that runs elevated.
+func (d *dataCmd) planRefresh(ctx context.Context, host *osfingerprint.OSInfo) (refreshPlan, error) {
+	if d.elevated() {
+		return refreshPlan{}, errRefreshElevated
+	}
+	plan := refreshPlan{host: host}
+	var wanted []dataset.Dataset
+	for _, known := range d.known {
+		if known.AppliesTo(host) {
+			wanted = append(wanted, known)
+		}
+	}
+	if len(wanted) == 0 {
+		return plan, nil
+	}
+	f, err := d.fetcher()
+	if err != nil {
+		return refreshPlan{}, err
+	}
+	plan.f = f
+	for _, w := range wanted {
+		size, stated, err := f.Size(ctx, w)
+		if stated = stated && err == nil; !stated {
+			// The server did not say, so the most its file may hold is
+			// what a fetch could read.
+			size = dataset.FetchLimit(w)
+		}
+		plan.datasets = append(plan.datasets, planned{dataset: w, size: size, stated: stated, allowed: f.TimeLimit(size)})
+	}
+	return plan, nil
+}
+
+// fetch fetches chosen, datasets of the plan, into dest, telling progress each
+// step, and returns what came of each. A refresh that can make no connection
+// ends with store.ErrUnreachable.
+func (p refreshPlan) fetch(ctx context.Context, dest store.Store, chosen []planned, now time.Time, progress store.Progress) ([]store.Outcome, error) {
+	datasets := make([]dataset.Dataset, len(chosen))
+	for i, c := range chosen {
+		datasets[i] = c.dataset
+	}
+	return dest.Reporting(progress).Refresh(ctx, p.f.Fetch, datasets, p.host, now)
 }
 
 // noNetwork is the end of a refresh that could make no connection, with the
@@ -176,65 +252,57 @@ func noNetwork(cause error, host *osfingerprint.OSInfo) error {
 	return fmt.Errorf("%w; nothing after it was fetched. %s", cause, held.Carried(host))
 }
 
-// refreshTarget settles which host is fetched for and where the datasets go:
-// this host and the account's store, or with --to a directory, for the host
-// --for names when it is given.
-func (d *dataCmd) refreshTarget(ctx context.Context, to, forHost string) (*osfingerprint.OSInfo, store.Store, error) {
-	if forHost != "" && to == "" {
-		return nil, store.Store{}, errors.New("--for names another host, whose datasets have no use in this host's store; name a directory to carry them in with --to")
+// refreshHost settles which host is fetched for: the host --for names, which
+// needs --to, since its datasets have no use in this host's store, or this
+// host.
+func (d *dataCmd) refreshHost(to, forHost string) (*osfingerprint.OSInfo, error) {
+	switch {
+	case forHost != "" && to == "":
+		return nil, errors.New("--for names another host, whose datasets have no use in this host's store; name a directory to carry them in with --to")
+	case forHost == "":
+		return d.host()
 	}
-	var host *osfingerprint.OSInfo
-	var err error
-	if forHost != "" {
-		host, err = osfingerprint.ParseTarget(forHost)
-		if err != nil {
-			err = fmt.Errorf("--for: %w", err)
-		}
-	} else {
-		host, err = d.host()
-	}
+	host, err := osfingerprint.ParseTarget(forHost)
 	if err != nil {
-		return nil, store.Store{}, err
+		return nil, fmt.Errorf("--for: %w", err)
 	}
-	if to != "" {
-		return host, store.At(to), nil
-	}
-	dest, err := d.open(ctx)
-	return host, dest, err
+	return host, nil
 }
 
-// choose prints the size of each of wanted, tells report how large each is
-// to be, and returns those to fetch: every one that is not large, and each
+// refreshDest is where a refresh puts the datasets: the directory to, or the
+// account's store.
+func (d *dataCmd) refreshDest(ctx context.Context, to string) (store.Store, error) {
+	if to != "" {
+		return store.At(to), nil
+	}
+	return d.open(ctx)
+}
+
+// choose prints the download of each of wanted, tells report how large each
+// is to be, and returns those to fetch: every one that is not large, and each
 // large one the operator agrees to, or all with yes. It returns how many large
 // ones were declined, or could not be asked about.
-func (d *dataCmd) choose(ctx context.Context, out, prompt io.Writer, f fetcher, wanted []dataset.Dataset, yes bool, report *progress.Report) (chosen []dataset.Dataset, declined int, err error) {
+func (d *dataCmd) choose(out, prompt io.Writer, wanted []planned, yes bool, report *progress.Report) (chosen []planned, declined int, err error) {
 	ew := render.NewErrWriter(out)
 	for _, w := range wanted {
-		size, stated, sizeErr := f.Size(ctx, w)
-		described := dataset.Size(size)
-		if sizeErr != nil || !stated {
-			// The server did not say, so the most its file may hold is
-			// what a fetch could read.
-			size, described = dataset.FetchLimit(w), "up to "+dataset.Size(dataset.FetchLimit(w))
-		}
-		report.Expect(w.ID(), size, sizeErr == nil && stated)
-		ew.Printf("%s\n", render.HostText(fmt.Sprintf("%s: %s from %s, allowed %s", w.ID(), described, w.Origin().URL, f.TimeLimit(size))))
+		report.Expect(w.dataset.ID(), w.size, w.stated)
+		ew.Printf("%s\n", render.HostText(w.String()))
 
 		switch {
-		case size <= largeDownload || yes:
+		case !w.large() || yes:
 			chosen = append(chosen, w)
 		case !d.interactive():
-			ew.Printf("%s\n", render.HostText(fmt.Sprintf("%s: not fetched: it is larger than %s; pass --yes to fetch it", w.ID(), dataset.Size(largeDownload))))
+			ew.Printf("%s\n", render.HostText(fmt.Sprintf("%s: not fetched: it is larger than %s; pass --yes to fetch it", w.dataset.ID(), dataset.Size(largeDownload))))
 			declined++
 		default:
-			ok, err := render.Confirm(d.in, prompt, render.HostText(fmt.Sprintf("Fetch %s, %s?", w.ID(), described)))
+			ok, err := render.Confirm(d.in, prompt, render.HostText(fmt.Sprintf("Fetch %s, %s?", w.dataset.ID(), w.described())))
 			if err != nil {
 				return nil, 0, err
 			}
 			if ok {
 				chosen = append(chosen, w)
 			} else {
-				ew.Printf("%s\n", render.HostText(w.ID()+": not fetched"))
+				ew.Printf("%s\n", render.HostText(w.dataset.ID()+": not fetched"))
 				declined++
 			}
 		}
