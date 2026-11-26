@@ -129,8 +129,8 @@ func TestRefreshReplacesTheReport(t *testing.T) {
 	}
 }
 
-// A fetch that fails keeps the results on screen with the reason, until the
-// next key.
+// A fetch that fails keeps the results, shows the reason in their place with
+// the footer saying a key returns to them, and the next key does.
 func TestRefreshFailureKeepsTheResults(t *testing.T) {
 	refresh := &fakeRefresher{fetch: func(context.Context, func(string)) (Report, error) {
 		return Report{}, errors.New("1 of 3 datasets not refreshed")
@@ -140,11 +140,36 @@ func TestRefreshFailureKeepsTheResults(t *testing.T) {
 	b, _ = settle(t, b, cmd)
 	b, cmd = pressing(b, "y")
 	b, _ = settle(t, b, cmd)
-	if b.report.Title != "owatch all" || len(b.report.Items) != 2 || !strings.Contains(plain(b.render()), "Refresh failed: 1 of 3 datasets not refreshed") {
-		t.Errorf("after a failure: title %q, screen\n%s", b.report.Title, plain(b.render()))
+	screen := plain(b.render())
+	if b.report.Title != "owatch all" || len(b.report.Items) != 2 || !strings.Contains(screen, "The refresh failed:") ||
+		!strings.Contains(screen, "1 of 3 datasets not refreshed") ||
+		!strings.Contains(screen, "Refresh failed; any key returns to the results") {
+		t.Errorf("after a failure: title %q, screen\n%s", b.report.Title, screen)
 	}
-	if b = press(b, "j"); strings.Contains(plain(b.render()), "Refresh failed") {
-		t.Error("the reason stayed after the next key")
+	if b = press(b, "j"); strings.Contains(plain(b.render()), "refresh failed") || strings.Contains(plain(b.render()), "Refresh failed") {
+		t.Errorf("the reason stayed after the next key:\n%s", plain(b.render()))
+	}
+}
+
+// A reason longer than the window is wrapped to it in full, its last words
+// included, and no line is wider than the window.
+func TestRefreshFailureFitsTheWindow(t *testing.T) {
+	reason := "This report was matched against osv-ubuntu Ubuntu:22.04; this host's packages are matched against osv-ubuntu Ubuntu:26.04, " +
+		"so the report can be matched again only on a host of Ubuntu:22.04: open it there with owatch browse"
+	refresh := &fakeRefresher{planErr: errors.New(reason)}
+	report := sidebarReport(2)
+	report.Refresh = refresh
+	b := sized(newBrowser(report), 80, 30)
+	b, cmd := pressing(b, "r")
+	b, _ = settle(t, b, cmd)
+	screen := b.render()
+	for i, line := range strings.Split(screen, "\n") {
+		if w := lipgloss.Width(line); w > 80 {
+			t.Errorf("line %d is %d columns wide: %q", i, w, plain(line))
+		}
+	}
+	if joined := strings.Join(strings.Fields(plain(screen)), " "); !strings.Contains(joined, reason) {
+		t.Errorf("the reason is not on screen in full:\n%s", plain(screen))
 	}
 }
 

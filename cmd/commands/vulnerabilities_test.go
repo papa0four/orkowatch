@@ -37,6 +37,10 @@ type testRecords struct{ datasettest.Dataset }
 func (testRecords) AppliesTo(host *osfingerprint.OSInfo) bool { return host.Platform == "debian" }
 func (testRecords) Manager() string                           { return softwarelist.ManagerDpkg }
 
+// Release is the release the test records are of, the Version a match of
+// them carries.
+func (testRecords) Release(*osfingerprint.OSInfo) (string, error) { return "Debian:12", nil }
+
 func (r testRecords) Records(data io.Reader, host *osfingerprint.OSInfo, each func(osv.Record) error) (dataset.Facts, error) {
 	facts, err := r.Check(data, host)
 	if err != nil {

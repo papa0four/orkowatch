@@ -36,14 +36,17 @@ type (
 	refreshPhase uint8
 
 	// refreshState is the browser's refresh: its phase, what the plan named,
-	// the last line of progress, why the last one did not replace the report,
-	// the cancel of the one under way, and its attempt, which a message of an
-	// attempt since canceled does not match.
+	// the last line of progress, why the last one failed, which is shown in
+	// place of the results until the next key, a notice for the footer, such
+	// as that the last one was canceled, the cancel of the one under way, and
+	// its attempt, which a message of an attempt since canceled does not
+	// match.
 	refreshState struct {
 		phase    refreshPhase
 		plan     []string
 		progress string
 		failed   string
+		notice   string
 		cancel   context.CancelFunc
 		attempt  int
 	}
@@ -123,20 +126,20 @@ func (b *browser) beginAttempt(phase refreshPhase) context.Context {
 	ctx, cancel := context.WithCancel(context.Background())
 	b.refreshing.attempt++
 	b.refreshing.phase, b.refreshing.cancel = phase, cancel
-	b.refreshing.progress, b.refreshing.failed = "", ""
+	b.refreshing.progress, b.refreshing.failed, b.refreshing.notice = "", "", ""
 	return ctx
 }
 
-// endAttempt leaves the refresh idle, with why the last one did not replace
-// the report, if it did not. The attempt is passed, so nothing it sends after,
-// such as a report a canceled fetch finished anyway, is taken.
+// endAttempt leaves the refresh idle, with why the last one failed, if it
+// did. The attempt is passed, so nothing it sends after, such as a report a
+// canceled fetch finished anyway, is taken.
 func (b *browser) endAttempt(failed string) {
 	if b.refreshing.cancel != nil {
 		b.refreshing.cancel()
 	}
 	b.refreshing.attempt++
 	b.refreshing.phase, b.refreshing.cancel, b.refreshing.plan = refreshIdle, nil, nil
-	b.refreshing.progress, b.refreshing.failed = "", failed
+	b.refreshing.progress, b.refreshing.failed, b.refreshing.notice = "", failed, ""
 }
 
 // onRefreshMsg takes a refresh's message, unless it is of an attempt since
@@ -154,7 +157,7 @@ func (b browser) onRefreshMsg(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 			b.leave = &leave
 			return b, tea.Quit, true
 		case msg.err != nil:
-			b.endAttempt("Refresh failed: " + msg.err.Error())
+			b.endAttempt(msg.err.Error())
 		default:
 			b.refreshing.phase, b.refreshing.plan = refreshAsking, msg.plan
 		}
@@ -171,7 +174,7 @@ func (b browser) onRefreshMsg(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 			return b, nil, true
 		}
 		if msg.err != nil {
-			b.endAttempt("Refresh failed: " + msg.err.Error())
+			b.endAttempt(msg.err.Error())
 			return b, nil, true
 		}
 		return b.replacedBy(msg.report), nil, true
@@ -193,7 +196,8 @@ func (b browser) onRefreshKey(key string) (tea.Model, tea.Cmd, bool) {
 	case refreshSizing, refreshFetching:
 		switch key {
 		case "esc":
-			b.endAttempt("Refresh canceled; the results are those shown before it.")
+			b.endAttempt("")
+			b.refreshing.notice = "Refresh canceled; the results are those shown before it."
 		case "q", "ctrl+c":
 			b.endAttempt("")
 			return b, tea.Quit, true
@@ -221,8 +225,9 @@ func (b browser) replacedBy(report Report) browser {
 	return next
 }
 
-// refreshBody is what the body shows while a refresh asks or runs: the plan
-// and the question, or the results faded under the progress line.
+// refreshBody is what the body shows while a refresh asks or runs, or once
+// one has failed: the plan and the question, the results faded under the
+// progress line, or why it failed, until the next key.
 func (b browser) refreshBody(body string) (string, bool) {
 	switch b.refreshing.phase {
 	case refreshAsking:
@@ -237,11 +242,18 @@ func (b browser) refreshBody(body string) (string, bool) {
 	case refreshSizing, refreshFetching:
 		return styleMuted.Faint(true).Render(ansi.Strip(body)), true
 	}
+	if b.refreshing.failed != "" {
+		// The reason is wrapped to the window in full, since what it says to
+		// do is often at its end, where a cut line would lose it.
+		reason := styleNotice.Render("The refresh failed:") + "\n\n" + styleText.Render(detailWrap(b.width).Render(b.refreshing.failed))
+		return fitPane(reason, b.width, b.bodyHeight()), true
+	}
 	return body, false
 }
 
-// refreshFooter is the footer while a refresh runs or has just failed: the
-// step under way, or why the report was not replaced.
+// refreshFooter is the footer while a refresh runs or has just ended without
+// replacing the report: the step under way, that a key returns to the
+// results from why one failed, or the notice of one canceled.
 func (b browser) refreshFooter() (string, bool) {
 	switch {
 	case b.refreshing.phase == refreshSizing:
@@ -253,7 +265,9 @@ func (b browser) refreshFooter() (string, bool) {
 		}
 		return truncate(styleText.Render(line+"  (esc cancels)"), max(b.width, 1)), true
 	case b.refreshing.failed != "":
-		return truncate(styleNotice.Render(b.refreshing.failed), max(b.width, 1)), true
+		return truncate(styleNotice.Render("Refresh failed; any key returns to the results"), max(b.width, 1)), true
+	case b.refreshing.notice != "":
+		return truncate(styleNotice.Render(b.refreshing.notice), max(b.width, 1)), true
 	}
 	return "", false
 }

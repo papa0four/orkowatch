@@ -369,7 +369,7 @@ func (b browser) onKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	}
 	// Why the last refresh did not replace the report is shown until the
 	// next key.
-	b.refreshing.failed = ""
+	b.refreshing.failed, b.refreshing.notice = "", ""
 	switch {
 	case b.searching:
 		b.onSearchKey(msg)

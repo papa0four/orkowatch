@@ -458,12 +458,20 @@ func collectSoftware(ctx context.Context, data *held.Run, result *ScanResult) {
 // are refreshed says what the later match found.
 func matchSoftware(ctx context.Context, m inventoryMatching, data *held.Run, result *ScanResult) {
 	result.Vulns = m.run(ctx, data, result.OSInfo, result.Software)
-	row := softwareModule(result.Vulns)
-	if at := slices.IndexFunc(result.Modules, func(r moduleRun) bool { return r.Name == selection.NameSoftware }); at >= 0 {
-		result.Modules[at] = row
-		return
+	result.Modules = withSoftwareRow(result.Modules, result.Vulns)
+}
+
+// withSoftwareRow is modules with the software module's row saying what v
+// found: in place of the row an earlier match recorded, or after the others
+// when there is none. A live run and a saved report matched again both
+// record the row by it.
+func withSoftwareRow(modules []moduleRun, v *vulnmatch.View) []moduleRun {
+	row := softwareModule(v)
+	if at := slices.IndexFunc(modules, func(r moduleRun) bool { return r.Name == selection.NameSoftware }); at >= 0 {
+		modules[at] = row
+		return modules
 	}
-	result.Modules = append(result.Modules, row)
+	return append(modules, row)
 }
 
 // collectListeners runs the sockets module and records how it ended in

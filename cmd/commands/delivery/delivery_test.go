@@ -4,10 +4,13 @@ package delivery
 
 import (
 	"bytes"
+	"errors"
 	"io"
 	"testing"
 
 	"github.com/spf13/cobra"
+
+	"github.com/papa0four/orkowatch/internal/tui"
 )
 
 // sample is a report whose view and text are known.
@@ -49,5 +52,22 @@ func TestPayload(t *testing.T) {
 		if got, err := flags(t, c.args...).Payload(sample{}); err != nil || !bytes.Equal(got, want) {
 			t.Errorf("%s: %q, %v, want %q", name, got, err, want)
 		}
+	}
+}
+
+// A browser closed by a refresh it cannot make prints what to run instead
+// and is not an error; any other error of the browser is.
+func TestBrowseLeaves(t *testing.T) {
+	var said bytes.Buffer
+	leave := func(tui.Report) error {
+		return tui.Leave{Text: "Run owatch data refresh. Then run this command again."}
+	}
+	if err := browseWith(leave, &said)(tui.Report{}); err != nil || said.String() != "Run owatch data refresh. Then run this command again.\n" {
+		t.Errorf("a leave gave %v and printed %q", err, said.String())
+	}
+	broken := errors.New("no terminal")
+	said.Reset()
+	if err := browseWith(func(tui.Report) error { return broken }, &said)(tui.Report{}); !errors.Is(err, broken) || said.Len() > 0 {
+		t.Errorf("a failure gave %v and printed %q", err, said.String())
 	}
 }

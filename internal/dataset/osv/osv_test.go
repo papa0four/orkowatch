@@ -600,3 +600,21 @@ func TestRating(t *testing.T) {
 		t.Errorf("records kept without a rating were refused: %v", err)
 	}
 }
+
+// A dump names the release a match of host reads, the Version that match
+// carries, and refuses a host it does not apply to or whose version names no
+// release.
+func TestDumpRelease(t *testing.T) {
+	d := dump(t, "osv-ubuntu")
+	if got, err := d.Release(&osfingerprint.OSInfo{OS: "linux", Platform: "ubuntu", PlatformVersion: "26.04"}); err != nil || got != "Ubuntu:26.04" {
+		t.Errorf("Ubuntu 26.04: %q, %v", got, err)
+	}
+	for name, host := range map[string]*osfingerprint.OSInfo{
+		"another distribution": {OS: "linux", Platform: "debian", PlatformVersion: "12"},
+		"no release":           {OS: "linux", Platform: "ubuntu", PlatformVersion: "jammy"},
+	} {
+		if got, err := d.Release(host); err == nil {
+			t.Errorf("%s: %q, want it refused", name, got)
+		}
+	}
+}
