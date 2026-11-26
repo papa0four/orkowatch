@@ -11,6 +11,8 @@ import (
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+
+	"github.com/papa0four/orkowatch/internal/tone"
 )
 
 // Tab identifiers. A tab's identifier fixes the key that jumps to it, so a
@@ -64,14 +66,15 @@ type (
 		// filters between two of its options from the list.
 		Switch Switch
 
-		// Alert names the band whose heading and records are drawn in the
-		// critical color, so the records that most need attention stand apart
-		// from the rest.
+		// Alert names the band whose heading and records are drawn whole in
+		// the known-exploited tone, so the records of confirmed exploitation
+		// stand apart from the rest.
+
 		Alert string
 
 		// Attention marks a tab holding what the operator must act on, so its
-		// name stands out in the critical color wherever the sources are
-		// listed, whichever tab is open.
+		// name stands out as a notice wherever the sources are listed,
+		// whichever tab is open.
 		Attention bool
 	}
 
@@ -213,11 +216,11 @@ func buildTabs(report Report) []tabDef {
 }
 
 // nameStyle is how the source list and the tab bar draw t's name where the
-// keyboard is not on it: in the critical color when the tab needs attention,
-// in plain otherwise.
+// keyboard is not on it: as a notice when the operator has something to do
+// there, in plain otherwise.
 func (t tabDef) nameStyle(plain lipgloss.Style) lipgloss.Style {
 	if t.attention {
-		return styleAlert
+		return styleNotice
 	}
 	return plain
 }
@@ -430,11 +433,12 @@ func (p *recordPane) listView(rows, width int, selected bool) string {
 	return strings.Join(lines, "\n")
 }
 
-// bandStyle is how the list draws a line of band: in the critical color when
-// it is the tab's alert band, as plain text otherwise.
+// bandStyle is how the list draws a line of band: whole in the
+// known-exploited tone when it is the tab's alert band, as plain text
+// otherwise.
 func (p *recordPane) bandStyle(band string) lipgloss.Style {
 	if band != "" && band == p.tab.Alert {
-		return styleAlert
+		return tone.KnownExploited.Style()
 	}
 	return styleText
 }

@@ -9,6 +9,8 @@ import (
 	"testing"
 
 	"charm.land/lipgloss/v2"
+
+	"github.com/papa0four/orkowatch/internal/tone"
 )
 
 // filteredReport has a record tab whose records fall under one status each,
@@ -222,16 +224,17 @@ func TestRecordBands(t *testing.T) {
 	if got := listed(10); got != "second (1),delta" {
 		t.Errorf("a search within one band shows %q", got)
 	}
-	if p.bandStyle("first").GetForeground() != colorCritical || p.bandStyle("second").GetForeground() == colorCritical || p.bandStyle("").GetForeground() == colorCritical {
-		t.Error("the alert band is not the one drawn in the critical color")
+	exploited := tone.KnownExploited.Color()
+	if p.bandStyle("first").GetForeground() != exploited || p.bandStyle("second").GetForeground() == exploited || p.bandStyle("").GetForeground() == exploited {
+		t.Error("the alert band is not the one drawn in the known-exploited tone")
 	}
 }
 
-// A tab that needs attention has its name drawn in the critical color in the
-// source list, open or not, and in the tab bar a narrow window shows instead;
-// a tab that does not is drawn as before.
+// A tab that needs attention has its name drawn as a notice in the source
+// list, open or not, and in the tab bar a narrow window shows instead; a tab
+// that does not is drawn as before.
 func TestAttentionTabStandsOut(t *testing.T) {
-	alert := strings.SplitN(styleAlert.Render("x"), "x", 2)[0]
+	alert := strings.SplitN(styleNotice.Render("x"), "x", 2)[0]
 	b := newBrowser(Report{Title: "owatch all", Tabs: []Tab{
 		{ID: TabSystem, Name: "System", Note: "nothing"},
 		{ID: TabDatasets, Name: "Datasets", Note: "nothing", Attention: true},

@@ -1227,12 +1227,13 @@ func (b browser) listView() string {
 	lines := make([]string, 0, rows)
 	for row := b.listTop; row < min(b.listTop+rows, len(b.visible)); row++ {
 		item := b.report.Items[b.visible[row]]
-		line := truncate(b.rowText(item), b.mainWidth())
+		lead, word, rest := b.rowParts(item)
+		var line string
 		switch {
 		case row == b.cursor && b.focus != focusFilters:
-			line = styleSelected.Render(fmt.Sprintf("%-*s", b.mainWidth(), line))
+			line = styleSelected.Render(fmt.Sprintf("%-*s", b.mainWidth(), truncate(lead+word+rest, b.mainWidth())))
 		default:
-			line = lipgloss.NewStyle().Foreground(itemColor(item)).Render(line)
+			line = truncate(lead+itemTone(item).Render(word)+rest, b.mainWidth())
 		}
 		lines = append(lines, line)
 	}
@@ -1240,6 +1241,15 @@ func (b browser) listView() string {
 		lines = append(lines, "")
 	}
 	return strings.Join(lines, "\n")
+}
+
+// rowParts is one item as a single list line, in three parts: what leads it,
+// the word that carries its severity or result, padded to its column, and the
+// rest, so the word alone can be drawn in its tone.
+func (b browser) rowParts(item Item) (lead, word, rest string) {
+	text := b.rowText(item)
+	lead, after, _ := strings.Cut(text, " ")
+	return lead + " ", after[:resultColumn], after[resultColumn:]
 }
 
 // rowText is one item as a single list line.
@@ -1301,7 +1311,7 @@ func (b browser) detailText(item Item) (string, int) {
 	if item.isFinding() {
 		heading = item.Severity
 	}
-	out.WriteString(lipgloss.NewStyle().Foreground(itemColor(item)).Bold(true).Render(strings.ToUpper(heading)) +
+	out.WriteString(itemTone(item).Style().Bold(true).Render(strings.ToUpper(heading)) +
 		styleMuted.Render("  "+item.Check+"  "+item.Key) + "\n")
 	if item.Title != "" {
 		out.WriteString(styleText.Bold(true).Render(wrap.Render(item.Title)) + "\n")
