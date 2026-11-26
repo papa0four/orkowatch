@@ -234,3 +234,84 @@ func TestDataRefreshRefusesElevated(t *testing.T) {
 		t.Errorf("an elevated refresh fetched %q", origins.fetched)
 	}
 }
+
+// A plan holds each dataset that applies to the host with its download as its
+// origin states it, or the most a fetch may read when it states none, and
+// whether it is large; it fetches nothing, builds no fetcher when nothing
+// applies, and refuses an elevated process before building one.
+func TestPlanRefresh(t *testing.T) {
+	debian := &osfingerprint.OSInfo{OS: "linux", Platform: "debian", PlatformVersion: "12"}
+	d, _, origins := refreshing(t, false, "")
+	origins.sizes["debian-data"] = largeDownload + 1
+	plan, err := d.planRefresh(context.Background(), debian)
+	if err != nil || len(plan.datasets) != 2 || plan.host != debian {
+		t.Fatalf("plan %+v, %v", plan, err)
+	}
+	wanted, debianData := plan.datasets[0], plan.datasets[1]
+	if wanted.dataset.ID() != "wanted" || wanted.size != int64(len(datasettest.Content)) || !wanted.stated || wanted.allowed != 10*time.Minute || wanted.large() {
+		t.Errorf("wanted planned as %+v", wanted)
+	}
+	if debianData.dataset.ID() != "debian-data" || !debianData.large() {
+		t.Errorf("debian-data planned as %+v", debianData)
+	}
+	if got, want := wanted.String(), "wanted: 39 B from https://data.example/wanted, allowed 10m0s"; got != want {
+		t.Errorf("the line is %q, want %q", got, want)
+	}
+
+	delete(origins.sizes, "wanted")
+	plan, err = d.planRefresh(context.Background(), &osfingerprint.OSInfo{OS: "linux", Platform: "ubuntu"})
+	if err != nil || len(plan.datasets) != 1 || plan.datasets[0].stated || plan.datasets[0].size != dataset.FetchLimit(plan.datasets[0].dataset) ||
+		!strings.HasPrefix(plan.datasets[0].String(), "wanted: up to ") {
+		t.Errorf("with no size stated, on a host only wanted applies to: %+v, %v", plan, err)
+	}
+
+	built := false
+	d.fetcher = func() (fetcher, error) { built = true; return origins, nil }
+	d.known = nil
+	if plan, err := d.planRefresh(context.Background(), debian); err != nil || len(plan.datasets) != 0 || built {
+		t.Errorf("with nothing known: %+v, %v, a fetcher built %v", plan, err, built)
+	}
+	d.known = []dataset.Dataset{datasettest.Dataset{Name: "wanted", Applies: true}}
+	d.elevated = func() bool { return true }
+	if _, err := d.planRefresh(context.Background(), debian); !errors.Is(err, errRefreshElevated) || built {
+		t.Errorf("elevated: %v, a fetcher built %v", err, built)
+	}
+	if len(origins.fetched) != 0 {
+		t.Errorf("planning fetched %q", origins.fetched)
+	}
+}
+
+// steps records the steps a store reports, as id and step.
+type steps []string
+
+func (s *steps) Began(id string, step store.Step, _ int) { *s = append(*s, id+" "+string(step)) }
+func (*steps) Received(string, int64)                    {}
+func (*steps) Ended(string, store.Step, error)           {}
+
+// A plan fetches what was chosen of it and no other, telling the progress it
+// is given each step, and a fetch that can make no connection ends the
+// refresh as unreachable.
+func TestRefreshPlanFetch(t *testing.T) {
+	debian := &osfingerprint.OSInfo{OS: "linux", Platform: "debian", PlatformVersion: "12"}
+	d, s, origins := refreshing(t, false, "")
+	plan, err := d.planRefresh(context.Background(), debian)
+	if err != nil || len(plan.datasets) != 2 {
+		t.Fatalf("plan %+v, %v", plan, err)
+	}
+	var told steps
+	outcomes, err := plan.fetch(context.Background(), s, plan.datasets[:1], dataNow, &told)
+	if err != nil || len(outcomes) != 1 || outcomes[0].ID != "wanted" || outcomes[0].Result != store.Installed {
+		t.Errorf("outcomes %+v, %v", outcomes, err)
+	}
+	if !fetchedOnly(origins.fetched, "wanted") || !holds(s.Root(), "wanted") || holds(s.Root(), "debian-data") {
+		t.Errorf("fetched %q", origins.fetched)
+	}
+	if !slices.Contains(told, "wanted download") || !slices.Contains(told, "wanted check") || !slices.Contains(told, "wanted install") {
+		t.Errorf("the progress was told %q", told)
+	}
+
+	origins.fails["debian-data"] = unreachable{}
+	if _, err := plan.fetch(context.Background(), s, plan.datasets[1:], dataNow, &told); !errors.Is(err, store.ErrUnreachable) {
+		t.Errorf("with no network the fetch ended with %v", err)
+	}
+}
