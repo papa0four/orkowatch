@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
@@ -167,7 +168,15 @@ func (f *Flags) Deliver(r Report, mask selection.CheckMask) error {
 	}
 
 	if b, ok := r.(Browsable); ok && f.browses() {
-		if err := tui.Browse(b.Browse(string(payload))); err != nil {
+		// A refresh the browser cannot make here closes it with what to
+		// run instead, which is printed once the screen is the terminal's
+		// again.
+		var leave tui.Leave
+		switch err := tui.Browse(b.Browse(string(payload))); {
+		case errors.As(err, &leave):
+			_, perr := fmt.Fprintln(os.Stderr, leave.Text)
+			return perr
+		case err != nil:
 			return fmt.Errorf("results browser: %w", err)
 		}
 		return nil
