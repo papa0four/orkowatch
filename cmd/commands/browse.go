@@ -124,7 +124,7 @@ func (c *browseCmd) runE(_ *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	return tui.Browse(report)
+	return delivery.Browse(report)
 }
 
 // namedFormat resolves --input-format, or returns the empty format when it was

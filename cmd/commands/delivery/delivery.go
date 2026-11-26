@@ -168,20 +168,32 @@ func (f *Flags) Deliver(r Report, mask selection.CheckMask) error {
 	}
 
 	if b, ok := r.(Browsable); ok && f.browses() {
-		// A refresh the browser cannot make here closes it with what to
-		// run instead, which is printed once the screen is the terminal's
-		// again.
-		var leave tui.Leave
-		switch err := tui.Browse(b.Browse(string(payload))); {
-		case errors.As(err, &leave):
-			_, perr := fmt.Fprintln(os.Stderr, leave.Text)
-			return perr
-		case err != nil:
+		if err := Browse(b.Browse(string(payload))); err != nil {
 			return fmt.Errorf("results browser: %w", err)
 		}
 		return nil
 	}
 	return f.emit(payload, mask)
+}
+
+// Browse opens the results browser on report, for a command's report and for
+// a saved one alike. A refresh the browser cannot make here closes it with
+// what to run instead, which is printed on standard error once the screen is
+// the terminal's again, and is not an error of the command.
+func Browse(report tui.Report) error {
+	return browseWith(tui.Browse, os.Stderr)(report)
+}
+
+// browseWith is Browse over the browser open and the writer out.
+func browseWith(open func(tui.Report) error, out io.Writer) func(tui.Report) error {
+	return func(report tui.Report) error {
+		var leave tui.Leave
+		err := open(report)
+		if errors.As(err, &leave) {
+			_, err = fmt.Fprintln(out, leave.Text)
+		}
+		return err
+	}
 }
 
 // Payload is r encoded at the resolved format: what Deliver prints, writes,
