@@ -28,61 +28,44 @@ against and matches them again, after naming each dataset with its size and
 asking; under owatch all it also recounts the audit's counts of known-exploited
 vulnerabilities. Elevated, it fetches nothing and prints what to run instead.`
 
-// liveRefresh is the r of the results browser of a live run whose inventory
-// was matched against a dataset: it refreshes what the host's datasets are
-// through owatch data refresh's own plan and fetch, matches the run's
-// inventory again, recounts the audit from the refreshed catalog when the
-// audit ran, and gives the report matched again. Nothing of the host is
-// collected again.
-type liveRefresh struct {
-	data     *dataCmd
-	matching inventoryMatching
-	run      *held.Run
-	result   *ScanResult
-	title    string
-	severity string
-	out      *delivery.Flags
-	plan     refreshPlan
+// browserRefresh is the r of the results browser of a report whose inventory
+// was matched against a dataset: it refreshes the host's datasets through
+// owatch data refresh's own plan and fetch, then matches the report again by
+// rematch. A live run and a saved report differ only in their rematch and in
+// whether check finds the report can be matched here; the refresh is this one.
+type browserRefresh struct {
+	data    *dataCmd
+	run     *held.Run
+	host    func() (*osfingerprint.OSInfo, error)
+	check   func(host *osfingerprint.OSInfo) error
+	rematch func(ctx context.Context, data *held.Run, host *osfingerprint.OSInfo) (tui.Report, error)
+	plan    refreshPlan
 }
 
-// liveRefreshFor is the refresh the browser of result offers, or nil when
-// result's inventory was matched against no dataset, as on a host no dataset
-// covers or a run with no software module. run is the run's own data, which
-// says what an elevated run is to do instead.
-func liveRefreshFor(data *dataCmd, m inventoryMatching, run *held.Run, result *ScanResult, title, minSeverity string, out *delivery.Flags) tui.Refresher {
-	if result.Vulns == nil || result.Vulns.ID == "" {
-		return nil
-	}
-	return &liveRefresh{data: data, matching: m, run: run, result: result, title: title, severity: minSeverity, out: out}
-}
-
-// host is the host the run was matched for: the fingerprint the run read, or
-// this host's when the run read none.
-func (l *liveRefresh) host() (*osfingerprint.OSInfo, error) {
-	if l.result.OSInfo != nil {
-		return l.result.OSInfo, nil
-	}
-	return l.data.host()
-}
-
-// Plan is each dataset that applies to the host, with its download. An
-// elevated run fetches nothing: it leaves the browser with what a run that
-// does not hold its datasets is told to run, and then this command again.
-func (l *liveRefresh) Plan(ctx context.Context) ([]string, error) {
-	host, err := l.host()
+// Plan is each dataset that applies to the host, with its download, once the
+// report is found to be one that can be matched here. An elevated run fetches
+// nothing: it leaves the browser with what a run that does not hold its
+// datasets is told to run, and then this command again.
+func (r *browserRefresh) Plan(ctx context.Context) ([]string, error) {
+	host, err := r.host()
 	if err != nil {
 		return nil, fmt.Errorf("the host could not be identified: %w", err)
 	}
-	plan, err := l.data.planRefresh(ctx, host)
+	if r.check != nil {
+		if err := r.check(host); err != nil {
+			return nil, err
+		}
+	}
+	plan, err := r.data.planRefresh(ctx, host)
 	switch {
 	case errors.Is(err, errRefreshElevated):
-		return nil, tui.Leave{Text: l.run.ToFetch(ctx, host) + " Then run this command again."}
+		return nil, tui.Leave{Text: r.run.ToFetch(ctx, host) + " Then run this command again."}
 	case err != nil:
 		return nil, err
 	case len(plan.datasets) == 0:
 		return nil, errors.New("this version of owatch knows no dataset for this host")
 	}
-	l.plan = plan
+	r.plan = plan
 	lines := make([]string, len(plan.datasets))
 	for i, p := range plan.datasets {
 		lines[i] = render.HostText(p.brief())
@@ -95,23 +78,24 @@ func (l *liveRefresh) Plan(ctx context.Context) ([]string, error) {
 
 // Fetch fetches every dataset the plan named into the account's store,
 // telling line each line of its progress as owatch data refresh words it,
-// then matches the run again. A refresh that does not bring every dataset is
-// an error with what happened to each, and the result is left as it was.
-func (l *liveRefresh) Fetch(ctx context.Context, line func(string)) (tui.Report, error) {
-	dest, err := l.data.open(ctx)
+// then matches the report again through a new run's data, since a run's data
+// reads each dataset once. A refresh that does not bring every dataset is an
+// error with what happened to each, and nothing is matched again.
+func (r *browserRefresh) Fetch(ctx context.Context, line func(string)) (tui.Report, error) {
+	dest, err := r.data.open(ctx)
 	if err != nil {
 		return tui.Report{}, err
 	}
-	report := progress.New(lineWriter(line), render.StdoutWidth, l.data.now)
-	for _, p := range l.plan.datasets {
+	report := progress.New(lineWriter(line), render.StdoutWidth, r.data.now)
+	for _, p := range r.plan.datasets {
 		report.Expect(p.dataset.ID(), p.size, p.stated)
 	}
 	report.Start()
-	outcomes, err := l.plan.fetch(ctx, dest, l.plan.datasets, l.data.now(), report)
+	outcomes, err := r.plan.fetch(ctx, dest, r.plan.datasets, r.data.now(), report)
 	err = errors.Join(err, report.Stop())
 	switch {
 	case errors.Is(err, store.ErrUnreachable):
-		return tui.Report{}, noNetwork(err, l.plan.host)
+		return tui.Report{}, noNetwork(err, r.plan.host)
 	case err != nil:
 		return tui.Report{}, err
 	}
@@ -122,28 +106,63 @@ func (l *liveRefresh) Fetch(ctx context.Context, line func(string)) (tui.Report,
 		return tui.Report{}, fmt.Errorf("%d of %s not refreshed: %s", failed, render.Count(len(outcomes), "dataset", "datasets"),
 			strings.Join(strings.Split(strings.TrimSpace(said.String()), "\n"), "; "))
 	}
-	return l.matched(ctx)
+	matched, err := r.rematch(ctx, r.data.run(), r.plan.host)
+	if err != nil {
+		return tui.Report{}, err
+	}
+	matched.Refresh = r
+	return matched, nil
 }
 
-// matched is the report of the run matched again against the datasets the
-// account's store now holds, read through a new run's data, since the run's
-// own read them once. The run's result is copied, not changed.
-func (l *liveRefresh) matched(ctx context.Context) (tui.Report, error) {
+// liveRun is what the refresh of a live run's browser matches again: the
+// run's result, and how its report is titled, filtered, and encoded.
+type liveRun struct {
+	matching inventoryMatching
+	result   *ScanResult
+	title    string
+	severity string
+	out      *delivery.Flags
+}
+
+// liveRefreshFor is the refresh the browser of result offers, or nil when
+// result's inventory was matched against no dataset, as on a host no dataset
+// covers or a run with no software module. run is the run's own data, which
+// says what an elevated run is to do instead.
+func liveRefreshFor(data *dataCmd, m inventoryMatching, run *held.Run, result *ScanResult, title, minSeverity string, out *delivery.Flags) tui.Refresher {
+	if refresh, _ := newLiveRefresh(data, m, run, result, title, minSeverity, out); refresh != nil {
+		return refresh
+	}
+	return nil
+}
+
+// newLiveRefresh is liveRefreshFor's refresh with the run it matches again.
+func newLiveRefresh(data *dataCmd, m inventoryMatching, run *held.Run, result *ScanResult, title, minSeverity string, out *delivery.Flags) (*browserRefresh, *liveRun) {
+	if result.Vulns == nil || result.Vulns.ID == "" {
+		return nil, nil
+	}
+	live := &liveRun{matching: m, result: result, title: title, severity: minSeverity, out: out}
+	host := func() (*osfingerprint.OSInfo, error) {
+		if live.result.OSInfo != nil {
+			return live.result.OSInfo, nil
+		}
+		return data.host()
+	}
+	return &browserRefresh{data: data, run: run, host: host, rematch: live.rematch}, live
+}
+
+// rematch is the report of the run matched again against what data reads,
+// with the audit recounted from the catalog when the audit ran. The run's
+// result is copied, not changed; the copy is what a later r matches again.
+func (l *liveRun) rematch(ctx context.Context, data *held.Run, host *osfingerprint.OSInfo) (tui.Report, error) {
 	result := *l.result
 	result.Modules = slices.Clone(l.result.Modules)
-	data := l.data.run()
 	matchSoftware(ctx, l.matching, data, &result)
 	if l.result.SecurityAudit != nil {
 		recounted := *l.result.SecurityAudit
-		host, err := l.host()
-		if err != nil {
-			return tui.Report{}, fmt.Errorf("the host could not be identified: %w", err)
-		}
 		recounted.MarkExploited(data.Exploited(ctx, host))
 		result.SecurityAudit = &recounted
 	}
-	next := &liveRefresh{data: l.data, matching: l.matching, run: l.run, result: &result, title: l.title, severity: l.severity, out: l.out}
-	r := allReport{title: l.title, minSeverity: l.severity, result: &result, refresh: next}
+	r := allReport{title: l.title, minSeverity: l.severity, result: &result}
 	payload, err := l.out.Payload(r)
 	if err != nil {
 		return tui.Report{}, err

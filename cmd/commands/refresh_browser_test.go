@@ -46,7 +46,7 @@ func unmatched() *ScanResult {
 
 // browsing is the refresh of result's browser over a data command that
 // fetches the test records into a store in a temporary directory.
-func browsing(t *testing.T, result *ScanResult) (*liveRefresh, *served) {
+func browsing(t *testing.T, result *ScanResult) (*browserRefresh, *liveRun, *served) {
 	t.Helper()
 	d, s, origins := refreshing(t, false, "")
 	m, _, _ := matching(t)
@@ -54,12 +54,11 @@ func browsing(t *testing.T, result *ScanResult) (*liveRefresh, *served) {
 	origins.sizes["records"] = int64(len(datasettest.Content))
 	d.known = m.matched
 	d.run = func() *held.Run { return heldIn(s, m.matched...) }
-	refresh := liveRefreshFor(d, m, heldIn(s, m.matched...), result, "owatch all", "", textOut(t))
-	l, ok := refresh.(*liveRefresh)
-	if !ok {
+	refresh, live := newLiveRefresh(d, m, heldIn(s, m.matched...), result, "owatch all", "", textOut(t))
+	if refresh == nil {
 		t.Fatalf("no refresh for %+v", result.Vulns)
 	}
-	return l, origins
+	return refresh, live, origins
 }
 
 // A run whose inventory was matched against a dataset offers the refresh;
@@ -85,7 +84,7 @@ func TestLiveRefreshOffered(t *testing.T) {
 // run's own result is left as it was.
 func TestLiveRefreshMatchesAgain(t *testing.T) {
 	result := unmatched()
-	l, origins := browsing(t, result)
+	l, live, origins := browsing(t, result)
 	lines, err := l.Plan(context.Background())
 	if err != nil || len(lines) != 1 || lines[0] != "records: 39 B, allowed 10m0s" {
 		t.Fatalf("plan %q, %v", lines, err)
@@ -98,7 +97,7 @@ func TestLiveRefreshMatchesAgain(t *testing.T) {
 	if !fetchedOnly(origins.fetched, "records") || len(progress) == 0 {
 		t.Errorf("fetched %q, progress %q", origins.fetched, progress)
 	}
-	matched := l.result
+	matched := live.result
 	if matched.Vulns.NotDone != "" || len(matched.Vulns.Packages) != 1 || matched.Vulns.Packages[0].Vulnerabilities[0].ID != "CVE-2026-0001" {
 		t.Errorf("matched again: %+v", matched.Vulns)
 	}
@@ -116,7 +115,7 @@ func TestLiveRefreshMatchesAgain(t *testing.T) {
 // A refresh that does not bring every dataset fails with what happened to
 // each, and keeps the result it had.
 func TestLiveRefreshFails(t *testing.T) {
-	l, origins := browsing(t, unmatched())
+	l, live, origins := browsing(t, unmatched())
 	origins.fails["records"] = errors.New("https://data.example/records answered 404 Not Found")
 	if _, err := l.Plan(context.Background()); err != nil {
 		t.Fatal(err)
@@ -125,8 +124,8 @@ func TestLiveRefreshFails(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "1 of 1 dataset not refreshed") || !strings.Contains(err.Error(), "404 Not Found") {
 		t.Errorf("a failed fetch gave %v", err)
 	}
-	if l.result.Vulns.NotDone == "" {
-		t.Errorf("a failed refresh matched again: %+v", l.result.Vulns)
+	if live.result.Vulns.NotDone == "" {
+		t.Errorf("a failed refresh matched again: %+v", live.result.Vulns)
 	}
 
 	origins.fails["records"] = unreachable{}
@@ -139,7 +138,7 @@ func TestLiveRefreshFails(t *testing.T) {
 // browser with what to run, the commands a run that does not hold its
 // datasets prints, and then this command again.
 func TestLiveRefreshElevated(t *testing.T) {
-	l, _ := browsing(t, unmatched())
+	l, _, _ := browsing(t, unmatched())
 	l.data.elevated = func() bool { return true }
 	l.data.fetcher = func() (fetcher, error) {
 		t.Error("an elevated refresh asked for a fetcher")
