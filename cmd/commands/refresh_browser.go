@@ -6,8 +6,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/x/ansi"
 
@@ -169,6 +171,75 @@ func (l *liveRun) rematch(ctx context.Context, data *held.Run, host *osfingerpri
 	}
 	l.result = &result
 	return r.Browse(string(payload)), nil
+}
+
+// savedRun is what the refresh of a saved report's browser matches again: the
+// report as its file holds it, the file's path, and the format its full
+// report is shown in. The file is never written.
+type savedRun struct {
+	matching inventoryMatching
+	all      allResult
+	path     string
+	view     delivery.Format
+	now      func() time.Time
+}
+
+// savedMatchedTime is how the banner of a saved report matched again says
+// when it was.
+const savedMatchedTime = "2006-01-02 15:04 UTC"
+
+// savedRefreshFor is the refresh the browser of the saved report all offers,
+// or nil when the report holds no inventory, or was never matched and so
+// names no release to judge it by. Which host the report came from is judged
+// by the dataset and release it was matched against, which a report of
+// owatch software alone, with no system section, names too.
+func savedRefreshFor(data *dataCmd, m inventoryMatching, run *held.Run, path string, all allResult, view delivery.Format) tui.Refresher {
+	if all.Software == nil || all.Vulns == nil || all.Vulns.ID == "" || all.Vulns.Version == "" {
+		return nil
+	}
+	saved := &savedRun{matching: m, all: all, path: path, view: view, now: data.now}
+	return &browserRefresh{data: data, run: run, host: data.host, check: saved.check, rematch: saved.rematch}
+}
+
+// check refuses a report matched against another dataset or release than
+// this host's packages are, since this host's store holds its own release's
+// records, which importing another's would replace. Such a report can be
+// matched again only on a host of its release.
+func (s *savedRun) check(host *osfingerprint.OSInfo) error {
+	saved := s.all.Vulns.ID + " " + s.all.Vulns.Version
+	id, release, err := s.matching.release(host)
+	if err != nil {
+		return errors.New(render.HostText(fmt.Sprintf("This report was matched against %s, and %s, so the report can be matched again only on a host of %s: open it there with owatch browse",
+			saved, err, s.all.Vulns.Version)))
+	}
+	if id != s.all.Vulns.ID || release != s.all.Vulns.Version {
+		return errors.New(render.HostText(fmt.Sprintf("This report was matched against %s; this host's packages are matched against %s %s, so the report can be matched again only on a host of %s: open it there with owatch browse",
+			saved, id, release, s.all.Vulns.Version)))
+	}
+	return nil
+}
+
+// rematch is the report's saved inventory matched again against what data
+// reads, with the audit recounted from the catalog when the report holds one,
+// titled to say the screen was matched again and the file is unchanged. The
+// report as read is copied, not changed; the copy is what a later r matches
+// again.
+func (s *savedRun) rematch(ctx context.Context, data *held.Run, host *osfingerprint.OSInfo) (tui.Report, error) {
+	all := s.all
+	all.Vulns = s.matching.run(ctx, data, host, s.all.Software.Packages)
+	all.Modules = withSoftwareRow(slices.Clone(s.all.Modules), all.Vulns)
+	if s.all.Security != nil {
+		recounted := s.all.Security.Recounted(data.Exploited(ctx, host))
+		all.Security = &recounted
+	}
+	title := fmt.Sprintf("owatch browse  %s, matched again %s; the file is unchanged",
+		filepath.Base(s.path), s.now().UTC().Format(savedMatchedTime))
+	report, err := allBrowserReport(title, s.view, all)
+	if err != nil {
+		return tui.Report{}, err
+	}
+	s.all = all
+	return report, nil
 }
 
 // lineWriter gives line the last line of what the progress writes, as a
