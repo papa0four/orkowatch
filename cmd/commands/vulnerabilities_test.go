@@ -20,7 +20,6 @@ import (
 	"github.com/papa0four/orkowatch/internal/dataset"
 	"github.com/papa0four/orkowatch/internal/dataset/datasettest"
 	"github.com/papa0four/orkowatch/internal/dataset/epss"
-	"github.com/papa0four/orkowatch/internal/dataset/osv"
 	"github.com/papa0four/orkowatch/internal/dataset/store"
 	"github.com/papa0four/orkowatch/internal/osfingerprint"
 	"github.com/papa0four/orkowatch/internal/security/finding"
@@ -28,6 +27,7 @@ import (
 	"github.com/papa0four/orkowatch/internal/softwarelist"
 	"github.com/papa0four/orkowatch/internal/tui"
 	"github.com/papa0four/orkowatch/internal/vulnmatch"
+	"github.com/papa0four/orkowatch/internal/vulnrecord"
 )
 
 // testRecords is the test dataset as a source of records for Debian hosts:
@@ -41,14 +41,14 @@ func (testRecords) Manager() string                           { return softwarel
 // them carries.
 func (testRecords) Release(*osfingerprint.OSInfo) (string, error) { return "Debian:12", nil }
 
-func (r testRecords) Records(data io.Reader, host *osfingerprint.OSInfo, each func(osv.Record) error) (dataset.Facts, error) {
+func (r testRecords) Records(data io.Reader, host *osfingerprint.OSInfo, each func(vulnrecord.Record) error) (dataset.Facts, error) {
 	facts, err := r.Check(data, host)
 	if err != nil {
 		return facts, err
 	}
 	facts.Version = "Debian:12"
-	return facts, each(osv.Record{ID: "DSA-1", CVEs: []string{"CVE-2026-0001"}, Modified: "2026-11-20T00:00:00Z",
-		Affected: []osv.Affected{{Package: "openssl", Ecosystem: "Debian:12", Ranges: [][]osv.Event{{{"introduced": "0"}, {"fixed": "3.0.15-1"}}}}}})
+	return facts, each(vulnrecord.Record{ID: "DSA-1", CVEs: []string{"CVE-2026-0001"}, Modified: "2026-11-20T00:00:00Z",
+		Affected: []vulnrecord.Affected{{Package: "openssl", Ecosystem: "Debian:12", Ranges: [][]vulnrecord.Bound{{{Kind: vulnrecord.From, Version: vulnrecord.First}, {Kind: vulnrecord.Before, Version: "3.0.15-1"}}}}}})
 }
 
 var debian = &osfingerprint.OSInfo{OS: "linux", Platform: "debian", PlatformVersion: "12"}

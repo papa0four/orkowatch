@@ -9,8 +9,8 @@ import (
 
 	"github.com/papa0four/orkowatch/internal/cvss"
 	v4 "github.com/papa0four/orkowatch/internal/cvss/v4"
-	"github.com/papa0four/orkowatch/internal/dataset/osv"
 	"github.com/papa0four/orkowatch/internal/security/finding"
+	"github.com/papa0four/orkowatch/internal/vulnrecord"
 )
 
 // The levels of the one scale every severity is placed on, most severe first,
@@ -78,7 +78,7 @@ func rank(level string) int {
 // they state none, it is the band of the highest base score among the CVSS
 // vectors they give, which the detail shows as computed. Where they give
 // nothing that can be read, none is stated.
-func severityOf(scores []osv.Severity, ratings []string) Severity {
+func severityOf(scores []vulnrecord.Score, ratings []string) Severity {
 	best := Severity{Level: LevelNone}
 	take := func(s Severity) {
 		if rank(s.Level) < rank(best.Level) {

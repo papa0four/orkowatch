@@ -11,12 +11,14 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
 
 	"github.com/papa0four/orkowatch/internal/dataset"
 	"github.com/papa0four/orkowatch/internal/osfingerprint"
+	"github.com/papa0four/orkowatch/internal/vulnrecord"
 )
 
 // The recorded dumps are excerpts, not the dumps as published. Each is records
@@ -523,7 +525,7 @@ func TestRecords(t *testing.T) {
 		t.Fatal(err)
 	}
 	var ids []string
-	facts, err := d.Records(bytes.NewReader(kept), &host, func(rec Record) error {
+	facts, err := d.Records(bytes.NewReader(kept), &host, func(rec vulnrecord.Record) error {
 		ids = append(ids, rec.ID)
 		return nil
 	})
@@ -532,7 +534,7 @@ func TestRecords(t *testing.T) {
 	}
 
 	stop := errors.New("enough")
-	if _, err := d.Records(bytes.NewReader(kept), &host, func(Record) error { return stop }); !errors.Is(err, stop) {
+	if _, err := d.Records(bytes.NewReader(kept), &host, func(vulnrecord.Record) error { return stop }); !errors.Is(err, stop) {
 		t.Errorf("a consumer's error gave %v", err)
 	}
 
@@ -540,7 +542,7 @@ func TestRecords(t *testing.T) {
 	head := `{"format":1,"release":"Alpine:v3.20"}`
 	line := `{"id":"A-1","cves":[],"modified":"2026-11-23T10:00:00Z","affected":[{"package":"openssl","ecosystem":"Alpine:v3.20","ranges":[[{"introduced":"0"}]]}]}`
 	given := 0
-	if _, err := d.Records(bytes.NewReader(keptData(t, head, line, `{"records":2,"modified":"2026-11-23T10:00:00Z"}`)), alpine, func(Record) error {
+	if _, err := d.Records(bytes.NewReader(keptData(t, head, line, `{"records":2,"modified":"2026-11-23T10:00:00Z"}`)), alpine, func(vulnrecord.Record) error {
 		given++
 		return nil
 	}); err == nil || given != 1 {
@@ -578,7 +580,7 @@ func TestRating(t *testing.T) {
 		t.Fatal(err)
 	}
 	rated := map[string]int{}
-	if _, err := dump(t, rocky.id).Records(bytes.NewReader(kept), &host, func(r Record) error {
+	if _, err := dump(t, rocky.id).Records(bytes.NewReader(kept), &host, func(r vulnrecord.Record) error {
 		rated[r.Rating]++
 		return nil
 	}); err != nil {
@@ -616,5 +618,29 @@ func TestDumpRelease(t *testing.T) {
 		if got, err := d.Release(host); err == nil {
 			t.Errorf("%s: %q, want it refused", name, got)
 		}
+	}
+}
+
+// A kept record is given to matching with each event of its ranges the bound
+// it names, introduced from, fixed before, last affected up to, and a limit
+// the range's end, and with the rest of the record as it was kept.
+func TestRecordMatching(t *testing.T) {
+	kept := Record{ID: "USN-1-1", CVEs: []string{"CVE-2026-1"}, Published: "2026-11-01T00:00:00Z", Modified: "2026-11-02T00:00:00Z",
+		Advisory: "https://ubuntu.com/security/notices/USN-1-1", Rating: "Important",
+		Severity: []Severity{{Type: "Ubuntu", Score: "medium"}},
+		Affected: []Affected{{Package: "openssl", Ecosystem: "Ubuntu:26.04", Ranges: [][]Event{
+			{{"introduced": "0"}, {"fixed": "3.0.2-2"}},
+			{{"introduced": "1.0"}, {"last_affected": "1.9"}, {"limit": "2.0"}},
+		}}}}
+	got := kept.matching()
+	want := vulnrecord.Record{ID: "USN-1-1", CVEs: []string{"CVE-2026-1"}, Published: "2026-11-01T00:00:00Z", Modified: "2026-11-02T00:00:00Z",
+		Advisory: "https://ubuntu.com/security/notices/USN-1-1", Rating: "Important",
+		Scores: []vulnrecord.Score{{Type: "Ubuntu", Score: "medium"}},
+		Affected: []vulnrecord.Affected{{Package: "openssl", Ecosystem: "Ubuntu:26.04", Ranges: [][]vulnrecord.Bound{
+			{{Kind: vulnrecord.From, Version: "0"}, {Kind: vulnrecord.Before, Version: "3.0.2-2"}},
+			{{Kind: vulnrecord.From, Version: "1.0"}, {Kind: vulnrecord.UpTo, Version: "1.9"}, {Kind: vulnrecord.Limit, Version: "2.0"}},
+		}}}}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("matching gave\n%+v\nwant\n%+v", got, want)
 	}
 }

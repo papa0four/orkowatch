@@ -15,6 +15,7 @@ import (
 	"github.com/papa0four/orkowatch/internal/osfingerprint"
 	"github.com/papa0four/orkowatch/internal/softwarelist"
 	"github.com/papa0four/orkowatch/internal/vulnmatch"
+	"github.com/papa0four/orkowatch/internal/vulnrecord"
 )
 
 // recordSource is a dataset of a distribution's security records that the
@@ -25,7 +26,7 @@ import (
 type recordSource interface {
 	dataset.Dataset
 	Manager() string
-	Records(data io.Reader, host *osfingerprint.OSInfo, each func(osv.Record) error) (dataset.Facts, error)
+	Records(data io.Reader, host *osfingerprint.OSInfo, each func(vulnrecord.Record) error) (dataset.Facts, error)
 	Release(host *osfingerprint.OSInfo) (string, error)
 }
 

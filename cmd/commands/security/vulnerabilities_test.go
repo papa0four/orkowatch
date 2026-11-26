@@ -10,10 +10,10 @@ import (
 	"github.com/papa0four/orkowatch/internal/dataset"
 	"github.com/papa0four/orkowatch/internal/dataset/epss"
 	"github.com/papa0four/orkowatch/internal/dataset/kev"
-	"github.com/papa0four/orkowatch/internal/dataset/osv"
 	"github.com/papa0four/orkowatch/internal/tone"
 	"github.com/papa0four/orkowatch/internal/tui"
 	"github.com/papa0four/orkowatch/internal/vulnmatch"
+	"github.com/papa0four/orkowatch/internal/vulnrecord"
 )
 
 // matchedView is a match of two packages: openssl with one vulnerability
@@ -27,7 +27,7 @@ func matchedView() vulnmatch.View {
 			}},
 			{Package: "openssl", Installed: "3.0.2-1", Binaries: []string{"libssl3", "openssl"}, Vulnerabilities: []vulnmatch.Vulnerability{
 				{ID: "CVE-2026-1", Status: vulnmatch.StatusFixAvailable, Fixed: "3.0.2-2", Severity: vulnmatch.Severity{Label: "Important", Level: vulnmatch.LevelHigh, Basis: "advisory rating"},
-					Scores: []osv.Severity{{Type: "CVSS_V3", Score: "CVSS:3.1/AV:N"}}, Records: []string{"UBUNTU-CVE-2026-1", "USN-1-1"}},
+					Scores: []vulnrecord.Score{{Type: "CVSS_V3", Score: "CVSS:3.1/AV:N"}}, Records: []string{"UBUNTU-CVE-2026-1", "USN-1-1"}},
 				{ID: "CVE-2026-2", Status: vulnmatch.StatusUnfixed, Severity: vulnmatch.Severity{Label: "low", Level: vulnmatch.LevelLow, Basis: "CVSS v3.1 base 3.1"}, Records: []string{"UBUNTU-CVE-2026-2"}},
 			}},
 		},

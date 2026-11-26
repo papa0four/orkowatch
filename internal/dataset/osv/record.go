@@ -12,7 +12,42 @@ import (
 	"unicode"
 
 	"github.com/papa0four/orkowatch/internal/dataset"
+	"github.com/papa0four/orkowatch/internal/vulnrecord"
 )
+
+// boundOf is the bound of a matching range each event of a kept range
+// names: introduced is from its version, fixed before it, last affected up to
+// it, and a limit ends the range there.
+var boundOf = map[string]vulnrecord.Kind{
+	eventIntroduced:   vulnrecord.From,
+	eventFixed:        vulnrecord.Before,
+	eventLastAffected: vulnrecord.UpTo,
+	eventLimit:        vulnrecord.Limit,
+}
+
+// matching is r as the matcher reads it, each event of its ranges the bound
+// it names. A kept record's ranges hold those four events alone, each naming
+// one version, as validRange holds them.
+func (r Record) matching() vulnrecord.Record {
+	m := vulnrecord.Record{ID: r.ID, CVEs: r.CVEs, Published: r.Published, Modified: r.Modified, Advisory: r.Advisory, Rating: r.Rating}
+	for _, s := range r.Severity {
+		m.Scores = append(m.Scores, vulnrecord.Score{Type: s.Type, Score: s.Score})
+	}
+	for _, a := range r.Affected {
+		affected := vulnrecord.Affected{Package: a.Package, Ecosystem: a.Ecosystem}
+		for _, events := range a.Ranges {
+			var bounds []vulnrecord.Bound
+			for _, e := range events {
+				for kind, version := range e {
+					bounds = append(bounds, vulnrecord.Bound{Kind: boundOf[kind], Version: version})
+				}
+			}
+			affected.Ranges = append(affected.Ranges, bounds)
+		}
+		m.Affected = append(m.Affected, affected)
+	}
+	return m
+}
 
 // maxEcosystemsSeen bounds how many of a dump's ecosystems are remembered to
 // name in a refusal. Red Hat's dump of 2026-11-24 named 1,041.
