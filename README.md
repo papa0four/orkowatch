@@ -333,7 +333,7 @@ unfixed, with the worst severity among them, its detail lists them, and its
 filter chooses all, the affected packages, or those with a fix available;
 Vulnerabilities, when the software was
 matched, lists each CVE of each affected package in that order, those known to be
-exploited first, whole in crimson under a crimson rule that counts them and marked on their rows,
+exploited first, in crimson with each severity in its own color, under a crimson rule that counts them and marked on their rows,
 then the rest under a rule of their own, each row giving, in that order, the
 severity, the EPSS score when the scores were read, and the fixed version or
 that none is available, and opens filtered to those with a fix available: its filters choose fix
@@ -374,7 +374,8 @@ colored each by its own meaning.
 Only the word that carries a meaning is colored: the severity or result on a
 finding's row, the severity and `exploited` in a vulnerability's row, the level
 after `worst` on a software package's row, the options of the severity filters,
-and the severity in a detail. A known-exploited row is crimson whole. A severity
+and the severity in a detail. A known-exploited row is crimson but for its
+severity, which keeps its own color. A severity
 the records do not state, a status of a match, and everything else keep the
 terminal's own color. A pane's headings, and the line above a list, are lit
 while the pane has the keyboard and gray while another pane has it. On a

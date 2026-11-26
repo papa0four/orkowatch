@@ -430,21 +430,16 @@ func (p *recordPane) listView(rows, width int, selected bool) string {
 		}
 		row := at.row
 		record := p.tab.Records[p.visible[row]]
-		text, toned := record.Title, record.Title
+		text, toned := record.Title, style.Render(record.Title)
 		if len(record.Subtitle) > 0 {
 			text += "  " + record.Subtitle.String()
-			toned += "  " + record.Subtitle.render(lipgloss.NewStyle())
+			toned += style.Render("  ") + record.Subtitle.render(style)
 		}
-		var line string
-		switch {
-		case row == p.cursor && selected:
-			line = styleSelected.Render(fmt.Sprintf("%-*s", width, truncate(text, width)))
-		case band != "" && band == p.tab.Alert:
-			line = style.Render(truncate(text, width))
-		default:
-			line = truncate(toned, width)
+		if row == p.cursor && selected {
+			lines = append(lines, styleSelected.Render(fmt.Sprintf("%-*s", width, truncate(text, width))))
+			continue
 		}
-		lines = append(lines, line)
+		lines = append(lines, truncate(toned, width))
 	}
 	for len(lines) < rows {
 		lines = append(lines, "")
@@ -452,9 +447,10 @@ func (p *recordPane) listView(rows, width int, selected bool) string {
 	return strings.Join(lines, "\n")
 }
 
-// bandStyle is how the list draws a line of band: whole in the
-// known-exploited tone when it is the tab's alert band, and in the terminal's
-// own color otherwise.
+// bandStyle is how the list draws the words of a line of band that carry no
+// tone of their own: in the known-exploited tone when it is the tab's alert
+// band, and in the terminal's own color otherwise. A word that carries a tone,
+// such as a severity, keeps it in every band.
 func (p *recordPane) bandStyle(band string) lipgloss.Style {
 	if band != "" && band == p.tab.Alert {
 		return tone.KnownExploited.Style()

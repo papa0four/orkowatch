@@ -186,7 +186,8 @@ func TestFilterFocus(t *testing.T) {
 // across the list naming the band and how many of the visible records are in
 // it, drawn where the band changes; a search that leaves one band shows its
 // heading alone; a record scrolled up to that is its band's first is shown
-// under its heading; and the tab's alert band is drawn in the critical color.
+// under its heading; and the tab's alert band is drawn in the known-exploited
+// tone.
 func TestRecordBands(t *testing.T) {
 	record := func(title, band string) Record { return Record{Title: title, Band: band} }
 	p := newRecordPane(Tab{ID: TabVulnerabilities, Name: "Vulnerabilities", Alert: "first", Records: []Record{

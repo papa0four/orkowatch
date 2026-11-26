@@ -65,7 +65,8 @@ func TestFeedColorsOnlyTheSeverity(t *testing.T) {
 }
 
 // A record's row colors only the words its subtitle tones, an alert band's row
-// is whole in the known-exploited tone, and the selected row is plain.
+// is in the known-exploited tone except for those words, which keep their own,
+// and the selected row is plain.
 func TestRecordRowTones(t *testing.T) {
 	sub := Line{{Text: "fix 2  "}, {Text: "high", Tone: tone.High}}
 	p := newRecordPane(Tab{ID: TabVulnerabilities, Name: "Vulnerabilities", Alert: "known", Records: []Record{
@@ -85,8 +86,9 @@ func TestRecordRowTones(t *testing.T) {
 	if len(rows) != 3 {
 		t.Fatalf("rows %q", rows)
 	}
-	if rows[0] != tone.KnownExploited.Style().Render("CVE-1  fix 2  high") {
-		t.Errorf("the alert row is not whole in the known-exploited tone: %q", rows[0])
+	exploited := tone.KnownExploited.Style()
+	if want := exploited.Render("CVE-1") + exploited.Render("  ") + exploited.Render("fix 2  ") + tone.High.Render("high"); rows[0] != want {
+		t.Errorf("the alert row is not in the known-exploited tone with its severity in its own: %q, want %q", rows[0], want)
 	}
 	if !strings.Contains(rows[1], "CVE-2  fix 2  "+tone.High.Render("high")) {
 		t.Errorf("the row does not color only its toned word: %q", rows[1])
