@@ -193,6 +193,13 @@ func (p planned) String() string {
 	return fmt.Sprintf("%s: %s from %s, allowed %s", p.dataset.ID(), p.described(), p.dataset.Origin().URL, p.allowed)
 }
 
+// brief is the line without the address the data is fetched from, for the
+// results browser, where a long address would not fit beside the size. The
+// address is in owatch data refresh and owatch data status.
+func (p planned) brief() string {
+	return fmt.Sprintf("%s: %s, allowed %s", p.dataset.ID(), p.described(), p.allowed)
+}
+
 // refreshPlan is what a refresh for host would fetch: each dataset that
 // applies to host with its download, and the fetcher that sized them, which
 // alone fetches them.

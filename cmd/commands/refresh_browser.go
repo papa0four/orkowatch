@@ -85,7 +85,7 @@ func (l *liveRefresh) Plan(ctx context.Context) ([]string, error) {
 	l.plan = plan
 	lines := make([]string, len(plan.datasets))
 	for i, p := range plan.datasets {
-		lines[i] = render.HostText(p.String())
+		lines[i] = render.HostText(p.brief())
 		if p.large() {
 			lines[i] += ", larger than " + dataset.Size(largeDownload)
 		}

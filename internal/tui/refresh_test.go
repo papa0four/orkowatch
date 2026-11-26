@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 // planned is what the fake refresh says it would fetch.
@@ -182,4 +183,33 @@ func TestRefreshLeaves(t *testing.T) {
 	if !quit || b.leave == nil || b.leave.Text != "Run owatch data refresh as the account behind this run." || refresh.fetches != 0 {
 		t.Errorf("quit %v, leave %+v, fetched %d times", quit, b.leave, refresh.fetches)
 	}
+}
+
+// The question fits the window: a plan line wider than it is cut at its edge,
+// never wrapped onto a second line.
+func TestRefreshQuestionFitsTheWindow(t *testing.T) {
+	long := "osv-ubuntu: 806.9 MiB, allowed 53m48s, larger than 100.0 MiB" + strings.Repeat(" and more", 10)
+	refresh := &longPlan{line: long}
+	report := sidebarReport(2)
+	report.Refresh = refresh
+	b := sized(newBrowser(report), 80, 30)
+	b, cmd := pressing(b, "r")
+	b, _ = settle(t, b, cmd)
+	screen := b.render()
+	for i, line := range strings.Split(screen, "\n") {
+		if w := lipgloss.Width(line); w > 80 {
+			t.Errorf("line %d is %d columns wide: %q", i, w, plain(line))
+		}
+	}
+	if !strings.Contains(plain(screen), "osv-ubuntu: 806.9 MiB, allowed 53m48s, larger than 100.0 MiB") || strings.Contains(plain(screen), "\nand more") {
+		t.Errorf("the plan line was not cut at the edge:\n%s", plain(screen))
+	}
+}
+
+// longPlan plans one line, and fetches nothing.
+type longPlan struct{ line string }
+
+func (l *longPlan) Plan(context.Context) ([]string, error) { return []string{l.line}, nil }
+func (*longPlan) Fetch(context.Context, func(string)) (Report, error) {
+	return Report{}, errors.New("not fetched")
 }

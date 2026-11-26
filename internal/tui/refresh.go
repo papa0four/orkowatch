@@ -226,8 +226,13 @@ func (b browser) replacedBy(report Report) browser {
 func (b browser) refreshBody(body string) (string, bool) {
 	switch b.refreshing.phase {
 	case refreshAsking:
+		// Each line is cut at the window's edge, as every line the browser
+		// draws is, since a wrapped line would break the frame.
 		lines := append([]string{"A refresh fetches:"}, b.refreshing.plan...)
 		lines = append(lines, "", refreshQuestion)
+		for i, line := range lines {
+			lines[i] = truncate(line, max(b.width, 1))
+		}
 		return fitPane(styleText.Render(strings.Join(lines, "\n")), b.width, b.bodyHeight()), true
 	case refreshSizing, refreshFetching:
 		return styleMuted.Faint(true).Render(ansi.Strip(body)), true

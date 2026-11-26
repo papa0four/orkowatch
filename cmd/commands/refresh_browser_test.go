@@ -87,7 +87,7 @@ func TestLiveRefreshMatchesAgain(t *testing.T) {
 	result := unmatched()
 	l, origins := browsing(t, result)
 	lines, err := l.Plan(context.Background())
-	if err != nil || len(lines) != 1 || lines[0] != "records: 39 B from https://data.example/records, allowed 10m0s" {
+	if err != nil || len(lines) != 1 || lines[0] != "records: 39 B, allowed 10m0s" {
 		t.Fatalf("plan %q, %v", lines, err)
 	}
 	var progress []string
