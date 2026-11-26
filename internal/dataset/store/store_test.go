@@ -312,3 +312,51 @@ func TestRead(t *testing.T) {
 		t.Errorf("damaged data gave %v after consume saw %d bytes, want ErrUnusable", err, got.Len())
 	}
 }
+
+// Usable judges a dataset as Read does before it reads the data: one not held
+// is ErrNotHeld; a manifest refused, a data file missing or of another size,
+// and a manifest that is not a file are ErrUnusable with the reason; and data
+// of the right size whose content is damaged passes, since none of it is
+// read, and is refused only by Read.
+func TestUsable(t *testing.T) {
+	d := testDataset{Name: "test-data", Applies: true}
+	if err := (Store{root: t.TempDir()}).Usable(d, now); !errors.Is(err, ErrNotHeld) {
+		t.Errorf("a dataset not held gave %v, want ErrNotHeld", err)
+	}
+	for _, tt := range []struct {
+		name   string
+		damage func(t *testing.T, s Store, d dataset.Dataset)
+		reason string
+	}{
+		{"truncated", rewriteData(content[:len(content)-3]), "the data holds"},
+		{"longer", rewriteData(content + "more\n"), "the data holds"},
+		{"data missing", removeData, dataSuffix},
+		{"a manifest for another dataset", holdInstead(content, func(m *dataset.Manifest) { m.ID = "other-data" }), "manifest refused"},
+		{"a manifest fetched later than now", holdInstead(content, func(m *dataset.Manifest) { m.Fetched = now.Add(time.Hour) }), "later than now"},
+		{"a manifest that is a directory", replaceWithDir(func(s Store, d dataset.Dataset) string {
+			return filepath.Join(s.dir(d.ID()), manifestName)
+		}), "not a regular file"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			s := Store{root: t.TempDir()}
+			put(t, s, d, content, now.Add(-time.Hour), nil)
+			tt.damage(t, s, d)
+			if err := s.Usable(d, now); !errors.Is(err, ErrUnusable) || !strings.Contains(err.Error(), tt.reason) {
+				t.Errorf("gave %v, want ErrUnusable for a reason naming %q", err, tt.reason)
+			}
+		})
+	}
+
+	s := Store{root: t.TempDir()}
+	put(t, s, d, content, now.Add(-time.Hour), nil)
+	if err := s.Usable(d, now); err != nil {
+		t.Errorf("a sound dataset gave %v", err)
+	}
+	rewriteData(strings.ToUpper(content))(t, s, d)
+	if err := s.Usable(d, now); err != nil {
+		t.Errorf("data of the right size was read: %v", err)
+	}
+	if _, err := s.Read(d, now, func(io.Reader) error { return nil }); !errors.Is(err, ErrUnusable) {
+		t.Errorf("Read took damaged data: %v", err)
+	}
+}

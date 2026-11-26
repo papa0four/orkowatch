@@ -89,7 +89,7 @@ func BindAudit(cmd *cobra.Command) *AuditFlags {
 	cmd.Flags().StringVar(&a.minSeverity, "min-severity", finding.SeverityNone,
 		fmt.Sprintf("Minimum severity level to report, judged on the severity on this host (%s)", finding.SeverityNames()))
 	cmd.Flags().BoolVarP(&a.yes, "yes", "y", false,
-		"Do not ask before a permissions check that scans the entire filesystem")
+		"Do not ask before a permissions check that scans the entire filesystem; a run whose datasets are not held still asks")
 	return a
 }
 
@@ -186,6 +186,8 @@ You can run all checks or specify individual checks to run.
 
 The audit reads CISA's Known Exploited Vulnerabilities catalog for its count of
 known-exploited vulnerabilities in each finding's weakness class.
+
+` + held.AskHelp + `
 
 ` + held.ElevatedHelp,
 		Example: `  # Run all security checks
@@ -344,6 +346,10 @@ func (c *auditCmd) runE(cmd *cobra.Command, _ []string) error {
 	}
 
 	interactive := render.StdoutIsTerminal() && render.StdinIsTerminal()
+	data := held.ForHost()
+	if err := data.Ask(cmd.Context(), AuditReads, interactive, os.Stdin, os.Stderr); err != nil {
+		return err
+	}
 	switch err := c.audit.ConfirmFullScan(mask, c.scanRoot, interactive, os.Stdin, os.Stderr); {
 	case errors.Is(err, ErrScanDeclined):
 		fmt.Fprintln(os.Stderr, "Scan canceled.")
@@ -357,7 +363,7 @@ func (c *auditCmd) runE(cmd *cobra.Command, _ []string) error {
 	}
 	c.logVerboseConfig(mask)
 
-	return c.runAuditWithTimeout(cmd, mask, held.ForHost())
+	return c.runAuditWithTimeout(cmd, mask, data)
 }
 
 // validateScanRoot rejects a scan root that cannot be read, before any check
@@ -442,6 +448,12 @@ func (c *auditCmd) runAuditWithTimeout(cmd *cobra.Command, mask selection.CheckM
 		return fmt.Errorf("%s; results shown are incomplete; rerun with a longer --timeout or %s", cause, hint)
 	}
 	return fmt.Errorf("%s; results shown are incomplete", cause)
+}
+
+// AuditReads is what the audit reads: the catalog, whose counts of
+// known-exploited vulnerabilities by weakness class it gives each finding.
+func AuditReads(*osfingerprint.OSInfo) []dataset.Dataset {
+	return []dataset.Dataset{held.Catalog()}
 }
 
 // ExploitedClasses is how the audit reads, through a run's data, how many

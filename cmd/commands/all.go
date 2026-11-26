@@ -125,6 +125,8 @@ func newAllCmd() *cobra.Command {
 
 Results can be output in various formats and saved to a file.
 
+` + held.AskHelp + `
+
 ` + held.ElevatedHelp,
 		Example: `  # Run all scans with default settings
   owatch all
@@ -260,7 +262,11 @@ func (c *allCmd) runAllScans(cmd *cobra.Command, args []string) error {
 	}
 
 	interactive := render.StdoutIsTerminal()
-	switch err := c.audit.ConfirmFullScan(c.auditMask(mask), "", interactive && render.StdinIsTerminal(), os.Stdin, os.Stderr); {
+	data := held.ForHost()
+	if err := data.Ask(cmd.Context(), c.reads(), atTerminal(), os.Stdin, os.Stderr); err != nil {
+		return err
+	}
+	switch err := c.audit.ConfirmFullScan(c.auditMask(mask), "", atTerminal(), os.Stdin, os.Stderr); {
 	case errors.Is(err, security.ErrScanDeclined):
 		fmt.Fprintln(os.Stderr, "Scan canceled.")
 		return nil
@@ -285,7 +291,7 @@ func (c *allCmd) runAllScans(cmd *cobra.Command, args []string) error {
 		Interactive: interactive,
 		Verbose:     c.verbose,
 	}, func(ctx context.Context, reporter tui.Reporter) error {
-		c.runModules(ctx, held.ForHost(), mask, result, reporter)
+		c.runModules(ctx, data, mask, result, reporter)
 		return nil
 	})
 	if err != nil {
@@ -312,14 +318,15 @@ func (c *allCmd) runAllScans(cmd *cobra.Command, args []string) error {
 
 // inventory is a module that enumerates facts about the host: its name, as
 // --skip-modules, the progress display and its row in the report spell it,
-// the bit that selects it, its label in the progress display, and the
-// function that runs it, reading any dataset through the run's data, and
-// records how it ended.
+// the bit that selects it, its label in the progress display, the function
+// that runs it, reading any dataset through the run's data, and records how
+// it ended, and the datasets it reads, nil for a module that reads none.
 type inventory struct {
 	name    string
 	mask    selection.CheckMask
 	label   string
 	collect func(ctx context.Context, data *held.Run, result *ScanResult)
+	reads   held.Reads
 }
 
 // inventoryModules lists the inventory modules in the order all runs them,
@@ -328,9 +335,9 @@ type inventory struct {
 // alone takes it from here too, so a module is added in this one place.
 func inventoryModules() []inventory {
 	return []inventory{
-		{selection.NameOS, selection.ModuleOS, "OS fingerprint", collectOSInfo},
-		{selection.NameSoftware, selection.ModuleSoftware, "software inventory", collectSoftware},
-		{selection.NameListeners, selection.ModuleListeners, "sockets", collectListeners},
+		{selection.NameOS, selection.ModuleOS, "OS fingerprint", collectOSInfo, nil},
+		{selection.NameSoftware, selection.ModuleSoftware, "software inventory", collectSoftware, hostMatching().reads},
+		{selection.NameListeners, selection.ModuleListeners, "sockets", collectListeners, nil},
 	}
 }
 
@@ -341,6 +348,31 @@ func (c *allCmd) auditMask(mask selection.CheckMask) selection.CheckMask {
 		return 0
 	}
 	return mask
+}
+
+// reads is what the run reads: what each module not skipped reads, and the
+// catalog the audit consults unless it is skipped. It is nil when no part of
+// the run reads a dataset, so such a run is asked nothing.
+func (c *allCmd) reads() held.Reads {
+	var parts []held.Reads
+	for _, module := range inventoryModules() {
+		if module.reads != nil && !c.isModuleSkipped(module.name) {
+			parts = append(parts, module.reads)
+		}
+	}
+	if !c.isModuleSkipped(selection.NameAudit) {
+		parts = append(parts, security.AuditReads)
+	}
+	if len(parts) == 0 {
+		return nil
+	}
+	return func(host *osfingerprint.OSInfo) []dataset.Dataset {
+		var all []dataset.Dataset
+		for _, part := range parts {
+			all = append(all, part(host)...)
+		}
+		return all
+	}
 }
 
 // tasks lists what the progress display shows a row for: the inventory

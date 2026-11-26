@@ -25,6 +25,8 @@ and what could not be matched. With no dataset held, the section says matching
 was not done and what to run, and with no catalog held, that known exploitation
 was not read.
 
+` + held.AskHelp + `
+
 ` + held.ElevatedHelp + `
 
 The report opens in the results browser on a terminal, with the same layout as an audit.`,

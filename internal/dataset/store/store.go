@@ -97,14 +97,43 @@ func (s Store) dir(id string) string {
 // Read returns nil. A dataset the store does not hold is ErrNotHeld, and one
 // held that cannot be used is ErrUnusable with the reason.
 func (s Store) Read(d dataset.Dataset, now time.Time, consume func(io.Reader) error) (dataset.Manifest, error) {
+	if err := s.holds(d); err != nil {
+		return dataset.Manifest{}, err
+	}
+	return s.read(d, now, consume)
+}
+
+// Usable reports whether the dataset d can be read at now, as Read would
+// judge it before reading its data: ErrNotHeld when the store does not hold
+// it, and ErrUnusable with the reason when its directory, its manifest, or
+// the size of its data file refuses it. It reads none of the data, so a run
+// can learn before it starts what it cannot read without reading anything
+// twice; data whose content is damaged is refused only when Read reads it.
+func (s Store) Usable(d dataset.Dataset, now time.Time) error {
+	if err := s.holds(d); err != nil {
+		return err
+	}
+	m, err := s.manifest(d, now)
+	if err != nil {
+		return err
+	}
+	f, err := openData(s.dataPath(d, m), m)
+	if err != nil {
+		return unusable(err)
+	}
+	return f.Close()
+}
+
+// holds is ErrNotHeld when the store has no directory for d.
+func (s Store) holds(d dataset.Dataset) error {
 	held, err := s.held(d.ID())
 	switch {
 	case err != nil:
-		return dataset.Manifest{}, err
+		return err
 	case !held:
-		return dataset.Manifest{}, fmt.Errorf("%w: %q", ErrNotHeld, d.ID())
+		return fmt.Errorf("%w: %q", ErrNotHeld, d.ID())
 	}
-	return s.read(d, now, consume)
+	return nil
 }
 
 // read checks the dataset d held in the store and passes its data to consume.
@@ -113,10 +142,23 @@ func (s Store) Read(d dataset.Dataset, now time.Time, consume func(io.Reader) er
 // read is read too, so the checksum covers every byte. Nothing consume
 // learned may be used unless read returns nil: a file that is truncated, that
 // is longer than its manifest says, or whose checksum disagrees is refused
-// after consume has seen it. In a protected store the dataset's directory is
-// judged first, with the store's own, so nothing is read from a directory
-// someone who is not an administrator can change.
+// after consume has seen it.
 func (s Store) read(d dataset.Dataset, now time.Time, consume func(io.Reader) error) (dataset.Manifest, error) {
+	m, err := s.manifest(d, now)
+	if err != nil {
+		return dataset.Manifest{}, err
+	}
+	if err := readData(s.dataPath(d, m), m, consume); err != nil {
+		return dataset.Manifest{}, unusable(err)
+	}
+	return m, nil
+}
+
+// manifest is the manifest of the dataset d held in the store, validated for
+// d at now. In a protected store the dataset's directory is judged first, with
+// the store's own, so nothing is read from a directory someone who is not an
+// administrator can change. Whatever refuses it is ErrUnusable.
+func (s Store) manifest(d dataset.Dataset, now time.Time) (dataset.Manifest, error) {
 	if err := s.judged(s.dir(d.ID())); err != nil {
 		return dataset.Manifest{}, unusable(err)
 	}
@@ -127,10 +169,12 @@ func (s Store) read(d dataset.Dataset, now time.Time, consume func(io.Reader) er
 	if err := m.Validate(d, now); err != nil {
 		return dataset.Manifest{}, unusable(err)
 	}
-	if err := readData(filepath.Join(s.dir(d.ID()), m.SHA256+dataSuffix), m, consume); err != nil {
-		return dataset.Manifest{}, unusable(err)
-	}
 	return m, nil
+}
+
+// dataPath is the data file the manifest m of the dataset d names.
+func (s Store) dataPath(d dataset.Dataset, m dataset.Manifest) string {
+	return filepath.Join(s.dir(d.ID()), m.SHA256+dataSuffix)
 }
 
 // readManifest opens and decodes a manifest, refusing anything but a regular
@@ -144,22 +188,31 @@ func readManifest(path string) (m dataset.Manifest, err error) {
 	return dataset.DecodeManifest(f)
 }
 
+// openData opens the data file at path, refusing anything but a regular file
+// of the size m records.
+func openData(path string, m dataset.Manifest) (*os.File, error) {
+	f, err := fspath.OpenRegular(path)
+	if err != nil {
+		return nil, err
+	}
+	info, err := f.Stat()
+	if err == nil && info.Size() != m.Size {
+		err = fmt.Errorf("the data holds %d bytes where the manifest says %d", info.Size(), m.Size)
+	}
+	if err != nil {
+		return nil, errors.Join(err, f.Close())
+	}
+	return f, nil
+}
+
 // readData reads the data file at path through consume, holding it to the
 // size and checksum m records.
 func readData(path string, m dataset.Manifest, consume func(io.Reader) error) (err error) {
-	f, err := fspath.OpenRegular(path)
+	f, err := openData(path, m)
 	if err != nil {
 		return err
 	}
 	defer func() { err = errors.Join(err, f.Close()) }()
-
-	info, err := f.Stat()
-	if err != nil {
-		return err
-	}
-	if info.Size() != m.Size {
-		return fmt.Errorf("the data holds %d bytes where the manifest says %d", info.Size(), m.Size)
-	}
 
 	hash := sha256.New()
 	counted := &countingReader{r: io.TeeReader(io.LimitReader(f, m.Size+1), hash)}
