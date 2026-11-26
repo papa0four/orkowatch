@@ -333,7 +333,7 @@ unfixed, with the worst severity among them, its detail lists them, and its
 filter chooses all, the affected packages, or those with a fix available;
 Vulnerabilities, when the software was
 matched, lists each CVE of each affected package in that order, those known to be
-exploited first in red under a red rule that counts them and marked on their rows,
+exploited first, whole in crimson under a crimson rule that counts them and marked on their rows,
 then the rest under a rule of their own, each row giving, in that order, the
 severity, the EPSS score when the scores were read, and the fixed version or
 that none is available, and opens filtered to those with a fix available: its filters choose fix
@@ -353,6 +353,34 @@ technique each makes available, with the finding, rule and evidence behind each.
 that was skipped or failed, is still listed and says so. A run opens on
 Findings when the audit ran, and otherwise on the first module that did, so
 `owatch osinfo`, or `owatch all --skip-modules audit`, opens on System. The complete plain report is one key away.
+
+The browser and the progress display while a run is under way color what a
+finding or a vulnerability means, each meaning in one color and no color for
+two. Severity, exploitation, and execution are kept apart: a vulnerability's
+severity, whether it is known to be exploited, and whether a check ran are
+colored each by its own meaning.
+
+| Meaning | Color |
+|---|---|
+| Known exploited: confirmed exploitation | crimson, bold |
+| Critical: immediate attention | red, bold |
+| High: high-priority remediation | orange |
+| Medium: scheduled remediation | yellow |
+| Low: limited security impact | cyan |
+| Negligible: minimal security impact | gray |
+| None, and a check that passed: no identified risk | green |
+| Error: a check or a step that could not run | magenta, bold |
+
+Only the word that carries a meaning is colored: the severity or result on a
+finding's row, the severity and `exploited` in a vulnerability's row, the level
+after `worst` on a software package's row, the options of the severity filters,
+and the severity in a detail. A known-exploited row is crimson whole. A severity
+the records do not state, a status of a match, and everything else keep the
+terminal's own color. A pane's headings, and the line above a list, are lit
+while the pane has the keyboard and gray while another pane has it. On a
+terminal, a step of `owatch data refresh` or `import` that fails ends in
+magenta. Reports are never colored: a report file, a pipe, `--plain`, and the
+full report under `t` are plain text, for the tools that read them.
 
 | Key | Action |
 |---|---|
