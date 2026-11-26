@@ -79,7 +79,7 @@ func TestRefreshInstalls(t *testing.T) {
 	}
 	fetch, calls := serving(content)
 
-	if got := refresh(t, s, fetch); got != (Outcome{ID: "wanted", Result: Installed, Attempts: 1}) || *calls != 1 {
+	if got := refresh(t, s, fetch); !installedWanted(got) || *calls != 1 {
 		t.Fatalf("outcome %+v after %d fetches", got, *calls)
 	}
 	row := rowOf(t, s, []dataset.Dataset{served}, "wanted")
