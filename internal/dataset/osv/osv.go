@@ -147,6 +147,14 @@ func (d Dump) Origin() dataset.Origin {
 	}
 }
 
+// Release is the name of the release whose records a match of host reads,
+// the Version that match carries, so a saved match can be judged against the
+// host it is opened on before anything is read.
+func (d Dump) Release(host *osfingerprint.OSInfo) (string, error) {
+	rel, err := d.releaseOf(host)
+	return rel.name, err
+}
+
 // releaseOf is the release host runs.
 func (d Dump) releaseOf(host *osfingerprint.OSInfo) (release, error) {
 	if !d.AppliesTo(host) {
