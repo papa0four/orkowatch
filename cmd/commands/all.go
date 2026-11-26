@@ -128,6 +128,8 @@ func newAllCmd() *cobra.Command {
 
 Results can be output in various formats and saved to a file.
 
+` + refreshHelp + `
+
 ` + held.AskHelp + `
 
 ` + held.ElevatedHelp,

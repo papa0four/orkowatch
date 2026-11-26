@@ -1,7 +1,8 @@
 // cmd/commands/data_refresh.go
 
-// owatch data refresh, the one command that opens a network connection. This
-// is the only file that may import the package that connects.
+// owatch data refresh, and the steps it runs, which r in the results browser
+// runs too: the one way owatch opens a network connection. This is the only
+// file that may import the package that connects.
 
 package cmd
 
@@ -59,8 +60,9 @@ func (d *dataCmd) refreshCmd() *cobra.Command {
 		Args:  cliargs.None,
 		Short: "Fetch the datasets this host needs, over HTTPS",
 		Long: `Fetch the datasets that apply to this host into the account's store, each
-from the address its source publishes it at. This is the only owatch command
-that opens a network connection. It connects over HTTPS to the hosts the
+from the address its source publishes it at. It, and r in the results browser
+of owatch software and owatch all, which runs its steps, are the only ways
+owatch opens a network connection. It connects over HTTPS to the hosts the
 datasets themselves name and to no other, sends nothing about this host, reads
 no more than a dataset's origin may serve, and gives up on a download that runs
 past the time its size allows or that receives nothing for a minute. A proxy

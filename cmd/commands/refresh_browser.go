@@ -21,6 +21,13 @@ import (
 	"github.com/papa0four/orkowatch/internal/tui"
 )
 
+// refreshHelp is what the help of owatch software and owatch all says of r in
+// the results browser, so the two say it alike.
+const refreshHelp = `In the results browser, r refreshes the datasets the packages were matched
+against and matches them again, after naming each dataset with its size and
+asking; under owatch all it also recounts the audit's counts of known-exploited
+vulnerabilities. Elevated, it fetches nothing and prints what to run instead.`
+
 // liveRefresh is the r of the results browser of a live run whose inventory
 // was matched against a dataset: it refreshes what the host's datasets are
 // through owatch data refresh's own plan and fetch, matches the run's
