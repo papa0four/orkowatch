@@ -144,3 +144,16 @@ func TestListHeadingShowsTheKeyboard(t *testing.T) {
 		}
 	}
 }
+
+// A summary label is parted from its figure by a space however long it is:
+// one that fits keeps its column, and one too long for it is cut short.
+func TestSummaryLabel(t *testing.T) {
+	for label, want := range map[string]string{
+		"checks":          "checks        ",
+		"known exploited": "known exploi… ",
+	} {
+		if got := summaryLabel(label); got != want {
+			t.Errorf("%q is drawn %q, want %q", label, got, want)
+		}
+	}
+}

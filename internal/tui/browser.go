@@ -1162,9 +1162,9 @@ func (b browser) sidebarLines() (lines []string, cursorLine int) {
 		return append(lines, notApplicable+styleMuted.Render("  no findings yet")), cursorLine
 	}
 	for _, line := range b.report.Summary {
-		label := fmt.Sprintf("%-*s", summaryLabelWidth, line.Label)
+		label := summaryLabel(line.Label)
 		value := truncate(line.Value, max(filterWidth-1-lipgloss.Width(label), 1))
-		lines = append(lines, styleMuted.Render(label)+styleText.Render(value))
+		lines = append(lines, styleMuted.Render(label)+value)
 	}
 	return lines, cursorLine
 }
@@ -1219,6 +1219,12 @@ func (b browser) groupLines(groups []*filterGroup, heading func(string), option 
 			index++
 		}
 	}
+}
+
+// summaryLabel is a summary figure's label in its column, cut short where it
+// would otherwise run into the figure, so a space always parts the two.
+func summaryLabel(label string) string {
+	return fmt.Sprintf("%-*s", summaryLabelWidth, truncate(label, summaryLabelWidth-1))
 }
 
 // countedLabel is a filter option with how many records fall under it: the
