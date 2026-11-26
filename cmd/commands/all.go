@@ -125,6 +125,8 @@ func newAllCmd() *cobra.Command {
 
 Results can be output in various formats and saved to a file.
 
+` + held.AskHelp + `
+
 ` + held.ElevatedHelp,
 		Example: `  # Run all scans with default settings
   owatch all
@@ -132,7 +134,8 @@ Results can be output in various formats and saved to a file.
   # Add the live findings feed to the progress display
   owatch all -v
 
-  # Scan the whole filesystem without being asked first
+  # Run without being asked first, about a scan of the whole filesystem or
+  # about datasets not held
   owatch all --yes
 
   # Skip modules; skipped modules are still reported

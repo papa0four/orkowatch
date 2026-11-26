@@ -115,6 +115,15 @@ func Carried(host *osfingerprint.OSInfo) string {
 		" on a host with one, and owatch data import <directory> here"
 }
 
+// AskHelp is what the help of a command that reads datasets says of the
+// question it asks before it starts, so every such command says it alike.
+const AskHelp = `Before it collects anything, the command checks the datasets it reads, each
+judged from its manifest and the size of its data without reading the data. On
+a terminal, it names each that is not held or cannot be used, with what the run
+would lack without it, and asks whether to go on; anything but y ends it with
+what to run to get them, and --yes skips the question. With no terminal it goes
+on and says in one line on standard error what it goes without.`
+
 // noOperatorAdvice is what an elevated run with no one behind it is told,
 // since it has no account's store to install from and never fetches itself.
 const noOperatorAdvice = "No account is behind this elevated run, so no dataset was installed from one. " +

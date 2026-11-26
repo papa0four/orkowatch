@@ -193,6 +193,8 @@ You can run all checks or specify individual checks to run.
 The audit reads CISA's Known Exploited Vulnerabilities catalog for its count of
 known-exploited vulnerabilities in each finding's weakness class.
 
+` + held.AskHelp + `
+
 ` + held.ElevatedHelp,
 		Example: `  # Run all security checks
   owatch audit
@@ -217,7 +219,8 @@ known-exploited vulnerabilities in each finding's weakness class.
   # Report findings whose severity on this host is HIGH or above
   owatch audit --min-severity HIGH
 
-  # Scan the whole filesystem without being asked first
+  # Run without being asked first, about a scan of the whole filesystem or
+  # about datasets not held
   owatch audit --yes
 
   # Print the report as text instead of opening the results browser

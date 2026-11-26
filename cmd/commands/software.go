@@ -25,6 +25,8 @@ and what could not be matched. With no dataset held, the section says matching
 was not done and what to run, and with no catalog held, that known exploitation
 was not read.
 
+` + held.AskHelp + `
+
 ` + held.ElevatedHelp + `
 
 The report opens in the results browser on a terminal, with the same layout as an audit.`,
@@ -33,6 +35,9 @@ The report opens in the results browser on a terminal, with the same layout as a
 
   # Print it as text instead of opening the results browser
   owatch software --plain
+
+  # Run without being asked first about datasets not held
+  owatch software --yes
 
   # Save it to a directory in YAML format
   owatch software -o yaml --report-file /path/to/reports`,
