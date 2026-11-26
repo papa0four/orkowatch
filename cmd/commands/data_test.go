@@ -82,6 +82,28 @@ func installedLines(id string) string {
 		id + `: installed( after \d attempts)?\n`
 }
 
+// downloadedLines is a pattern of the lines a download of id that succeeds
+// writes, where size is how large it was said to be and got what came: each
+// attempt as it begins, then how it ended, the last having downloaded it.
+// Staging a download is tried again when a step after it fails for a reason
+// that passes, as when Windows holds the new file open for a moment, so an
+// attempt may end downloaded and still be followed by another.
+func downloadedLines(id, size, got string) string {
+	id, size, got = regexp.QuoteMeta(id), regexp.QuoteMeta(size), regexp.QuoteMeta(got)
+	attempt := `( \(attempt \d\))?`
+	took := `[0-9a-z.]+`
+	begin := id + `: downloading` + attempt + ` ` + size + `\n`
+	ended := id + `: downloaded` + attempt + ` ` + got + ` in ` + took + `(, [^\n]*)?\n`
+	failed := id + `: downloading` + attempt + ` failed after ` + took + `: [^\n]*\n`
+	return `(` + begin + `(` + ended + `|` + failed + `))*` + begin + ended
+}
+
+// fetchedOnly reports whether fetched names id and nothing else, once or as
+// many times as the store tried again.
+func fetchedOnly(fetched []string, id string) bool {
+	return len(fetched) > 0 && !slices.ContainsFunc(fetched, func(f string) bool { return f != id })
+}
+
 // matchesWhole reports whether text is wholly what pattern describes.
 func matchesWhole(pattern, text string) bool {
 	return regexp.MustCompile(`^` + pattern + `$`).MatchString(text)
@@ -102,6 +124,35 @@ func TestInstalledLines(t *testing.T) {
 		if got := matchesWhole(installedLines("wanted"), tt.out); got != tt.want {
 			t.Errorf("%s: matched %v, want %v", name, got, tt.want)
 		}
+	}
+}
+
+// The pattern of a download takes one at once, one whose staging was tried
+// again after it downloaded, and one tried again after it failed, and not one
+// that never downloaded; fetchedOnly takes the dataset fetched more than once
+// and nothing else.
+func TestDownloadedLines(t *testing.T) {
+	for name, tt := range map[string]struct {
+		out  string
+		want bool
+	}{
+		"at once": {"wanted: downloading 39 B\nwanted: downloaded 39 B in 0s\n", true},
+		"staged again": {"wanted: downloading 100.0 MiB\nwanted: downloaded 39 B in 0s\n" +
+			"wanted: downloading (attempt 2) 100.0 MiB\nwanted: downloaded (attempt 2) 39 B in 0s\n", true},
+		"failed once": {"wanted: downloading 39 B\nwanted: downloading failed after 1m0s: the download stalled\n" +
+			"wanted: downloading (attempt 2) 39 B\nwanted: downloaded (attempt 2) 39 B in 0s\n", true},
+		"never": {"wanted: downloading 39 B\nwanted: downloading failed after 0s: refused\n", false},
+	} {
+		size := "39 B"
+		if strings.Contains(tt.out, "100.0 MiB") {
+			size = "100.0 MiB"
+		}
+		if got := matchesWhole(downloadedLines("wanted", size, "39 B"), tt.out); got != tt.want {
+			t.Errorf("%s: matched %v, want %v", name, got, tt.want)
+		}
+	}
+	if !fetchedOnly([]string{"wanted", "wanted"}, "wanted") || fetchedOnly(nil, "wanted") || fetchedOnly([]string{"wanted", "other"}, "wanted") {
+		t.Error("fetchedOnly does not take the dataset alone, once or more")
 	}
 }
 
@@ -207,7 +258,7 @@ func TestDataStatusReport(t *testing.T) {
 			t.Errorf("%s: opens on %q, want the datasets", format, report.Start)
 		}
 		at := slices.IndexFunc(report.Tabs, func(tab tui.Tab) bool { return tab.ID == tui.TabDatasets })
-		if at < 0 || len(report.Tabs[at].Records) != 1 || report.Tabs[at].Records[0].Subtitle != string(dataset.StateOutOfSync) {
+		if at < 0 || len(report.Tabs[at].Records) != 1 || report.Tabs[at].Records[0].Subtitle.String() != string(dataset.StateOutOfSync) {
 			t.Errorf("%s: tabs %+v, want the dataset out of sync", format, report.Tabs)
 		}
 		if !strings.HasPrefix(report.Text, "Store: "+s.Root()) || !strings.Contains(report.Text, "wanted  out of sync: data of 2026-11-20") {

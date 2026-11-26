@@ -81,11 +81,11 @@ func holds(root, id string) bool {
 func TestDataRefresh(t *testing.T) {
 	d, s, origins := refreshing(t, false, "")
 	out, err := run(d, "refresh")
-	if err != nil || !matchesWhole(regexp.QuoteMeta("wanted: 39 B from https://data.example/wanted, allowed 10m0s\n"+
-		"wanted: downloading 39 B\nwanted: downloaded 39 B in 0s\nwanted: checking\nwanted: checked in 0s\n")+installedLines("wanted"), out) {
+	if err != nil || !matchesWhole(regexp.QuoteMeta("wanted: 39 B from https://data.example/wanted, allowed 10m0s\n")+
+		downloadedLines("wanted", "39 B", "39 B")+regexp.QuoteMeta("wanted: checking\nwanted: checked in 0s\n")+installedLines("wanted"), out) {
 		t.Errorf("refresh printed %q, %v", out, err)
 	}
-	if !slices.Equal(origins.fetched, []string{"wanted"}) || !holds(s.Root(), "wanted") || holds(s.Root(), "debian-data") {
+	if !fetchedOnly(origins.fetched, "wanted") || !holds(s.Root(), "wanted") || holds(s.Root(), "debian-data") {
 		t.Errorf("fetched %q; the store holds wanted %v", origins.fetched, holds(s.Root(), "wanted"))
 	}
 
@@ -161,7 +161,7 @@ func TestDataRefreshAsksBeforeALargeDownload(t *testing.T) {
 			origins.sizes["wanted"] = largeDownload + 1
 
 			out, err := run(d, tt.args...)
-			if (err == nil) != tt.fetched || holds(s.Root(), "wanted") != tt.fetched || (len(origins.fetched) == 1) != tt.fetched {
+			if (err == nil) != tt.fetched || holds(s.Root(), "wanted") != tt.fetched || fetchedOnly(origins.fetched, "wanted") != tt.fetched {
 				t.Errorf("printed %q, error %v, fetched %q", out, err, origins.fetched)
 			}
 			if !strings.Contains(out, "wanted: 100.0 MiB from") {
