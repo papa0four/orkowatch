@@ -18,6 +18,7 @@ import (
 	"github.com/papa0four/orkowatch/internal/dataset"
 	"github.com/papa0four/orkowatch/internal/dataset/store"
 	"github.com/papa0four/orkowatch/internal/render"
+	"github.com/papa0four/orkowatch/internal/tone"
 )
 
 const (
@@ -145,7 +146,8 @@ func (r *Report) Received(id string, bytes int64) {
 	r.current.received, r.current.last = bytes, r.now()
 }
 
-// Ended shows how a step of the dataset id ended, on a line of its own.
+// Ended shows how a step of the dataset id ended, on a line of its own, in
+// the error tone on a terminal when it failed.
 func (r *Report) Ended(id string, step store.Step, err error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -154,11 +156,15 @@ func (r *Report) Ended(id string, step store.Step, err error) {
 		current = &running{id: id, step: step, attempt: 1, began: r.now()}
 	}
 	r.current = nil
-	line := render.HostText(current.ending(r.now(), err)) + "\n"
-	if r.width != nil {
-		line = clearLine + line
+	line := render.HostText(current.ending(r.now(), err))
+	if r.width == nil {
+		r.write(line + "\n")
+		return
 	}
-	r.write(line)
+	if err != nil {
+		line = tone.Error.Render(line)
+	}
+	r.write(clearLine + line + "\n")
 }
 
 // tick rewrites the line of the step under way, on a terminal; where nothing

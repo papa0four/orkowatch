@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/papa0four/orkowatch/internal/dataset/store"
+	"github.com/papa0four/orkowatch/internal/tone"
 )
 
 // clock is a time a test moves by hand.
@@ -113,5 +114,21 @@ func TestStartAndStop(t *testing.T) {
 		if err := r.Stop(); err != nil {
 			t.Fatal(err)
 		}
+	}
+}
+
+// On a terminal a step that failed ends on a line in the error tone; one that
+// succeeded does not, and nothing is colored where nothing is rewritten.
+func TestFailureInTheErrorTone(t *testing.T) {
+	r, out, _ := reportOn(wide)
+	r.Began("kev", store.StepInstall, 1)
+	r.Ended("kev", store.StepInstall, errors.New("the disk is full"))
+	if got := lastLine(out.String()); got != tone.Error.Render("kev: installing failed after 0s: the disk is full")+"\n" {
+		t.Errorf("the failure ended %q", got)
+	}
+	r.Began("kev", store.StepInstall, 2)
+	r.Ended("kev", store.StepInstall, nil)
+	if got := lastLine(out.String()); got != "kev: installed (attempt 2) in 0s\n" {
+		t.Errorf("the success ended %q", got)
 	}
 }
