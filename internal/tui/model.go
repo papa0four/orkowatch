@@ -5,7 +5,6 @@ package tui
 import (
 	"context"
 	"fmt"
-	"image/color"
 	"strings"
 	"time"
 
@@ -13,9 +12,11 @@ import (
 	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/papa0four/orkowatch/internal/render"
 	"github.com/papa0four/orkowatch/internal/security/finding"
+	"github.com/papa0four/orkowatch/internal/tone"
 )
 
 const (
@@ -284,9 +285,9 @@ func (m model) rowView(row taskRow) string {
 	case taskSkipped:
 		return styleMuted.Render(marker("-") + label + "not selected")
 	case taskFinished:
-		tint, summary := outcomeSummary(row.outcome)
-		style := lipgloss.NewStyle().Foreground(tint)
-		line := style.Render(marker(resultMark(row.outcome.Result))+label) + styleMuted.Render(summary+"  "+clock(row.took)+noted(row.note))
+		t, summary := outcomeSummary(row.outcome)
+		line := t.Render(marker(resultMark(row.outcome.Result))) + styleText.Render(label) + t.Render(summary) +
+			styleMuted.Render("  "+clock(row.took)+noted(row.note))
 		if row.outcome.Reason != "" && len(row.outcome.Findings) == 0 {
 			line += "\n" + styleMuted.Render(truncate(marker("")+row.outcome.Reason, m.width))
 		}
@@ -325,17 +326,16 @@ func (m model) feedView() string {
 	}
 	for _, line := range lines {
 		symbol, severity := finding.SeverityFormat(line.Severity)
-		style := lipgloss.NewStyle().Foreground(severityColor(line.Severity))
-		text := fmt.Sprintf("  %s %s  %s", symbol, severity, line.Title)
-		b.WriteString(style.Render(truncate(text, m.width)) + "\n")
+		word := tone.ForSeverity(line.Severity).Render(symbol + " " + severity)
+		b.WriteString(truncate("  "+word+"  "+line.Title, m.width) + "\n")
 	}
 	return b.String()
 }
 
-// outcomeSummary returns the color and the words for a finished task: its
-// findings when it has any, colored by the worst of them, and its result
+// outcomeSummary returns the tone and the words for a finished task: its
+// findings when it has any, in the tone of the worst of them, and its result
 // otherwise.
-func outcomeSummary(outcome Outcome) (color.Color, string) {
+func outcomeSummary(outcome Outcome) (tone.Tone, string) {
 	if count := len(outcome.Findings); count > 0 {
 		worst := outcome.Findings[0].Severity
 		for _, found := range outcome.Findings[1:] {
@@ -343,9 +343,9 @@ func outcomeSummary(outcome Outcome) (color.Color, string) {
 				worst = found.Severity
 			}
 		}
-		return severityColor(worst), render.Count(count, "finding", "findings")
+		return tone.ForSeverity(worst), render.Count(count, "finding", "findings")
 	}
-	return resultColor(outcome.Result), string(outcome.Result)
+	return tone.ForResult(outcome.Result), string(outcome.Result)
 }
 
 // resultMark returns the report symbol for a result, so a row in the display
@@ -378,15 +378,8 @@ func clock(d time.Duration) string {
 	return fmt.Sprintf("%02d:%02d.%03d", d/time.Minute, d%time.Minute/time.Second, d%time.Second/time.Millisecond)
 }
 
-// truncate shortens text to width display cells so a long title cannot wrap
-// and break the layout.
+// truncate shortens text, colored or not, to width display cells so a long
+// title cannot wrap and break the layout.
 func truncate(text string, width int) string {
-	if lipgloss.Width(text) <= width {
-		return text
-	}
-	runes := []rune(text)
-	for len(runes) > 0 && lipgloss.Width(string(runes))+1 > width {
-		runes = runes[:len(runes)-1]
-	}
-	return string(runes) + "…"
+	return ansi.Truncate(text, width, "…")
 }

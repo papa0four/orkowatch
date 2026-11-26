@@ -8,8 +8,10 @@ import (
 	"testing"
 
 	"github.com/papa0four/orkowatch/internal/dataset"
+	"github.com/papa0four/orkowatch/internal/dataset/epss"
 	"github.com/papa0four/orkowatch/internal/dataset/kev"
 	"github.com/papa0four/orkowatch/internal/dataset/osv"
+	"github.com/papa0four/orkowatch/internal/tone"
 	"github.com/papa0four/orkowatch/internal/tui"
 	"github.com/papa0four/orkowatch/internal/vulnmatch"
 )
@@ -45,8 +47,8 @@ func field(r tui.Record, label string) string {
 	return ""
 }
 
-// The tab lists each vulnerability of each package, fixable first, then
-// unfixed, then not matched; each record falls under its status and its
+// The tab lists each vulnerability of each package in the match's order, the
+// most severe first, then not matched; each record falls under its status and its
 // records' severity label; it opens on those with a fix available; and its
 // detail gives the package, what was built from it, the versions, the scores
 // as the records give them, the records, and the dataset.
@@ -57,12 +59,12 @@ func TestVulnerabilitiesTab(t *testing.T) {
 	}
 	var rows []string
 	for _, r := range tab.Records {
-		rows = append(rows, r.Title+" | "+r.Subtitle+" | "+r.Filters[0][0]+","+r.Filters[1][0])
+		rows = append(rows, r.Title+" | "+r.Subtitle.String()+" | "+r.Filters[0][0]+","+r.Filters[1][0])
 	}
 	want := []string{
-		"CVE-2026-1  openssl | fix 3.0.2-2  Important | fix available,high",
+		"CVE-2026-1  openssl | Important  fix 3.0.2-2 | fix available,high",
+		"CVE-2026-2  openssl | low  unfixed | unfixed,low",
 		"CVE-2026-3  bash | unfixed | unfixed,none stated",
-		"CVE-2026-2  openssl | unfixed  low | unfixed,low",
 		"CVE-2026-4  nodejs | not matched | not matched,none stated",
 	}
 	if !slices.Equal(rows, want) {
@@ -96,8 +98,8 @@ func TestVulnerabilitiesTab(t *testing.T) {
 
 // With the catalog read, the vulnerabilities it lists come first under their
 // own band, the most severe first and whether fixed or not, marked on the row
-// with the entry and the catalog in the detail; the rest follow under theirs
-// in their order; and the tab filters by it. With the catalog not read there
+// with the entry and the catalog in the detail; the rest follow under theirs;
+// and the tab filters by it. With the catalog not read there
 // are no bands and no filter, and the detail says why.
 func TestVulnerabilitiesTabKnownExploited(t *testing.T) {
 	v := matchedView()
@@ -108,12 +110,12 @@ func TestVulnerabilitiesTabKnownExploited(t *testing.T) {
 
 	var rows []string
 	for _, r := range tab.Records {
-		rows = append(rows, r.Band+" | "+r.Title+" | "+r.Subtitle+" | "+r.Filters[2][0])
+		rows = append(rows, r.Band+" | "+r.Title+" | "+r.Subtitle.String()+" | "+r.Filters[2][0])
 	}
 	want := []string{
-		"known exploited | CVE-2026-1  openssl | exploited  fix 3.0.2-2  Important | known exploited",
+		"known exploited | CVE-2026-1  openssl | exploited  Important  fix 3.0.2-2 | known exploited",
 		"known exploited | CVE-2026-3  bash | exploited  unfixed | known exploited",
-		"not in the catalog | CVE-2026-2  openssl | unfixed  low | not in the catalog",
+		"not in the catalog | CVE-2026-2  openssl | low  unfixed | not in the catalog",
 		"not in the catalog | CVE-2026-4  nodejs | not matched | not in the catalog",
 	}
 	if !slices.Equal(rows, want) {
@@ -138,6 +140,46 @@ func TestVulnerabilitiesTabKnownExploited(t *testing.T) {
 	tab = vulnerabilitiesTab(v)
 	if len(tab.Filters) != 2 || tab.Records[0].Band != "" || tab.Alert != "" || tab.Filters[0].Spares != "" || field(tab.Records[0], "known exploitation") != "not read: kev is not held" {
 		t.Errorf("with the catalog not read: filters %+v, band %q, detail %q", tab.Filters, tab.Records[0].Band, field(tab.Records[0], "known exploitation"))
+	}
+}
+
+// With the scores read, each row carries its EPSS score after its severity,
+// or a dash where the file gives none, and the detail gives a scored
+// vulnerability's score and percentile as FIRST defines them, and every
+// record names the file. With the scores not read no row carries a score and
+// the detail says why.
+func TestVulnerabilitiesTabPredicted(t *testing.T) {
+	v := matchedView()
+	v.Packages[1].Vulnerabilities[0].ExploitPrediction = &epss.Prediction{Score: 0.00043, Percentile: 0.12345}
+	v.ExploitPrediction = &dataset.Use{Provenance: dataset.Provenance{ID: "epss", Version: "v2026.06.15", DataDate: "2026-11-23", State: dataset.StateCurrent, Attribution: "As FIRST asks."}}
+	tab := vulnerabilitiesTab(v)
+
+	var rows []string
+	for _, r := range tab.Records {
+		rows = append(rows, r.Title+" | "+r.Subtitle.String())
+	}
+	want := []string{
+		"CVE-2026-1  openssl | Important  EPSS 0.043%  fix 3.0.2-2",
+		"CVE-2026-2  openssl | low  EPSS -  unfixed",
+		"CVE-2026-3  bash | EPSS -  unfixed",
+		"CVE-2026-4  nodejs | not matched",
+	}
+	if !slices.Equal(rows, want) {
+		t.Errorf("rows\n%s\nwant\n%s", strings.Join(rows, "\n"), strings.Join(want, "\n"))
+	}
+	if got := field(tab.Records[0], "exploit prediction"); got != "score 0.043%, the probability that it will be exploited in the wild in the next 30 days\n"+
+		"percentile 12.3%, the proportion of all scored vulnerabilities with the same score or lower" {
+		t.Errorf("the prediction reads %q", got)
+	}
+	if got := field(tab.Records[1], "exploit prediction data"); got != "epss, v2026.06.15, data of 2026-11-23, current\nAs FIRST asks." || field(tab.Records[1], "exploit prediction") != "" {
+		t.Errorf("a vulnerability the file does not score reads %q", got)
+	}
+
+	v = matchedView()
+	v.ExploitPrediction = &dataset.Use{Provenance: dataset.Provenance{ID: "epss"}, NotDone: "epss is not held"}
+	tab = vulnerabilitiesTab(v)
+	if strings.Contains(tab.Records[0].Subtitle.String(), "EPSS") || field(tab.Records[0], "exploit prediction data") != "not read: epss is not held" {
+		t.Errorf("with the scores not read: subtitle %q, detail %q", tab.Records[0].Subtitle.String(), field(tab.Records[0], "exploit prediction data"))
 	}
 }
 
@@ -186,5 +228,41 @@ func TestVulnerabilitiesTabOffered(t *testing.T) {
 	}
 	if got := ids(BrowserSource{}); slices.Contains(got, tui.TabVulnerabilities) {
 		t.Errorf("without a match the tabs are %q", got)
+	}
+}
+
+// A vulnerability's subtitle colors known exploitation and the severity, each
+// in its own tone, and nothing else; its severity field is in the severity's
+// tone.
+func TestVulnerabilityRecordTones(t *testing.T) {
+	v := matchedView()
+	v.Packages[1].Vulnerabilities[0].KnownExploited = &kev.Entry{Added: "2026-11-20"}
+	v.KnownExploited = &dataset.Use{Provenance: dataset.Provenance{ID: "kev"}}
+	r := vulnerabilitiesTab(v).Records[0]
+	var toned []tui.Span
+	for _, s := range r.Subtitle {
+		if s.Tone != tone.Plain {
+			toned = append(toned, s)
+		}
+	}
+	want := []tui.Span{{Text: "exploited", Tone: tone.KnownExploited}, {Text: "Important", Tone: tone.High}}
+	if !slices.Equal(toned, want) {
+		t.Errorf("the toned words are %+v, want %+v", toned, want)
+	}
+	for _, f := range r.Fields {
+		if f.Label == "severity" && f.Tone != tone.High {
+			t.Errorf("the severity field is in tone %d", f.Tone)
+		}
+	}
+}
+
+// The severity filter tones each level it offers, and the status filter none.
+func TestVulnerabilityFilterTones(t *testing.T) {
+	tab := vulnerabilitiesTab(matchedView())
+	if tab.Filters[0].Tones != nil {
+		t.Errorf("the status filter has tones %v", tab.Filters[0].Tones)
+	}
+	if got := tab.Filters[1].Tones; got["high"] != tone.High || got["low"] != tone.Low || got["none stated"] != tone.Plain {
+		t.Errorf("the severity filter's tones are %v", got)
 	}
 }

@@ -3,13 +3,13 @@
 package vulnmatch
 
 import (
-	"cmp"
 	"fmt"
 	"io"
 	"slices"
 	"strings"
 
 	"github.com/papa0four/orkowatch/internal/dataset"
+	"github.com/papa0four/orkowatch/internal/dataset/epss"
 	"github.com/papa0four/orkowatch/internal/dataset/kev"
 	"github.com/papa0four/orkowatch/internal/dataset/osv"
 	"github.com/papa0four/orkowatch/internal/render"
@@ -44,6 +44,10 @@ type View struct {
 	// match was marked from, or why it was not, for a match that was made.
 	KnownExploited *dataset.Use `json:"known_exploited_data,omitempty" yaml:"known_exploited_data,omitempty"`
 
+	// ExploitPrediction is the EPSS scores file the match was scored from, or
+	// why it was not, for a match that was made.
+	ExploitPrediction *dataset.Use `json:"exploit_prediction_data,omitempty" yaml:"exploit_prediction_data,omitempty"`
+
 	Counts     Counts           `json:"counts" yaml:"counts"`
 	Packages   []PackageMatches `json:"packages" yaml:"packages"`
 	NotMatched []NotMatched     `json:"not_matched,omitempty" yaml:"not_matched,omitempty"`
@@ -70,8 +74,8 @@ type Counts struct {
 
 // PackageMatches is one affected package: the package as the records name it,
 // its installed version, and the installed packages built from it, given
-// once, with each of its vulnerabilities under it, those with a fix available
-// first.
+// once, with each of its vulnerabilities under it in the order every view
+// lists them.
 type PackageMatches struct {
 	Package         string          `json:"package" yaml:"package"`
 	Installed       string          `json:"installed" yaml:"installed"`
@@ -82,16 +86,18 @@ type PackageMatches struct {
 // Vulnerability is one vulnerability of a package: its identifier, a CVE or,
 // for a record that names none, the record's own; whether a fix is available,
 // and the version that fixes it; its severity and what that rests on; its
-// scores as the records give them; the records that name it; and, when CISA's
-// catalog lists it as known to be exploited, the catalog's entry.
+// scores as the records give them; the records that name it; when CISA's
+// catalog lists it as known to be exploited, the catalog's entry; and when
+// EPSS scores it, its score and percentile.
 type Vulnerability struct {
-	ID             string         `json:"id" yaml:"id"`
-	Status         string         `json:"status" yaml:"status"`
-	Fixed          string         `json:"fixed,omitempty" yaml:"fixed,omitempty"`
-	Severity       Severity       `json:"severity" yaml:"severity"`
-	Scores         []osv.Severity `json:"scores,omitempty" yaml:"scores,omitempty"`
-	Records        []string       `json:"records" yaml:"records"`
-	KnownExploited *kev.Entry     `json:"known_exploited,omitempty" yaml:"known_exploited,omitempty"`
+	ID                string           `json:"id" yaml:"id"`
+	Status            string           `json:"status" yaml:"status"`
+	Fixed             string           `json:"fixed,omitempty" yaml:"fixed,omitempty"`
+	Severity          Severity         `json:"severity" yaml:"severity"`
+	Scores            []osv.Severity   `json:"scores,omitempty" yaml:"scores,omitempty"`
+	Records           []string         `json:"records" yaml:"records"`
+	KnownExploited    *kev.Entry       `json:"known_exploited,omitempty" yaml:"known_exploited,omitempty"`
+	ExploitPrediction *epss.Prediction `json:"exploit_prediction,omitempty" yaml:"exploit_prediction,omitempty"`
 }
 
 // Exploited is a catalog of vulnerabilities known to be exploited, as a
@@ -100,10 +106,15 @@ type Exploited interface {
 	Entry(id string) (kev.Entry, bool)
 }
 
-// MarkExploited marks each vulnerability catalog lists with its entry, and
-// orders each package's vulnerabilities with those known to be exploited
-// first. use is the catalog's data, or why it was not read, in which case
-// catalog lists nothing and the view says so.
+// Predictions is a file of exploit prediction scores, as a match is scored
+// from it: the prediction of each vulnerability it scores.
+type Predictions interface {
+	Prediction(id string) (epss.Prediction, bool)
+}
+
+// MarkExploited marks each vulnerability catalog lists with its entry. use is
+// the catalog's data, or why it was not read, in which case catalog lists
+// nothing and the view says so.
 func (v *View) MarkExploited(catalog Exploited, use dataset.Use) {
 	v.KnownExploited = &use
 	for i := range v.Packages {
@@ -113,7 +124,31 @@ func (v *View) MarkExploited(catalog Exploited, use dataset.Use) {
 				vulns[j].KnownExploited = &entry
 			}
 		}
-		slices.SortFunc(vulns, vulnerabilityOrder)
+	}
+	v.arrange()
+}
+
+// MarkPredicted gives each vulnerability scores holds its prediction. use is
+// the file's data, or why it was not read, in which case scores holds nothing
+// and the view says so.
+func (v *View) MarkPredicted(scores Predictions, use dataset.Use) {
+	v.ExploitPrediction = &use
+	for i := range v.Packages {
+		vulns := v.Packages[i].Vulnerabilities
+		for j := range vulns {
+			if p, ok := scores.Prediction(vulns[j].ID); ok {
+				vulns[j].ExploitPrediction = &p
+			}
+		}
+	}
+	v.arrange()
+}
+
+// arrange puts each package's vulnerabilities in the order every view lists
+// them and fills the counts, after a mark that changes either.
+func (v *View) arrange() {
+	for i := range v.Packages {
+		slices.SortFunc(v.Packages[i].Vulnerabilities, vulnerabilityOrder)
 	}
 	v.count()
 }
@@ -161,11 +196,12 @@ func (p PackageMatches) counts() (fixable, unfixed, known int) {
 }
 
 // WriteText writes v as the vulnerabilities section of a text report: the
-// dataset, or why no match was made; the counts; every vulnerability known to
-// be exploited, fixed or not, the most severe first, or why that was not
-// read; the rest of those with a fix available, one a line led by its
-// severity, the most severe of a package first; and for the unfixed, a count
-// for each package.
+// dataset, or why no match was made; the counts; the EPSS scores file, or why
+// it was not read; every vulnerability known to be exploited, fixed or not, or
+// why that was not read; the rest of those with a fix available, one a line
+// led by its severity and, when the scores were read, its EPSS score; and for
+// the unfixed, a count for each package. Both lists are in the order every
+// view lists vulnerabilities.
 // Every match is in the JSON and YAML reports and the results browser; the
 // unfixed are counted here, since a release can carry thousands. This is the
 // one text renderer of a match.
@@ -183,6 +219,7 @@ func WriteText(w io.Writer, v View) error {
 		render.Count(c.Unfixed, "unfixed", "unfixed"), render.Count(c.PackagesWithUnfixed, "package", "packages"),
 		render.Count(c.NotMatched, "pair", "pairs"), render.Count(c.NotCovered, "package", "packages"))))
 
+	writePredicted(ew, v)
 	writeKnownExploited(ew, v)
 	writeFixAvailable(ew, v)
 	if c.Unfixed > 0 {
@@ -203,16 +240,33 @@ func WriteText(w io.Writer, v View) error {
 	return ew.Err()
 }
 
+// Summary is the match on one line, as a run's account of its modules states
+// it: the dataset matched against and what was found, the known exploited
+// counted only when the catalog was read; or why no match was made.
+func (v View) Summary() string {
+	if v.NotDone != "" {
+		return "matching was not done: " + v.NotDone
+	}
+	c := v.Counts
+	found := []string{
+		render.Count(c.FixAvailable, "vulnerability", "vulnerabilities") + " with a fix available",
+		render.Count(c.Unfixed, "unfixed", "unfixed"),
+	}
+	if v.KnownExploited != nil && v.KnownExploited.NotDone == "" {
+		found = append(found, render.Count(c.KnownExploited, "known exploited", "known exploited"))
+	}
+	return "matched against " + v.ID + ": " + strings.Join(found, ", ")
+}
+
 // Listed is one vulnerability of an affected package.
 type Listed struct {
 	Package       PackageMatches
 	Vulnerability Vulnerability
 }
 
-// InOrder is every vulnerability of v's affected packages in the order every
-// view lists them across packages: those known to be exploited first, the
-// most severe first, then the rest with a fix available ahead of the unfixed,
-// each keeping the order of its package and the order within it.
+// InOrder is every vulnerability of v's affected packages across packages,
+// in the order a package lists its own; one named in several packages keeps
+// the order of its packages.
 func (v View) InOrder() []Listed {
 	var all []Listed
 	for _, pkg := range v.Packages {
@@ -220,29 +274,18 @@ func (v View) InOrder() []Listed {
 			all = append(all, Listed{pkg, found})
 		}
 	}
-	slices.SortStableFunc(all, func(a, b Listed) int {
-		aKnown, bKnown := a.Vulnerability.KnownExploited != nil, b.Vulnerability.KnownExploited != nil
-		switch {
-		case aKnown != bKnown && aKnown:
-			return -1
-		case aKnown != bKnown:
-			return 1
-		case aKnown:
-			return cmp.Compare(rank(a.Vulnerability.Severity.Level), rank(b.Vulnerability.Severity.Level))
-		}
-		return strings.Compare(statusOrder[a.Vulnerability.Status], statusOrder[b.Vulnerability.Status])
-	})
+	slices.SortStableFunc(all, func(a, b Listed) int { return vulnerabilityOrder(a.Vulnerability, b.Vulnerability) })
 	return all
 }
 
 // writeFixAvailable writes the vulnerabilities of v with a fix available that
 // are not known to be exploited, which are listed before them, one a line led
-// by its severity, the most severe of a package first.
+// by its severity.
 func writeFixAvailable(ew *render.ErrWriter, v View) {
 	var lines []string
 	for _, l := range v.InOrder() {
 		if found := l.Vulnerability; found.Status == StatusFixAvailable && found.KnownExploited == nil {
-			lines = append(lines, fmt.Sprintf("%-11s %-20s %s %s, fixed in %s", severityWord(found.Severity), found.ID, l.Package.Package, l.Package.Installed, found.Fixed))
+			lines = append(lines, fmt.Sprintf("%-11s %s%-20s %s %s, fixed in %s", severityWord(found.Severity), predictionColumn(v, found), found.ID, l.Package.Package, l.Package.Installed, found.Fixed))
 		}
 	}
 	if len(lines) == 0 {
@@ -255,8 +298,8 @@ func writeFixAvailable(ew *render.ErrWriter, v View) {
 }
 
 // writeKnownExploited writes the vulnerabilities of v the catalog of
-// known-exploited vulnerabilities lists, fixed or not, the most severe first,
-// under the catalog's data and attribution; that none is listed; or why the
+// known-exploited vulnerabilities lists, fixed or not, under the catalog's
+// data and attribution; that none is listed; or why the
 // catalog was not read.
 func writeKnownExploited(ew *render.ErrWriter, v View) {
 	catalog := v.KnownExploited
@@ -282,12 +325,53 @@ func writeKnownExploited(ew *render.ErrWriter, v View) {
 		if found.Status == StatusFixAvailable {
 			state = "fixed in " + found.Fixed
 		}
-		ew.Printf("  %s\n", render.HostText(fmt.Sprintf("%-11s %-20s %s %s, %s; added %s, ransomware use %s",
-			severityWord(found.Severity), found.ID, l.Package.Package, l.Package.Installed, state, found.KnownExploited.Added, found.KnownExploited.Ransomware)))
+		ew.Printf("  %s\n", render.HostText(fmt.Sprintf("%-11s %s%-20s %s %s, %s; added %s, ransomware use %s",
+			severityWord(found.Severity), predictionColumn(v, found), found.ID, l.Package.Package, l.Package.Installed, state, found.KnownExploited.Added, found.KnownExploited.Ransomware)))
 	}
 	if catalog.Attribution != "" {
 		ew.Printf("  %s\n", render.HostText(catalog.Attribution))
 	}
+}
+
+// writePredicted writes the EPSS scores file v was scored from, with the
+// attribution FIRST asks for, or why it was not read.
+func writePredicted(ew *render.ErrWriter, v View) {
+	scores := v.ExploitPrediction
+	switch {
+	case scores == nil:
+		return
+	case scores.NotDone != "":
+		ew.Printf("\n%s\n", render.HostText("Exploit prediction was not read: "+scores.NotDone))
+		return
+	}
+	ew.Printf("\n%s\n", render.HostText("Exploit prediction scored by "+scores.About()+"."))
+	if scores.Attribution != "" {
+		ew.Printf("  %s\n", render.HostText(scores.Attribution))
+	}
+}
+
+// PredictionWord is the EPSS score of found as every view puts it beside the
+// severity, or a dash where the file gives none. It is empty when no scores
+// were read, so that a file not read is not taken for one that scores
+// nothing.
+func (v View) PredictionWord(found Vulnerability) string {
+	if v.ExploitPrediction == nil || v.ExploitPrediction.NotDone != "" {
+		return ""
+	}
+	if found.ExploitPrediction == nil {
+		return "EPSS -"
+	}
+	return "EPSS " + epss.Percent(found.ExploitPrediction.Score)
+}
+
+// predictionColumn is the EPSS column of a line of the text report, with its
+// trailing space, or nothing when no scores were read.
+func predictionColumn(v View, found Vulnerability) string {
+	word := v.PredictionWord(found)
+	if word == "" {
+		return ""
+	}
+	return fmt.Sprintf("%-12s ", word)
 }
 
 // severityWord is a severity as a line of the text report leads with it: the

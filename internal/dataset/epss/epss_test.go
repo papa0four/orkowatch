@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"io"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -154,6 +155,65 @@ func TestCheckRefuses(t *testing.T) {
 	}
 }
 
+// Read keeps the predictions of the CVEs asked for, as the recorded excerpt
+// gives them, and no others.
+func TestReadKeepsTheCVEsAskedFor(t *testing.T) {
+	compressed, text := recorded(t)
+	rows := strings.Split(strings.TrimSuffix(text, "\n"), "\n")[2:]
+	want := map[string]Prediction{}
+	for _, row := range []string{rows[0], rows[len(rows)/2], rows[len(rows)-1]} {
+		fields := strings.Split(row, ",")
+		score, err := strconv.ParseFloat(fields[1], 64)
+		if err != nil {
+			t.Fatal(err)
+		}
+		percentile, err := strconv.ParseFloat(fields[2], 64)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want[fields[0]] = Prediction{Score: score, Percentile: percentile}
+	}
+
+	x, facts, err := Scores{}.Read(bytes.NewReader(compressed), func(cve string) bool { _, ok := want[cve]; return ok || cve == "CVE-2999-0001" })
+	if err != nil || facts.Version != "v2026.06.15" {
+		t.Fatalf("read %q, %v", facts.Version, err)
+	}
+	if len(x.predictions) != len(want) {
+		t.Errorf("kept %d predictions, want %d", len(x.predictions), len(want))
+	}
+	for cve, p := range want {
+		if got, ok := x.Prediction(cve); !ok || got != p {
+			t.Errorf("%s: %+v, %v, want %+v", cve, got, ok, p)
+		}
+	}
+	if _, ok := x.Prediction("CVE-2999-0001"); ok {
+		t.Error("kept a prediction for a CVE the file does not name")
+	}
+
+	if x, _, err := (Scores{}).Read(bytes.NewReader(compressed), nil); err != nil || len(x.predictions) != 0 {
+		t.Errorf("asked for nothing, kept %d, %v", len(x.predictions), err)
+	}
+}
+
+// A CVE named by two rows is refused wherever the second is, and identifiers
+// that differ only by a leading zero are two CVEs.
+func TestReadRefusesACVENamedTwice(t *testing.T) {
+	_, text := recorded(t)
+	last := text[strings.LastIndex(strings.TrimSuffix(text, "\n"), "\n")+1:]
+	twice := text + recordedFirst
+	if _, _, err := (Scores{}).Read(bytes.NewReader(packed(t, twice)), nil); err == nil ||
+		!strings.Contains(err.Error(), "row 1001 names CVE-1999-0001, which an earlier row names") {
+		t.Errorf("a CVE named again at the end gave %v", err)
+	}
+	if _, err := (Scores{}).Check(bytes.NewReader(packed(t, text+last)), nil); err == nil || !strings.Contains(err.Error(), "which an earlier row names") {
+		t.Errorf("the last row named twice gave %v", err)
+	}
+	padded := text + "CVE-1999-00001,0.1,0.5\n"
+	if _, err := (Scores{}).Check(bytes.NewReader(packed(t, padded)), nil); err != nil {
+		t.Errorf("CVE-1999-00001 beside CVE-1999-0001 was refused: %v", err)
+	}
+}
+
 // flipped returns data with one bit of its compressed body changed.
 func flipped(data []byte) []byte {
 	out := bytes.Clone(data)
@@ -166,10 +226,10 @@ func flipped(data []byte) []byte {
 func TestCheckStopsAtTheExpandedLimit(t *testing.T) {
 	compressed, text := recorded(t)
 	size := int64(len(text))
-	if _, err := check(bytes.NewReader(compressed), size-1); err == nil || !strings.Contains(err.Error(), "it expands past") {
+	if _, _, err := read(bytes.NewReader(compressed), size-1, nil); err == nil || !strings.Contains(err.Error(), "it expands past") {
 		t.Errorf("a limit one byte under the data gave %v, want it refused for its size", err)
 	}
-	if _, err := check(bytes.NewReader(compressed), size); err != nil {
+	if _, _, err := read(bytes.NewReader(compressed), size, nil); err != nil {
 		t.Errorf("a limit of exactly the data's size refused it: %v", err)
 	}
 	if size > maxExpanded {
@@ -198,5 +258,17 @@ func TestScoresStatesItsSource(t *testing.T) {
 		t.Errorf("terms %q; %q", origin.License, origin.Attribution)
 	case d.MaxBytes() != 32<<20:
 		t.Errorf("may hold %d bytes", d.MaxBytes())
+	}
+}
+
+// A score is written as a percentage to three significant digits, so a small
+// score keeps its digits where a fixed count of decimals would write it as 0.
+func TestPercent(t *testing.T) {
+	for score, want := range map[float64]string{
+		1: "100%", 0.94321: "94.3%", 0.5: "50%", 0.01234: "1.23%", 0.00043: "0.043%", 0.00001: "0.001%", 0: "0%",
+	} {
+		if got := Percent(score); got != want {
+			t.Errorf("a score of %v is written %q, want %q", score, got, want)
+		}
 	}
 }

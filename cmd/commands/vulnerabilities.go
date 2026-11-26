@@ -10,6 +10,7 @@ import (
 
 	"github.com/papa0four/orkowatch/cmd/commands/held"
 	"github.com/papa0four/orkowatch/internal/dataset"
+	"github.com/papa0four/orkowatch/internal/dataset/epss"
 	"github.com/papa0four/orkowatch/internal/dataset/osv"
 	"github.com/papa0four/orkowatch/internal/osfingerprint"
 	"github.com/papa0four/orkowatch/internal/softwarelist"
@@ -46,7 +47,7 @@ func hostMatching() inventoryMatching {
 
 // run matches entries, the inventory of host, against the dataset of host's
 // distribution as data reads it, marks the vulnerabilities known to be
-// exploited, and says what it found. host is read when the run did not read
+// exploited, scores them from EPSS, and says what it found. host is read when the run did not read
 // it. A match that cannot be made says why and what to do, and is never an
 // error of the inventory: the packages are still listed.
 func (m inventoryMatching) run(ctx context.Context, data *held.Run, host *osfingerprint.OSInfo, entries []softwarelist.SoftwareEntry) *vulnmatch.View {
@@ -56,13 +57,13 @@ func (m inventoryMatching) run(ctx context.Context, data *held.Run, host *osfing
 			return notDone("", "the host could not be identified: "+err.Error())
 		}
 	}
-	at := slices.IndexFunc(m.matched, func(d dataset.Dataset) bool { return d.AppliesTo(host) })
-	if at < 0 {
+	chosen := m.source(host)
+	if chosen == nil {
 		return notDone("", fmt.Sprintf("no dataset owatch knows covers this host's packages; matching covers %s", m.coverage))
 	}
-	source, ok := m.matched[at].(recordSource)
+	source, ok := chosen.(recordSource)
 	if !ok {
-		return notDone(m.matched[at].ID(), "the dataset holds no records to match against")
+		return notDone(chosen.ID(), "the dataset holds no records to match against")
 	}
 
 	matcher, err := vulnmatch.New(source.Manager(), entries)
@@ -78,7 +79,51 @@ func (m inventoryMatching) run(ctx context.Context, data *held.Run, host *osfing
 	v := matcher.Result()
 	v.Use = use
 	v.MarkExploited(data.Exploited(ctx, host))
+	v.MarkPredicted(predicted(ctx, data, host, v))
 	return &v
+}
+
+// source is the dataset of host's distribution the inventory is matched
+// against, or nil when none owatch knows applies to host.
+func (m inventoryMatching) source(host *osfingerprint.OSInfo) dataset.Dataset {
+	at := slices.IndexFunc(m.matched, func(d dataset.Dataset) bool { return d.AppliesTo(host) })
+	if at < 0 {
+		return nil
+	}
+	return m.matched[at]
+}
+
+// reads is what matching reads for host: the dataset of its distribution, and
+// then the catalog and the scores, which mark and score what was matched. It
+// reads none of them for a host no dataset covers, since no match is made.
+func (m inventoryMatching) reads(host *osfingerprint.OSInfo) []dataset.Dataset {
+	source := m.source(host)
+	if source == nil {
+		return nil
+	}
+	return []dataset.Dataset{source, held.Catalog(), epss.Scores{}}
+}
+
+// predicted reads the EPSS scores file through data, keeping the predictions
+// of the vulnerabilities v matched and no others: its index, empty when it was
+// not read, and what was read or why nothing was.
+func predicted(ctx context.Context, data *held.Run, host *osfingerprint.OSInfo, v vulnmatch.View) (epss.Index, dataset.Use) {
+	matched := make(map[string]bool)
+	for _, pkg := range v.Packages {
+		for _, found := range pkg.Vulnerabilities {
+			matched[found.ID] = true
+		}
+	}
+	scores := epss.Scores{}
+	var x epss.Index
+	use := data.Read(ctx, scores, host, func(r io.Reader) (facts dataset.Facts, err error) {
+		x, facts, err = scores.Read(r, func(cve string) bool { return matched[cve] })
+		return facts, err
+	})
+	if use.NotDone != "" {
+		x = epss.Index{}
+	}
+	return x, use
 }
 
 // notDone is the view of a match that was not made, for the dataset named id

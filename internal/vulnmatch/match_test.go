@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/papa0four/orkowatch/internal/dataset"
+	"github.com/papa0four/orkowatch/internal/dataset/epss"
 	"github.com/papa0four/orkowatch/internal/dataset/kev"
 	"github.com/papa0four/orkowatch/internal/dataset/osv"
 	"github.com/papa0four/orkowatch/internal/pkgversion"
@@ -284,8 +285,7 @@ func exploitedView() View {
 
 // The catalog marks what it lists and nothing else, and a package's
 // vulnerabilities known to be exploited come first, the most severe first,
-// then the rest in their order: a fix available ahead of the unfixed, the
-// most severe first within each. The counts include those known exploited.
+// then the rest. The counts include those known exploited.
 func TestMarkExploited(t *testing.T) {
 	v := exploitedView()
 	v.MarkExploited(catalog{
@@ -311,6 +311,93 @@ func TestMarkExploited(t *testing.T) {
 	}
 	if v.KnownExploited == nil || *v.KnownExploited != kevData {
 		t.Errorf("the view names the catalog's data as %+v", v.KnownExploited)
+	}
+}
+
+// predictions is a scores file holding the predictions it is given.
+type predictions map[string]epss.Prediction
+
+func (p predictions) Prediction(id string) (epss.Prediction, bool) {
+	found, ok := p[id]
+	return found, ok
+}
+
+// epssData is the provenance of a scores file read at its date.
+var epssData = dataset.Use{Provenance: dataset.Provenance{ID: "epss", Version: "v2026.06.15", DataDate: "2026-11-23", State: dataset.StateCurrent, Attribution: "Attributed as FIRST asks."}}
+
+// Scoring gives each scored vulnerability its prediction and no other, and
+// the view names the file read, or why none was.
+func TestMarkPredicted(t *testing.T) {
+	v := exploitedView()
+	v.MarkPredicted(predictions{"CVE-2026-1": {Score: 0.4, Percentile: 0.97}}, epssData)
+	for _, pkg := range v.Packages {
+		for _, found := range pkg.Vulnerabilities {
+			switch p := found.ExploitPrediction; {
+			case found.ID == "CVE-2026-1" && (p == nil || *p != epss.Prediction{Score: 0.4, Percentile: 0.97}):
+				t.Errorf("CVE-2026-1 is scored %+v", p)
+			case found.ID != "CVE-2026-1" && p != nil:
+				t.Errorf("%s, which the file does not score, is scored %+v", found.ID, p)
+			}
+		}
+	}
+	if v.ExploitPrediction == nil || *v.ExploitPrediction != epssData {
+		t.Errorf("the view names the file as %+v", v.ExploitPrediction)
+	}
+}
+
+// Every view orders vulnerabilities by one rule, the known exploited first,
+// then severity, then the EPSS score, the highest first and none last, then a
+// fix available ahead of the unfixed, then the identifier: each package's own
+// list, the list across packages, and the text report's blocks.
+func TestOnePrecedence(t *testing.T) {
+	sev := func(level string) Severity { return Severity{Label: level, Level: level, Basis: "Ubuntu priority"} }
+	fix := func(id, level string) Vulnerability {
+		return Vulnerability{ID: id, Status: StatusFixAvailable, Fixed: "2", Severity: sev(level)}
+	}
+	unfixed := func(id, level string) Vulnerability {
+		return Vulnerability{ID: id, Status: StatusUnfixed, Severity: sev(level)}
+	}
+	v := View{Use: dataset.Use{Provenance: dataset.Provenance{ID: "osv-ubuntu"}}, Packages: []PackageMatches{
+		{Package: "a", Installed: "1", Vulnerabilities: []Vulnerability{
+			fix("CVE-2026-20", LevelHigh), fix("CVE-2026-21", LevelHigh), unfixed("CVE-2026-12", LevelCritical), fix("CVE-2026-13", LevelLow)}},
+		{Package: "b", Installed: "1", Vulnerabilities: []Vulnerability{
+			fix("CVE-2026-31", LevelCritical), unfixed("CVE-2026-32", LevelHigh), fix("CVE-2026-22", LevelHigh)}},
+	}, Installed: 2}
+	v.MarkExploited(catalog{"CVE-2026-13": {}, "CVE-2026-32": {}}, kevData)
+	v.MarkPredicted(predictions{"CVE-2026-12": {Score: 0.9}, "CVE-2026-31": {Score: 0.2}, "CVE-2026-22": {Score: 0.5}, "CVE-2026-21": {Score: 0.1}}, epssData)
+
+	ids := func(vulns []Vulnerability) string {
+		var out []string
+		for _, found := range vulns {
+			out = append(out, found.ID)
+		}
+		return strings.Join(out, ",")
+	}
+	for i, want := range []string{"CVE-2026-13,CVE-2026-12,CVE-2026-21,CVE-2026-20", "CVE-2026-32,CVE-2026-31,CVE-2026-22"} {
+		if got := ids(v.Packages[i].Vulnerabilities); got != want {
+			t.Errorf("package %s lists %s, want %s", v.Packages[i].Package, got, want)
+		}
+	}
+	var across []Vulnerability
+	for _, l := range v.InOrder() {
+		across = append(across, l.Vulnerability)
+	}
+	if got, want := ids(across), "CVE-2026-32,CVE-2026-13,CVE-2026-12,CVE-2026-31,CVE-2026-22,CVE-2026-21,CVE-2026-20"; got != want {
+		t.Errorf("across packages %s, want %s", got, want)
+	}
+
+	var b strings.Builder
+	if err := WriteText(&b, v); err != nil {
+		t.Fatal(err)
+	}
+	var listed []string
+	for _, line := range strings.Split(b.String(), "\n") {
+		if at := slices.IndexFunc(strings.Fields(line), func(f string) bool { return strings.HasPrefix(f, "CVE-") }); at >= 0 {
+			listed = append(listed, strings.Fields(line)[at])
+		}
+	}
+	if got, want := strings.Join(listed, ","), "CVE-2026-32,CVE-2026-13,CVE-2026-31,CVE-2026-22,CVE-2026-21,CVE-2026-20"; got != want {
+		t.Errorf("the text lists %s, want %s:\n%s", got, want, b.String())
 	}
 }
 
@@ -355,5 +442,58 @@ func TestWriteTextKnownExploited(t *testing.T) {
 		if err := WriteText(&b, v); err != nil || !strings.Contains(b.String(), c.want) || !strings.Contains(b.String(), "high        CVE-2026-1") {
 			t.Errorf("%s: wrote %q, %v, want %q", name, b.String(), err, c.want)
 		}
+	}
+}
+
+// With the scores read, the text names the file and its attribution, and each
+// listed vulnerability carries its EPSS score after its severity, or a dash
+// where the file gives none. With the scores not read, it says why, and no
+// line carries the column, since a file not read scores nothing.
+func TestWriteTextPredicted(t *testing.T) {
+	v := exploitedView()
+	v.MarkExploited(catalog{"CVE-2026-3": {Added: "2026-11-21", Ransomware: "Unknown"}}, kevData)
+	v.MarkPredicted(predictions{"CVE-2026-3": {Score: 0.94321}, "CVE-2026-1": {Score: 0.00043}}, epssData)
+	var b strings.Builder
+	if err := WriteText(&b, v); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"\nExploit prediction scored by epss, v2026.06.15, data of 2026-11-23, current.\n  Attributed as FIRST asks.\n",
+		"  critical    EPSS 94.3%   CVE-2026-3           openssl 3.0.2-1, unfixed; added 2026-11-21, ransomware use Unknown\n",
+		"  high        EPSS 0.043%  CVE-2026-1           openssl 3.0.2-1, fixed in 3.0.2-2\n",
+		"  medium      EPSS -       CVE-2026-10          bash 5.1, fixed in 5.2\n",
+	} {
+		if !strings.Contains(b.String(), want) {
+			t.Errorf("the text lacks %q:\n%s", want, b.String())
+		}
+	}
+
+	v = exploitedView()
+	v.MarkPredicted(predictions{}, dataset.Use{Provenance: dataset.Provenance{ID: "epss"}, NotDone: "epss is not held"})
+	b.Reset()
+	if err := WriteText(&b, v); err != nil || !strings.Contains(b.String(), "\nExploit prediction was not read: epss is not held\n") ||
+		strings.Contains(b.String(), "EPSS") || !strings.Contains(b.String(), "  high        CVE-2026-1") {
+		t.Errorf("the scores not read wrote %q, %v", b.String(), err)
+	}
+}
+
+// The match states itself on one line: the dataset and what was found, the
+// known exploited counted only when the catalog was read, or why no match
+// was made.
+func TestSummary(t *testing.T) {
+	v := exploitedView()
+	if got, want := v.Summary(), "matched against osv-ubuntu: 3 vulnerabilities with a fix available, 1 unfixed"; got != want {
+		t.Errorf("with no catalog read: %q, want %q", got, want)
+	}
+	v.MarkExploited(catalog{"CVE-2026-3": {}}, kevData)
+	if got, want := v.Summary(), "matched against osv-ubuntu: 3 vulnerabilities with a fix available, 1 unfixed, 1 known exploited"; got != want {
+		t.Errorf("with the catalog read: %q, want %q", got, want)
+	}
+	v.MarkExploited(catalog{}, dataset.Use{Provenance: dataset.Provenance{ID: "kev"}, NotDone: "kev is not held"})
+	if got, want := v.Summary(), "matched against osv-ubuntu: 3 vulnerabilities with a fix available, 1 unfixed"; got != want {
+		t.Errorf("with the catalog not read: %q, want %q", got, want)
+	}
+	if got, want := (View{Use: dataset.Use{NotDone: "osv-ubuntu is not held"}}).Summary(), "matching was not done: osv-ubuntu is not held"; got != want {
+		t.Errorf("a match not made: %q, want %q", got, want)
 	}
 }

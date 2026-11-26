@@ -7,6 +7,8 @@ import (
 	"strings"
 
 	"github.com/papa0four/orkowatch/internal/dataset"
+	"github.com/papa0four/orkowatch/internal/dataset/epss"
+	"github.com/papa0four/orkowatch/internal/tone"
 	"github.com/papa0four/orkowatch/internal/tui"
 	"github.com/papa0four/orkowatch/internal/vulnmatch"
 )
@@ -22,11 +24,11 @@ const (
 
 // vulnerabilitiesTab is the software's match against its dataset: one record
 // per vulnerability of each affected package, then those that could not be
-// judged. When the catalog of known-exploited vulnerabilities was read, those
-// it lists come first, under their own heading and in the critical color,
-// the most severe first, listed whichever status is chosen, and the tab
-// filters by it; the rest follow in their order, those with a fix available
-// first, then the unfixed, then those not judged. It opens on those with a
+// judged, in the order every view lists vulnerabilities. When the catalog of
+// known-exploited vulnerabilities was read, those it lists come first, under
+// their own heading and in the critical color, listed whichever status is
+// chosen, and the tab filters by it; the rest follow under theirs, then those
+// not judged. It opens on those with a
 // fix available, or on all when none has one, and filters by the severity
 // the match gives each. With no match made it says why.
 func vulnerabilitiesTab(v vulnmatch.View) tui.Tab {
@@ -36,19 +38,19 @@ func vulnerabilitiesTab(v vulnmatch.View) tui.Tab {
 		return tab
 	}
 	against := matchedAgainst(v)
-	exploitation := exploitationText(v.KnownExploited)
 	banded := v.KnownExploited != nil && v.KnownExploited.NotDone == ""
+	data := matchData{view: v, against: against, exploitation: useText(v.KnownExploited), prediction: useText(v.ExploitPrediction), banded: banded}
 
 	present := map[string]bool{}
 	for _, l := range v.InOrder() {
 		present[l.Vulnerability.Severity.Level] = true
-		tab.Records = append(tab.Records, vulnerabilityRecord(l.Package, l.Vulnerability, against, exploitation, banded))
+		tab.Records = append(tab.Records, vulnerabilityRecord(l.Package, l.Vulnerability, data))
 	}
 	for _, n := range v.NotMatched {
 		present[vulnmatch.LevelNone] = true
 		record := tui.Record{
 			Title:    safeLines(n.ID + "  " + n.Package),
-			Subtitle: statusNotMatched,
+			Subtitle: tui.Plain(statusNotMatched),
 			Fields: []tui.SummaryLine{
 				{Label: "package", Value: safeLines(n.Package)},
 				{Label: "installed", Value: safeLines(n.Installed)},
@@ -69,14 +71,16 @@ func vulnerabilitiesTab(v vulnmatch.View) tui.Tab {
 		start = tui.All
 	}
 	severities := []string{tui.All}
+	tones := map[string]tone.Tone{}
 	for _, level := range vulnmatch.Levels() {
 		if present[level] {
 			severities = append(severities, level)
+			tones[level] = tone.ForSeverity(level)
 		}
 	}
 	tab.Filters = []tui.Filter{
 		{Name: "status", Options: []string{tui.All, vulnmatch.StatusFixAvailable, vulnmatch.StatusUnfixed, statusNotMatched}, Start: start},
-		{Name: "severity", Options: severities, Start: tui.All},
+		{Name: "severity", Options: severities, Start: tui.All, Tones: tones},
 	}
 	if banded {
 		tab.Alert = knownExploited
@@ -86,10 +90,10 @@ func vulnerabilitiesTab(v vulnmatch.View) tui.Tab {
 	return tab
 }
 
-// exploitationText names the catalog of known-exploited vulnerabilities a
-// match was marked from and its attribution, or says why it was not read; it
-// is empty for a match that predates the catalog.
-func exploitationText(use *dataset.Use) string {
+// useText names the dataset a match was marked or scored from and its
+// attribution, or says why it was not read; it is empty for a match that
+// predates the dataset.
+func useText(use *dataset.Use) string {
 	if use == nil {
 		return ""
 	}
@@ -102,19 +106,43 @@ func matchedAgainst(v vulnmatch.View) string {
 	return safeLines(v.About())
 }
 
+// matchData is what every record of the tab shows of the match as a whole:
+// the match, the dataset it was made against, the catalog of known-exploited
+// vulnerabilities and the EPSS scores file as their detail describes them,
+// and whether the records are banded by the catalog.
+type matchData struct {
+	view                              vulnmatch.View
+	against, exploitation, prediction string
+	banded                            bool
+}
+
 // vulnerabilityRecord is one vulnerability of an affected package as the tab
-// shows it, with the catalog of known-exploited vulnerabilities as
-// exploitation describes it, and in its band when banded.
-func vulnerabilityRecord(pkg vulnmatch.PackageMatches, found vulnmatch.Vulnerability, against, exploitation string, banded bool) tui.Record {
-	subtitle := found.Status
-	if found.Fixed != "" {
-		subtitle = "fix " + found.Fixed
+// shows it, with data's description of the match, and in its band when the
+// records are banded. Its subtitle is in the order the tab lists by: known
+// exploitation, severity, the EPSS score, then the status, with the known
+// exploitation and the severity in their tones.
+func vulnerabilityRecord(pkg vulnmatch.PackageMatches, found vulnmatch.Vulnerability, data matchData) tui.Record {
+	var parts []tui.Span
+	if found.KnownExploited != nil {
+		parts = append(parts, tui.Span{Text: "exploited", Tone: tone.KnownExploited})
 	}
 	if found.Severity.Label != "" {
-		subtitle += "  " + found.Severity.Label
+		parts = append(parts, tui.Span{Text: safeLines(found.Severity.Label), Tone: tone.ForSeverity(found.Severity.Level)})
 	}
-	if found.KnownExploited != nil {
-		subtitle = "exploited  " + subtitle
+	if word := data.view.PredictionWord(found); word != "" {
+		parts = append(parts, tui.Span{Text: word})
+	}
+	if found.Fixed != "" {
+		parts = append(parts, tui.Span{Text: safeLines("fix " + found.Fixed)})
+	} else {
+		parts = append(parts, tui.Span{Text: found.Status})
+	}
+	var subtitle tui.Line
+	for i, part := range parts {
+		if i > 0 {
+			subtitle = append(subtitle, tui.Span{Text: "  "})
+		}
+		subtitle = append(subtitle, part)
 	}
 	fields := []tui.SummaryLine{{Label: "package", Value: safeLines(pkg.Package)}}
 	if len(pkg.Binaries) > 0 {
@@ -126,7 +154,7 @@ func vulnerabilityRecord(pkg vulnmatch.PackageMatches, found vulnmatch.Vulnerabi
 	if found.Fixed != "" {
 		fields = append(fields, tui.SummaryLine{Label: "fixed in", Value: safeLines(found.Fixed)})
 	}
-	fields = append(fields, tui.SummaryLine{Label: "severity", Value: safeLines(severityText(found.Severity))})
+	fields = append(fields, tui.SummaryLine{Label: "severity", Value: safeLines(severityText(found.Severity)), Tone: tone.ForSeverity(found.Severity.Level)})
 	if len(found.Scores) > 0 {
 		scores := make([]string, 0, len(found.Scores))
 		for _, s := range found.Scores {
@@ -138,19 +166,28 @@ func vulnerabilityRecord(pkg vulnmatch.PackageMatches, found vulnmatch.Vulnerabi
 		fields = append(fields, tui.SummaryLine{Label: "known to be exploited",
 			Value: safeLines(fmt.Sprintf("added to the catalog %s\ndue date %s\nransomware use %s", e.Added, e.Due, e.Ransomware))})
 	}
+	if p := found.ExploitPrediction; p != nil {
+		fields = append(fields, tui.SummaryLine{Label: "exploit prediction", Value: fmt.Sprintf(
+			"score %s, the probability that it will be exploited in the wild in the next 30 days\n"+
+				"percentile %s, the proportion of all scored vulnerabilities with the same score or lower",
+			epss.Percent(p.Score), epss.Percent(p.Percentile))})
+	}
 	fields = append(fields,
 		tui.SummaryLine{Label: "records", Value: safeLines(strings.Join(found.Records, ", "))},
-		tui.SummaryLine{Label: "matched against", Value: against})
-	if exploitation != "" {
-		fields = append(fields, tui.SummaryLine{Label: "known exploitation", Value: exploitation})
+		tui.SummaryLine{Label: "matched against", Value: data.against})
+	if data.exploitation != "" {
+		fields = append(fields, tui.SummaryLine{Label: "known exploitation", Value: data.exploitation})
+	}
+	if data.prediction != "" {
+		fields = append(fields, tui.SummaryLine{Label: "exploit prediction data", Value: data.prediction})
 	}
 	record := tui.Record{
 		Title:    safeLines(found.ID + "  " + pkg.Package),
-		Subtitle: safeLines(subtitle),
+		Subtitle: subtitle,
 		Fields:   fields,
 		Filters:  [][]string{{found.Status}, {found.Severity.Level}},
 	}
-	if banded {
+	if data.banded {
 		record.Band = notKnownExploited
 		if found.KnownExploited != nil {
 			record.Band = knownExploited

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -66,16 +67,105 @@ func run(d *dataCmd, args ...string) (string, error) {
 	return out.String(), err
 }
 
-// A directory of sound datasets is imported with a line for each and no
-// error; one with a refused dataset ends in an error naming how many; an
-// empty one is an error.
+// installedLines is a pattern of the lines an install of id that succeeds
+// writes: each attempt as it begins, each that failed for a reason that
+// passes, the one that installed it, and its outcome, with the attempts when
+// there was more than one. An install may take more than one attempt where
+// another process holds a new file open for a moment, as a virus scanner on
+// Windows does, and the store tries it again by design.
+func installedLines(id string) string {
+	id = regexp.QuoteMeta(id)
+	attempt := `( \(attempt \d\))?`
+	took := `[0-9a-z.]+`
+	return `(` + id + `: installing` + attempt + `\n` + id + `: installing` + attempt + ` failed after ` + took + `: [^\n]*\n)*` +
+		id + `: installing` + attempt + `\n` + id + `: installed` + attempt + ` in ` + took + `\n` +
+		id + `: installed( after \d attempts)?\n`
+}
+
+// downloadedLines is a pattern of the lines a download of id that succeeds
+// writes, where size is how large it was said to be and got what came: each
+// attempt as it begins, then how it ended, the last having downloaded it.
+// Staging a download is tried again when a step after it fails for a reason
+// that passes, as when Windows holds the new file open for a moment, so an
+// attempt may end downloaded and still be followed by another.
+func downloadedLines(id, size, got string) string {
+	id, size, got = regexp.QuoteMeta(id), regexp.QuoteMeta(size), regexp.QuoteMeta(got)
+	attempt := `( \(attempt \d\))?`
+	took := `[0-9a-z.]+`
+	begin := id + `: downloading` + attempt + ` ` + size + `\n`
+	ended := id + `: downloaded` + attempt + ` ` + got + ` in ` + took + `(, [^\n]*)?\n`
+	failed := id + `: downloading` + attempt + ` failed after ` + took + `: [^\n]*\n`
+	return `(` + begin + `(` + ended + `|` + failed + `))*` + begin + ended
+}
+
+// fetchedOnly reports whether fetched names id and nothing else, once or as
+// many times as the store tried again.
+func fetchedOnly(fetched []string, id string) bool {
+	return len(fetched) > 0 && !slices.ContainsFunc(fetched, func(f string) bool { return f != id })
+}
+
+// matchesWhole reports whether text is wholly what pattern describes.
+func matchesWhole(pattern, text string) bool {
+	return regexp.MustCompile(`^` + pattern + `$`).MatchString(text)
+}
+
+// The pattern of an install takes one that succeeded at once and one the
+// store had to try again, and not one that failed.
+func TestInstalledLines(t *testing.T) {
+	for name, tt := range map[string]struct {
+		out  string
+		want bool
+	}{
+		"at once": {"wanted: installing\nwanted: installed in 0s\nwanted: installed\n", true},
+		"tried again": {"wanted: installing\nwanted: installing failed after 0s: the file is in use\n" +
+			"wanted: installing (attempt 2)\nwanted: installed (attempt 2) in 0s\nwanted: installed after 2 attempts\n", true},
+		"failed": {"wanted: installing\nwanted: installing failed after 0s: the disk is full\nwanted: failed after 1 attempt: the disk is full\n", false},
+	} {
+		if got := matchesWhole(installedLines("wanted"), tt.out); got != tt.want {
+			t.Errorf("%s: matched %v, want %v", name, got, tt.want)
+		}
+	}
+}
+
+// The pattern of a download takes one at once, one whose staging was tried
+// again after it downloaded, and one tried again after it failed, and not one
+// that never downloaded; fetchedOnly takes the dataset fetched more than once
+// and nothing else.
+func TestDownloadedLines(t *testing.T) {
+	for name, tt := range map[string]struct {
+		out  string
+		want bool
+	}{
+		"at once": {"wanted: downloading 39 B\nwanted: downloaded 39 B in 0s\n", true},
+		"staged again": {"wanted: downloading 100.0 MiB\nwanted: downloaded 39 B in 0s\n" +
+			"wanted: downloading (attempt 2) 100.0 MiB\nwanted: downloaded (attempt 2) 39 B in 0s\n", true},
+		"failed once": {"wanted: downloading 39 B\nwanted: downloading failed after 1m0s: the download stalled\n" +
+			"wanted: downloading (attempt 2) 39 B\nwanted: downloaded (attempt 2) 39 B in 0s\n", true},
+		"never": {"wanted: downloading 39 B\nwanted: downloading failed after 0s: refused\n", false},
+	} {
+		size := "39 B"
+		if strings.Contains(tt.out, "100.0 MiB") {
+			size = "100.0 MiB"
+		}
+		if got := matchesWhole(downloadedLines("wanted", size, "39 B"), tt.out); got != tt.want {
+			t.Errorf("%s: matched %v, want %v", name, got, tt.want)
+		}
+	}
+	if !fetchedOnly([]string{"wanted", "wanted"}, "wanted") || fetchedOnly(nil, "wanted") || fetchedOnly([]string{"wanted", "other"}, "wanted") {
+		t.Error("fetchedOnly does not take the dataset alone, once or more")
+	}
+}
+
+// A directory of sound datasets is imported with each step shown, a line for
+// each dataset, and no error; one with a refused dataset ends in an error
+// naming how many; an empty one is an error.
 func TestDataImport(t *testing.T) {
 	d, _ := testData(t, false, "")
 	src := t.TempDir()
 	datasettest.Put(t, src, datasettest.Dataset{Name: "wanted"}, datasettest.Content, dataNow.Add(-time.Hour), nil)
 
 	out, err := run(d, "import", src)
-	if err != nil || out != "wanted: installed\n" {
+	if err != nil || !matchesWhole(regexp.QuoteMeta("wanted: checking\nwanted: checked in 0s\n")+installedLines("wanted"), out) {
 		t.Errorf("import printed %q, %v", out, err)
 	}
 
@@ -168,7 +258,7 @@ func TestDataStatusReport(t *testing.T) {
 			t.Errorf("%s: opens on %q, want the datasets", format, report.Start)
 		}
 		at := slices.IndexFunc(report.Tabs, func(tab tui.Tab) bool { return tab.ID == tui.TabDatasets })
-		if at < 0 || len(report.Tabs[at].Records) != 1 || report.Tabs[at].Records[0].Subtitle != string(dataset.StateOutOfSync) {
+		if at < 0 || len(report.Tabs[at].Records) != 1 || report.Tabs[at].Records[0].Subtitle.String() != string(dataset.StateOutOfSync) {
 			t.Errorf("%s: tabs %+v, want the dataset out of sync", format, report.Tabs)
 		}
 		if !strings.HasPrefix(report.Text, "Store: "+s.Root()) || !strings.Contains(report.Text, "wanted  out of sync: data of 2026-11-20") {

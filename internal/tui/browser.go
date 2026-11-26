@@ -15,6 +15,7 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/papa0four/orkowatch/internal/security/finding"
+	"github.com/papa0four/orkowatch/internal/tone"
 )
 
 const (
@@ -106,10 +107,13 @@ type (
 		Text  string
 	}
 
-	// SummaryLine is one labeled figure in the browser's summary.
+	// SummaryLine is one labeled figure in the browser's summary, or one
+	// field of a record's detail. Tone colors the whole value, for a field
+	// whose value is one meaning, such as a severity.
 	SummaryLine struct {
 		Label string
 		Value string
+		Tone  tone.Tone
 	}
 
 	// Item is one evaluated rule. A finding carries the registry's text and
@@ -256,11 +260,12 @@ func newBrowser(report Report) browser {
 	b.text.SetHorizontalStep(sideScroll)
 	b.text.SetContent(report.Text)
 
-	severity := &filterGroup{name: "severity", options: []string{allFilter}, labels: []string{allFilter}}
+	severity := &filterGroup{name: "severity", options: []string{allFilter}, labels: []string{allFilter}, tones: map[string]tone.Tone{}}
 	levels := finding.Severities()
 	for i := len(levels) - 1; i >= 0; i-- {
 		severity.options = append(severity.options, levels[i])
 		severity.labels = append(severity.labels, strings.ToLower(levels[i]))
+		severity.tones[levels[i]] = tone.ForSeverity(levels[i])
 	}
 	check := &filterGroup{name: "check", options: []string{allFilter}}
 	seen := make(map[string]bool)
@@ -1032,7 +1037,9 @@ func (b browser) searchView() string {
 }
 
 // queryLine renders the line above a list: the search text when there is any,
-// then the status the tab gives of what the list holds.
+// then the status the tab gives of what the list holds. With no search in it,
+// it is the list's heading, lit while the list has the keyboard as the left
+// pane's headings are.
 func (b browser) queryLine(status string) string {
 	var query string
 	switch {
@@ -1045,7 +1052,7 @@ func (b browser) queryLine(status string) string {
 	}
 	line := truncate(query+status, b.mainWidth())
 	if query == "" {
-		return styleMuted.Render(line)
+		return b.paneTitle(line, focusList)
 	}
 	return styleText.Render(line)
 }
@@ -1123,25 +1130,11 @@ func (b *browser) keepCursorVisible() {
 // findings can later attach to them without it changing. It returns the line
 // the cursor is on as well, which is what scrolling follows.
 func (b browser) sidebarLines() (lines []string, cursorLine int) {
-	option := func(index int, label string, selected bool) {
-		line := "  " + label
-		if selected {
-			line = "> " + label
-		}
-		style := styleMuted
-		if selected {
-			style = styleText
-		}
-		if index < len(b.tabs) {
-			style = b.tabs[index].nameStyle(style)
-		}
-		if b.focus == focusFilters && b.filterCursor == index {
-			style = styleSelected
-		}
+	option := func(index int, label string, t tone.Tone, selected bool) {
 		if b.filterCursor == index {
 			cursorLine = len(lines)
 		}
-		lines = append(lines, style.Render(fmt.Sprintf("%-*s", filterWidth-1, line)))
+		lines = append(lines, b.optionLine(index, label, t, selected))
 	}
 
 	// The sources are a table: the key that opens each, then its name, under
@@ -1153,7 +1146,7 @@ func (b browser) sidebarLines() (lines []string, cursorLine int) {
 	}
 	lines = append(lines, b.paneTitle(fmt.Sprintf("  %-*s%s%s", keyWidth, keyHeading, sourceGap, sourceHeading), focusFilters))
 	for i, t := range b.tabs {
-		option(i, fmt.Sprintf("%-*s%s%s", keyWidth, t.letter, sourceGap, t.name), b.active == i)
+		option(i, fmt.Sprintf("%-*s%s%s", keyWidth, t.letter, sourceGap, t.name), tone.Plain, b.active == i)
 	}
 
 	notApplicable := styleMuted.Render("  n/a")
@@ -1169,18 +1162,43 @@ func (b browser) sidebarLines() (lines []string, cursorLine int) {
 		return append(lines, notApplicable+styleMuted.Render("  no findings yet")), cursorLine
 	}
 	for _, line := range b.report.Summary {
-		label := fmt.Sprintf("%-*s", summaryLabelWidth, line.Label)
+		label := summaryLabel(line.Label)
 		value := truncate(line.Value, max(filterWidth-1-lipgloss.Width(label), 1))
-		lines = append(lines, styleMuted.Render(label)+styleText.Render(value))
+		lines = append(lines, styleMuted.Render(label)+value)
 	}
 	return lines, cursorLine
 }
 
+// optionLine draws one option of the left pane at index: marked when it is
+// selected, muted when it is not, a source in its name's style, the option
+// the keyboard is on reversed, and the first word of an option with a tone in
+// that tone.
+func (b browser) optionLine(index int, label string, t tone.Tone, selected bool) string {
+	lead := "  "
+	style := styleMuted
+	if selected {
+		lead, style = "> ", styleText
+	}
+	if index < len(b.tabs) {
+		style = b.tabs[index].nameStyle(style)
+	}
+	line := fmt.Sprintf("%-*s", filterWidth-1, lead+label)
+	if b.focus == focusFilters && b.filterCursor == index {
+		return styleSelected.Render(line)
+	}
+	if t == tone.Plain {
+		return style.Render(line)
+	}
+	word, rest, _ := strings.Cut(line[len(lead):], " ")
+	return style.Render(lead) + t.Render(word) + style.Render(" "+rest)
+}
+
 // groupLines lays out the active tab's filters in the left pane, after the
 // sources: each group under its heading, each option through option, which
-// knows where the cursor is, with its count where the tab counts them.
-// Headings and spacing go through heading.
-func (b browser) groupLines(groups []*filterGroup, heading func(string), option func(index int, label string, selected bool)) {
+// knows where the cursor is, with its count where the tab counts them and in
+// its tone where it carries a meaning. Headings and spacing go through
+// heading.
+func (b browser) groupLines(groups []*filterGroup, heading func(string), option func(index int, label string, t tone.Tone, selected bool)) {
 	index := len(b.tabs)
 	for at, g := range groups {
 		if at == 0 {
@@ -1197,10 +1215,16 @@ func (b browser) groupLines(groups []*filterGroup, heading func(string), option 
 			if g.counts != nil {
 				label = countedLabel(label, g.counts[i], widest)
 			}
-			option(index, label, g.chosen == i)
+			option(index, label, g.tones[g.options[i]], g.chosen == i)
 			index++
 		}
 	}
+}
+
+// summaryLabel is a summary figure's label in its column, cut short where it
+// would otherwise run into the figure, so a space always parts the two.
+func summaryLabel(label string) string {
+	return fmt.Sprintf("%-*s", summaryLabelWidth, truncate(label, summaryLabelWidth-1))
 }
 
 // countedLabel is a filter option with how many records fall under it: the
@@ -1227,12 +1251,13 @@ func (b browser) listView() string {
 	lines := make([]string, 0, rows)
 	for row := b.listTop; row < min(b.listTop+rows, len(b.visible)); row++ {
 		item := b.report.Items[b.visible[row]]
-		line := truncate(b.rowText(item), b.mainWidth())
+		lead, word, rest := b.rowParts(item)
+		var line string
 		switch {
 		case row == b.cursor && b.focus != focusFilters:
-			line = styleSelected.Render(fmt.Sprintf("%-*s", b.mainWidth(), line))
+			line = styleSelected.Render(fmt.Sprintf("%-*s", b.mainWidth(), truncate(lead+word+rest, b.mainWidth())))
 		default:
-			line = lipgloss.NewStyle().Foreground(itemColor(item)).Render(line)
+			line = truncate(lead+itemTone(item).Render(word)+rest, b.mainWidth())
 		}
 		lines = append(lines, line)
 	}
@@ -1240,6 +1265,15 @@ func (b browser) listView() string {
 		lines = append(lines, "")
 	}
 	return strings.Join(lines, "\n")
+}
+
+// rowParts is one item as a single list line, in three parts: what leads it,
+// the word that carries its severity or result, padded to its column, and the
+// rest, so the word alone can be drawn in its tone.
+func (b browser) rowParts(item Item) (lead, word, rest string) {
+	text := b.rowText(item)
+	lead, after, _ := strings.Cut(text, " ")
+	return lead + " ", after[:resultColumn], after[resultColumn:]
 }
 
 // rowText is one item as a single list line.
@@ -1294,14 +1328,14 @@ func triggerText(item Item) string {
 // Evidence longer than the preview says under its heading how much is shown
 // and what x shows instead, so the line x moves the pane to says what changed.
 func (b browser) detailText(item Item) (string, int) {
-	wrap := lipgloss.NewStyle().Width(max(b.mainWidth()-1, minWidth))
+	wrap := detailWrap(b.mainWidth())
 	var out strings.Builder
 
 	heading := string(item.Result)
 	if item.isFinding() {
 		heading = item.Severity
 	}
-	out.WriteString(lipgloss.NewStyle().Foreground(itemColor(item)).Bold(true).Render(strings.ToUpper(heading)) +
+	out.WriteString(itemTone(item).Style().Bold(true).Render(strings.ToUpper(heading)) +
 		styleMuted.Render("  "+item.Check+"  "+item.Key) + "\n")
 	if item.Title != "" {
 		out.WriteString(styleText.Bold(true).Render(wrap.Render(item.Title)) + "\n")

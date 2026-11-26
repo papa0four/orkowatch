@@ -21,6 +21,10 @@ type (
 		// so that a host holds only what it can use.
 		AppliesTo(host *osfingerprint.OSInfo) bool
 
+		// Gives is what a run has from the dataset and lacks without it,
+		// which a run names before it starts when the dataset is not held.
+		Gives() string
+
 		// Origin is where the dataset is fetched from and the terms it
 		// comes under. Only a fetch reads it; a dataset held is judged by
 		// its manifest and its content.

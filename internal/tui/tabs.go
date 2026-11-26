@@ -11,6 +11,8 @@ import (
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+
+	"github.com/papa0four/orkowatch/internal/tone"
 )
 
 // Tab identifiers. A tab's identifier fixes the key that jumps to it, so a
@@ -64,14 +66,15 @@ type (
 		// filters between two of its options from the list.
 		Switch Switch
 
-		// Alert names the band whose heading and records are drawn in the
-		// critical color, so the records that most need attention stand apart
-		// from the rest.
+		// Alert names the band whose heading and records are drawn whole in
+		// the known-exploited tone, so the records of confirmed exploitation
+		// stand apart from the rest.
+
 		Alert string
 
 		// Attention marks a tab holding what the operator must act on, so its
-		// name stands out in the critical color wherever the sources are
-		// listed, whichever tab is open.
+		// name stands out as a notice wherever the sources are listed,
+		// whichever tab is open.
 		Attention bool
 	}
 
@@ -89,12 +92,15 @@ type (
 	// by: its name, its options in the order shown, and the option the tab
 	// opens on. An option named All admits every record. Spares names a band
 	// whose records the filter does not narrow, so they stay listed
-	// whichever option is chosen.
+	// whichever option is chosen. Tones gives the options that carry a
+	// meaning, such as a severity, the tone the option's first word is drawn
+	// in.
 	Filter struct {
 		Name    string
 		Options []string
 		Start   string
 		Spares  string
+		Tones   map[string]tone.Tone
 	}
 
 	// Record is one row of a tab. Its fields are shown in the detail pane in
@@ -105,10 +111,21 @@ type (
 	// whose records have none has no headings.
 	Record struct {
 		Title    string
-		Subtitle string
+		Subtitle Line
 		Fields   []SummaryLine
 		Filters  [][]string
 		Band     string
+	}
+
+	// Line is text in runs, each drawn in its tone, so only the words that
+	// carry a meaning are colored and the rest keeps the terminal's own
+	// color.
+	Line []Span
+
+	// Span is a run of a Line's text and the tone it is drawn in.
+	Span struct {
+		Text string
+		Tone tone.Tone
 	}
 
 	// listLine is one line of a record tab's list: the heading of a band with
@@ -159,6 +176,7 @@ type (
 		chosen  int
 		counts  []int
 		spares  string
+		tones   map[string]tone.Tone
 	}
 )
 
@@ -213,11 +231,11 @@ func buildTabs(report Report) []tabDef {
 }
 
 // nameStyle is how the source list and the tab bar draw t's name where the
-// keyboard is not on it: in the critical color when the tab needs attention,
-// in plain otherwise.
+// keyboard is not on it: as a notice when the operator has something to do
+// there, in plain otherwise.
 func (t tabDef) nameStyle(plain lipgloss.Style) lipgloss.Style {
 	if t.attention {
-		return styleAlert
+		return styleNotice
 	}
 	return plain
 }
@@ -245,14 +263,14 @@ func newRecordPane(tab Tab) *recordPane {
 	p.index = make([]string, len(tab.Records))
 	for i, r := range tab.Records {
 		var text strings.Builder
-		text.WriteString(r.Title + "\n" + r.Subtitle)
+		text.WriteString(r.Title + "\n" + r.Subtitle.String())
 		for _, f := range r.Fields {
 			text.WriteString("\n" + f.Label + " " + f.Value)
 		}
 		p.index[i] = strings.ToLower(text.String())
 	}
 	for at, f := range tab.Filters {
-		g := &filterGroup{name: f.Name, options: f.Options, labels: f.Options, counts: make([]int, len(f.Options)), spares: f.Spares}
+		g := &filterGroup{name: f.Name, options: f.Options, labels: f.Options, counts: make([]int, len(f.Options)), spares: f.Spares, tones: f.Tones}
 		g.chosen = max(slices.Index(f.Options, f.Start), 0)
 		for i, option := range f.Options {
 			for _, r := range tab.Records {
@@ -339,7 +357,7 @@ func (p *recordPane) show(rows, width int) {
 		if message == "" {
 			message = "nothing matches the search"
 		}
-		p.detail.SetContent(styleMuted.Render(message))
+		p.detail.SetContent(styleMuted.Render(detailWrap(width).Render(message)))
 		return
 	}
 	index := p.visible[p.cursor]
@@ -412,17 +430,16 @@ func (p *recordPane) listView(rows, width int, selected bool) string {
 		}
 		row := at.row
 		record := p.tab.Records[p.visible[row]]
-		text := record.Title
-		if record.Subtitle != "" {
-			text += "  " + record.Subtitle
+		text, toned := record.Title, style.Render(record.Title)
+		if len(record.Subtitle) > 0 {
+			text += "  " + record.Subtitle.String()
+			toned += style.Render("  ") + record.Subtitle.render(style)
 		}
-		line := truncate(text, width)
 		if row == p.cursor && selected {
-			line = styleSelected.Render(fmt.Sprintf("%-*s", width, line))
-		} else {
-			line = style.Render(line)
+			lines = append(lines, styleSelected.Render(fmt.Sprintf("%-*s", width, truncate(text, width))))
+			continue
 		}
-		lines = append(lines, line)
+		lines = append(lines, truncate(toned, width))
 	}
 	for len(lines) < rows {
 		lines = append(lines, "")
@@ -430,13 +447,45 @@ func (p *recordPane) listView(rows, width int, selected bool) string {
 	return strings.Join(lines, "\n")
 }
 
-// bandStyle is how the list draws a line of band: in the critical color when
-// it is the tab's alert band, as plain text otherwise.
+// bandStyle is how the list draws the words of a line of band that carry no
+// tone of their own: in the known-exploited tone when it is the tab's alert
+// band, and in the terminal's own color otherwise. A word that carries a tone,
+// such as a severity, keeps it in every band.
 func (p *recordPane) bandStyle(band string) lipgloss.Style {
 	if band != "" && band == p.tab.Alert {
-		return styleAlert
+		return tone.KnownExploited.Style()
 	}
-	return styleText
+	return lipgloss.NewStyle()
+}
+
+// Plain is text as a Line in no tone, or no Line for no text.
+func Plain(text string) Line {
+	if text == "" {
+		return nil
+	}
+	return Line{{Text: text}}
+}
+
+// String is the Line's text without its tones.
+func (l Line) String() string {
+	var b strings.Builder
+	for _, s := range l {
+		b.WriteString(s.Text)
+	}
+	return b.String()
+}
+
+// render draws the Line: each run in its tone, and a run in no tone in plain.
+func (l Line) render(plain lipgloss.Style) string {
+	var b strings.Builder
+	for _, s := range l {
+		if s.Tone == tone.Plain {
+			b.WriteString(plain.Render(s.Text))
+		} else {
+			b.WriteString(s.Tone.Render(s.Text))
+		}
+	}
+	return b.String()
 }
 
 // bandRule is the heading of a band as a rule across the list: the band's
@@ -446,17 +495,24 @@ func bandRule(name string, count, width int) string {
 	return label + strings.Repeat(ruleChar, max(width-lipgloss.Width(label), 0))
 }
 
+// detailWrap wraps text to a detail pane width columns wide: one column
+// narrower than the pane, and never narrower than minWidth, so no line of a
+// detail is cut off at the pane's edge.
+func detailWrap(width int) lipgloss.Style {
+	return lipgloss.NewStyle().Width(max(width-1, minWidth))
+}
+
 // recordText renders one record for the detail pane: its title, its
 // subtitle, and each field under its label.
 func recordText(r Record, width int) string {
-	wrap := lipgloss.NewStyle().Width(max(width-1, minWidth))
+	wrap := detailWrap(width)
 	var out strings.Builder
 	out.WriteString(styleText.Bold(true).Render(wrap.Render(r.Title)) + "\n")
-	if r.Subtitle != "" {
-		out.WriteString(styleMuted.Render(wrap.Render(r.Subtitle)) + "\n")
+	if len(r.Subtitle) > 0 {
+		out.WriteString(wrap.Render(r.Subtitle.render(styleMuted)) + "\n")
 	}
 	for _, f := range r.Fields {
-		out.WriteString("\n" + styleMuted.Render(f.Label) + "\n" + wrap.Render(f.Value) + "\n")
+		out.WriteString("\n" + styleMuted.Render(f.Label) + "\n" + wrap.Render(f.Tone.Render(f.Value)) + "\n")
 	}
 	return out.String()
 }

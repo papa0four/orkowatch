@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -75,14 +76,16 @@ func holds(root, id string) bool {
 }
 
 // refresh fetches the datasets that apply to the host, and no other, prints
-// each one's size and where it comes from, and installs what it fetched.
+// each one's size and where it comes from, shows each step as it begins and
+// ends, and installs what it fetched.
 func TestDataRefresh(t *testing.T) {
 	d, s, origins := refreshing(t, false, "")
 	out, err := run(d, "refresh")
-	if err != nil || out != "wanted: 39 B from https://data.example/wanted, allowed 10m0s\nwanted: installed\n" {
+	if err != nil || !matchesWhole(regexp.QuoteMeta("wanted: 39 B from https://data.example/wanted, allowed 10m0s\n")+
+		downloadedLines("wanted", "39 B", "39 B")+regexp.QuoteMeta("wanted: checking\nwanted: checked in 0s\n")+installedLines("wanted"), out) {
 		t.Errorf("refresh printed %q, %v", out, err)
 	}
-	if !slices.Equal(origins.fetched, []string{"wanted"}) || !holds(s.Root(), "wanted") || holds(s.Root(), "debian-data") {
+	if !fetchedOnly(origins.fetched, "wanted") || !holds(s.Root(), "wanted") || holds(s.Root(), "debian-data") {
 		t.Errorf("fetched %q; the store holds wanted %v", origins.fetched, holds(s.Root(), "wanted"))
 	}
 
@@ -90,6 +93,35 @@ func TestDataRefresh(t *testing.T) {
 	out, err = run(d, "refresh")
 	if err != nil || !strings.Contains(out, "knows no dataset for this host") {
 		t.Errorf("with no dataset known: %q, %v", out, err)
+	}
+}
+
+// unreachable is a fetch that could make no connection at all, as the fetch
+// package reports one on a host with no network.
+type unreachable struct{}
+
+func (unreachable) Error() string     { return "no connection could be made" }
+func (unreachable) Unreachable() bool { return true }
+
+// With no network, refresh stops at the first dataset it cannot reach, prints
+// what happened to it, says the network could not be reached, and names the
+// route for a host with no network, with this host's target for --for.
+func TestDataRefreshWithNoNetwork(t *testing.T) {
+	d, _, origins := refreshing(t, false, "")
+	d.host = func() (*osfingerprint.OSInfo, error) {
+		return &osfingerprint.OSInfo{OS: "linux", Platform: "debian", PlatformVersion: "12"}, nil
+	}
+	origins.fails["wanted"] = unreachable{}
+	out, err := run(d, "refresh")
+	if !strings.Contains(out, "wanted: failed after 1 attempt: no connection could be made") {
+		t.Errorf("refresh printed %q", out)
+	}
+	if slices.Contains(origins.fetched, "debian-data") {
+		t.Errorf("fetched %q after the network could not be reached", origins.fetched)
+	}
+	if err == nil || !errors.Is(err, store.ErrUnreachable) ||
+		!strings.Contains(err.Error(), `owatch data refresh --to <directory> --for "linux/debian/12" on a host with one, and owatch data import <directory> here`) {
+		t.Errorf("with no network refresh ended with %v", err)
 	}
 }
 
@@ -129,7 +161,7 @@ func TestDataRefreshAsksBeforeALargeDownload(t *testing.T) {
 			origins.sizes["wanted"] = largeDownload + 1
 
 			out, err := run(d, tt.args...)
-			if (err == nil) != tt.fetched || holds(s.Root(), "wanted") != tt.fetched || (len(origins.fetched) == 1) != tt.fetched {
+			if (err == nil) != tt.fetched || holds(s.Root(), "wanted") != tt.fetched || fetchedOnly(origins.fetched, "wanted") != tt.fetched {
 				t.Errorf("printed %q, error %v, fetched %q", out, err, origins.fetched)
 			}
 			if !strings.Contains(out, "wanted: 100.0 MiB from") {

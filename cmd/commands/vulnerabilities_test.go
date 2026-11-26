@@ -19,6 +19,7 @@ import (
 	"github.com/papa0four/orkowatch/cmd/commands/security"
 	"github.com/papa0four/orkowatch/internal/dataset"
 	"github.com/papa0four/orkowatch/internal/dataset/datasettest"
+	"github.com/papa0four/orkowatch/internal/dataset/epss"
 	"github.com/papa0four/orkowatch/internal/dataset/osv"
 	"github.com/papa0four/orkowatch/internal/dataset/store"
 	"github.com/papa0four/orkowatch/internal/osfingerprint"
@@ -26,6 +27,7 @@ import (
 	"github.com/papa0four/orkowatch/internal/selection"
 	"github.com/papa0four/orkowatch/internal/softwarelist"
 	"github.com/papa0four/orkowatch/internal/tui"
+	"github.com/papa0four/orkowatch/internal/vulnmatch"
 )
 
 // testRecords is the test dataset as a source of records for Debian hosts:
@@ -108,6 +110,37 @@ func TestMatchingMarksKnownExploited(t *testing.T) {
 	}
 }
 
+// A match is scored from the EPSS scores file the run's data holds, keeping
+// the scores of what it matched; with none held it says why and what to run.
+func TestMatchingScoresFromEPSS(t *testing.T) {
+	m, data, s := matching(t)
+	datasettest.Put(t, s.Root(), datasettest.Dataset{Name: "records"}, datasettest.Content, dataNow.Add(-time.Hour), nil)
+
+	v := m.run(context.Background(), data, debian, installed("3.0.11-1"))
+	if v.ExploitPrediction == nil || !strings.HasPrefix(v.ExploitPrediction.NotDone, "epss is not held; fetch it with owatch data refresh") || v.Packages[0].Vulnerabilities[0].ExploitPrediction != nil {
+		t.Errorf("with no scores held the match says %+v", v.ExploitPrediction)
+	}
+
+	datasettest.PutScores(t, s.Root(), dataNow.Add(-time.Hour), "CVE-1999-0001,0.04753,0.921", "CVE-2026-0001,0.41012,0.9721")
+	v = m.run(context.Background(), data, debian, installed("3.0.11-1"))
+	found := v.Packages[0].Vulnerabilities[0]
+	if found.ExploitPrediction == nil || *found.ExploitPrediction != (epss.Prediction{Score: 0.41012, Percentile: 0.9721}) {
+		t.Errorf("CVE-2026-0001 is scored %+v", found.ExploitPrediction)
+	}
+	if v.ExploitPrediction == nil || v.ExploitPrediction.ID != "epss" || v.ExploitPrediction.Version != "v2026.06.15" || v.ExploitPrediction.NotDone != "" {
+		t.Errorf("the match names the scores as %+v", v.ExploitPrediction)
+	}
+	if x, _ := predicted(context.Background(), data, debian, *v); !has(x, "CVE-2026-0001") || has(x, "CVE-1999-0001") {
+		t.Error("the run kept the score of a CVE it did not match, or not of one it did")
+	}
+}
+
+// has reports whether x holds a prediction for cve.
+func has(x epss.Index, cve string) bool {
+	_, ok := x.Prediction(cve)
+	return ok
+}
+
 // A match that cannot be made says why and what to do: no dataset for the
 // host, a dataset not held, one that cannot be used, a host that cannot be
 // read, and a store that cannot be read.
@@ -168,6 +201,9 @@ func TestVulnerabilitiesInTheReports(t *testing.T) {
 		!strings.Contains(text.String(), "-           CVE-2026-0001        openssl 3.0.11-1, fixed in 3.0.15-1") {
 		t.Errorf("software alone wrote %q, %v", text.String(), err)
 	}
+	if strings.Contains(text.String(), "\x1b") {
+		t.Errorf("the text report is colored: %q", text.String())
+	}
 	view.Modules = append(view.Modules, moduleRun{Name: selection.NameOS, Result: finding.ResultInformational})
 	text.Reset()
 	if err := writeAllText(&text, view); err != nil || !strings.Contains(text.String(), "\nVulnerabilities\nMatched against records") {
@@ -209,5 +245,23 @@ func TestSoftwareModuleMatches(t *testing.T) {
 	}
 	if result.Vulns == nil || (result.Vulns.NotDone == "" && result.Vulns.ID == "") {
 		t.Errorf("the software module's run carries %+v", result.Vulns)
+	}
+}
+
+// The software module's row is an inventory's, neither passing nor failing,
+// and says what the match of it found, or why no match was made, as the
+// match states itself.
+func TestSoftwareModuleStatesTheMatch(t *testing.T) {
+	m, reads, s := matching(t)
+	datasettest.Put(t, s.Root(), datasettest.Dataset{Name: "records"}, datasettest.Content, dataNow.Add(-time.Hour), nil)
+	matched := m.run(context.Background(), reads, debian, installed("3.0.11-1"))
+	for _, v := range []*vulnmatch.View{matched, notDone("records", "records is not held")} {
+		row := softwareModule(v)
+		if row.Name != selection.NameSoftware || row.Result != finding.ResultInformational || row.Reason != "inventory, "+v.Summary() {
+			t.Errorf("the row is %+v for the match %q", row, v.Summary())
+		}
+	}
+	if !strings.HasPrefix(matched.Summary(), "matched against records: ") {
+		t.Errorf("the match states itself as %q", matched.Summary())
 	}
 }

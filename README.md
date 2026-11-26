@@ -143,7 +143,7 @@ With no check flags given, all checks run by default.
 | `--timeout` | Maximum audit duration | 10m |
 | `--allow-elevated-write` | Permit an elevated write outside the allowlisted directories or into a directory other users control | false |
 | `-v, --verbose` | Add the live findings feed to the progress display, or print progress lines when output is not a terminal; does not change report content | false |
-| `-y, --yes` | Do not ask before a permissions check that scans the entire filesystem | false |
+| `-y, --yes` | Do not ask before a permissions check that scans the entire filesystem; a run whose datasets are not held still asks | false |
 | `--plain` | Print the report to the terminal instead of opening the results browser; the format is text unless `-o` names another | false |
 
 ## `osinfo`, `software` and `listeners` Flags
@@ -196,23 +196,38 @@ A matched vulnerability that CISA's Known Exploited Vulnerabilities catalog list
 is known to be exploited, and is marked with the date CISA added it, the date by
 which CISA directs US federal agencies to act on it, and whether its use in
 ransomware campaigns is known, each as the catalog writes it. A vulnerability
-exploited now outranks its score, so those known to be exploited come first, the
-most severe first and whether fixed or not, then the rest in their order. With the
+exploited now outranks its score, so those known to be exploited come first,
+whether fixed or not, then the rest. Every report and the results browser list
+vulnerabilities by one rule: known exploited first, then the most severe, then the
+highest EPSS score, one with no score after those with one, then a fix available
+ahead of the unfixed, then the identifier. With the
 catalog not held, or not usable, the section says known exploitation was not read,
 why, and what to run.
 
-The text report gives the counts, every vulnerability known to be exploited in a
-block of its own under the catalog's data and attribution, every other
-vulnerability with a fix available led by its severity, and the unfixed counted by
-package, since a release can carry thousands; the
+A matched vulnerability that FIRST's EPSS scores file scores carries its score,
+FIRST's estimate of the probability that it will be exploited in the wild in the
+next 30 days, and its percentile, the proportion of all scored vulnerabilities with
+the same score or lower. Both are shown as percentages to three significant digits,
+such as 94.3% or 0.043%. Only the scores of the CVEs matched on the host are kept.
+With the scores not held, or not usable, the section says exploit prediction was not
+read, why, and what to run, and no vulnerability is shown with a score.
+
+The text report gives the counts, the EPSS scores file read and its attribution or
+why it was not read, every vulnerability known to be exploited in a block of its own
+under the catalog's data and attribution, every other vulnerability with a fix
+available, each line led by its severity and, when the scores were read, its EPSS
+score or a dash where the file gives none, and the unfixed counted by package,
+since a release can carry thousands; the
 JSON and YAML reports hold every match under `vulnerabilities.packages`, each affected
 package once with its installed version and the binaries built from it, and its
 vulnerabilities under it, those known to be exploited first, with their status,
 fixed version, `severity` (its label, level, and basis), `scores` as the records
-give them, the records that name them, and `known_exploited` (`date_added`,
-`due_date`, `known_ransomware_use`) where the catalog lists them, beside
-`not_matched`, `counts` (with `known_exploited`), and `known_exploited_data`, the
-catalog read or why it was not. The section names the dataset it was matched
+give them, the records that name them, `known_exploited` (`date_added`,
+`due_date`, `known_ransomware_use`) where the catalog lists them, and
+`exploit_prediction` (`score`, `percentile`, each from 0 to 1 as the file writes
+them) where the scores file scores them, beside `not_matched`, `counts` (with
+`known_exploited`), `known_exploited_data`, the catalog read or why it was not, and
+`exploit_prediction_data`, the scores file read or why it was not. The section names the dataset it was matched
 against with the keys `owatch data status` uses: `id`, `version` (the release its
 records are of), `source`, `data_date`, `fetched`, `state`, `license`, and
 `attribution`. With no dataset held, or one that cannot be used, the section says matching was not done,
@@ -257,7 +272,7 @@ individual audit checks within the audit module, or both together.
 | `--timeout` | Maximum time to run all scans | 30m |
 | `--allow-elevated-write` | Permit an elevated write outside the allowlisted directories or into a directory other users control | false |
 | `-v, --verbose` | Add the live findings feed to the progress display; does not change report content | false |
-| `-y, --yes` | Do not ask before a permissions check that scans the entire filesystem | false |
+| `-y, --yes` | Do not ask before a permissions check that scans the entire filesystem; a run whose datasets are not held still asks | false |
 | `--plain` | Print the report to the terminal instead of opening the results browser; the format is text unless `-o` names another | false |
 
 There is no individual audit check flag (`--ssh`, `--fwall`, etc.) on `all` —
@@ -267,6 +282,29 @@ to run only specific checks as part of a full scan, skip the others instead:
 # Equivalent to running only the SSH check, but as part of the all pipeline
 owatch all --skip-checks firewall,users,permissions
 ```
+
+## Datasets Not Held
+
+Before `owatch software`, `owatch audit`, and `owatch all` collect anything, they
+check the datasets they would read: the OSV dataset of the host's distribution,
+and then the KEV catalog and the EPSS scores, for the software module on a
+distribution it matches, and the KEV catalog for the audit. Each is judged from
+its manifest and the size of its data, without reading the data, so no dataset
+is read twice. On a terminal, a run names each dataset that applies to the host
+and is not held, or is held and cannot be used, with what the run would lack
+without it, and asks `Continue without them? [y/N]`, before the question about a
+scan of the whole filesystem when that is asked. Answer `y` to run without them.
+Anything else ends the command with an error, before any module runs, that says
+what to run: `owatch data refresh` as an ordinary account; in an elevated run,
+`owatch data refresh` as the account behind it and then `owatch data status`
+elevated, which installs what it fetched; and for a host with no network,
+`owatch data refresh --to <directory> --for "<target>"` on a host with one and
+`owatch data import <directory>` here. No flag answers it; `--yes` on
+`owatch audit` and `owatch all` answers only the question about a scan of the
+whole filesystem. With no terminal there is no question: the run writes one
+line to standard error naming what it goes without, and goes on, and its report
+says what was not read, as it always has. Data whose content is damaged is
+found only when the run reads it, and the report says so.
 
 ## Progress Display
 
@@ -317,18 +355,20 @@ package's row gives how many of its CVEs have a fix available and how many are
 unfixed, with the worst severity among them, its detail lists them, and its
 filter chooses all, the affected packages, or those with a fix available;
 Vulnerabilities, when the software was
-matched, lists each CVE of each affected package, those known to be exploited
-first in red under a red rule that counts them, marked on their rows and the most
-severe first, then the rest under a rule of their own, those with a fix available
-first, and opens filtered to those with a fix available: its filters choose fix
+matched, lists each CVE of each affected package in that order, those known to be
+exploited first, in crimson with each severity in its own color, under a crimson rule that counts them and marked on their rows,
+then the rest under a rule of their own, each row giving, in that order, the
+severity, the EPSS score when the scores were read, and the fixed version or
+that none is available, and opens filtered to those with a fix available: its filters choose fix
 available, unfixed, not matched, or all, a severity, and known exploited, not in
 the catalog, or all, each option with how many fall under it, and the known
 exploited stay listed whichever status is chosen,
 and `/` searches within them; the detail gives the package and what was built
 from it, the installed and fixed versions, the severity and its basis, the
 scores as the records give them, the catalog's entry for a CVE known to be
-exploited, the records that name the CVE, the
-dataset, and the catalog's data or why it was not read; a finding's detail in
+exploited, the CVE's EPSS score and percentile, the records that name the CVE, the
+dataset, the catalog's data or why it was not read, and the scores file's data or
+why it was not read; a finding's detail in
 Findings gives how many vulnerabilities known to be exploited are of its
 weakness class, and the summary names the catalog's data; Sockets lists each socket with its state, ends,
 scope and the processes holding it, or why they could not be read; MITRE ATT&CK® groups the findings by the
@@ -336,6 +376,35 @@ technique each makes available, with the finding, rule and evidence behind each.
 that was skipped or failed, is still listed and says so. A run opens on
 Findings when the audit ran, and otherwise on the first module that did, so
 `owatch osinfo`, or `owatch all --skip-modules audit`, opens on System. The complete plain report is one key away.
+
+The browser and the progress display while a run is under way color what a
+finding or a vulnerability means, each meaning in one color and no color for
+two. Severity, exploitation, and execution are kept apart: a vulnerability's
+severity, whether it is known to be exploited, and whether a check ran are
+colored each by its own meaning.
+
+| Meaning | Color |
+|---|---|
+| Known exploited: confirmed exploitation | crimson, bold |
+| Critical: immediate attention | red, bold |
+| High: high-priority remediation | orange |
+| Medium: scheduled remediation | yellow |
+| Low: limited security impact | cyan |
+| Negligible: minimal security impact | gray |
+| None, and a check that passed: no identified risk | green |
+| Error: a check or a step that could not run | magenta, bold |
+
+Only the word that carries a meaning is colored: the severity or result on a
+finding's row, the severity and `exploited` in a vulnerability's row, the level
+after `worst` on a software package's row, the options of the severity filters,
+and the severity in a detail. A known-exploited row is crimson but for its
+severity, which keeps its own color. A severity
+the records do not state, a status of a match, and everything else keep the
+terminal's own color. A pane's headings, and the line above a list, are lit
+while the pane has the keyboard and gray while another pane has it. On a
+terminal, a step of `owatch data refresh` or `import` that fails ends in
+magenta. Reports are never colored: a report file, a pipe, `--plain`, and the
+full report under `t` are plain text, for the tools that read them.
 
 | Key | Action |
 |---|---|
@@ -550,9 +619,8 @@ CISA or DHS.
 
 owatch holds those that apply to the host and reports their state, with the date
 and version of each. `owatch software` and `owatch all` match installed packages
-against the OSV dataset and mark the matches the KEV catalog lists, and the audit
-counts the catalog's entries by weakness class; no report reads EPSS's entries
-yet.
+against the OSV dataset, mark the matches the KEV catalog lists, and score them
+from the EPSS file, and the audit counts the catalog's entries by weakness class.
 
 ```bash
 # Fetch the datasets this host needs, over HTTPS
@@ -586,7 +654,16 @@ size and the time its download is allowed before fetching it, and asks before on
 larger than 100 MiB; `--yes` skips the question. What is fetched is checked as any
 dataset is before it replaces the copy held, a download that fails because a
 server is briefly unable to answer, or that stalls, is tried three times, and a
-dataset that could not be refreshed keeps the copy held. `--for` names another
+dataset that could not be refreshed keeps the copy held. A refresh that can make
+no connection at all, as on a host with no network, stops there, fetches nothing
+after it, and names the way to bring datasets to such a host: `--to` and `--for`
+on a host with a network, then `owatch data import` here. While it runs, each
+download shows what has been received of its size, for how long, and how fast,
+and how long nothing has come once that is five seconds, and keeping the records
+the host needs, the check, and the install are each named as they run; on a
+terminal the line is rewritten in place, and anywhere else each step gets a line
+as it begins and as it ends. `import` names its check and install the same way.
+`--for` names another
 host by the `Target` line `owatch osinfo` prints there, `os/platform/version`,
 copied as printed and quoted when it holds a space, as on Windows. It needs
 `--to`. `refresh` never runs as root or from an elevated terminal, and no flag

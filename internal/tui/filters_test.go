@@ -9,13 +9,15 @@ import (
 	"testing"
 
 	"charm.land/lipgloss/v2"
+
+	"github.com/papa0four/orkowatch/internal/tone"
 )
 
 // filteredReport has a record tab whose records fall under one status each,
 // opening on the first status, and a second tab to leave it for.
 func filteredReport() Report {
 	record := func(title, status string) Record {
-		return Record{Title: title, Subtitle: status, Filters: [][]string{{status}}}
+		return Record{Title: title, Subtitle: Plain(status), Filters: [][]string{{status}}}
 	}
 	return Report{
 		Title: "owatch software",
@@ -184,7 +186,8 @@ func TestFilterFocus(t *testing.T) {
 // across the list naming the band and how many of the visible records are in
 // it, drawn where the band changes; a search that leaves one band shows its
 // heading alone; a record scrolled up to that is its band's first is shown
-// under its heading; and the tab's alert band is drawn in the critical color.
+// under its heading; and the tab's alert band is drawn in the known-exploited
+// tone.
 func TestRecordBands(t *testing.T) {
 	record := func(title, band string) Record { return Record{Title: title, Band: band} }
 	p := newRecordPane(Tab{ID: TabVulnerabilities, Name: "Vulnerabilities", Alert: "first", Records: []Record{
@@ -222,16 +225,17 @@ func TestRecordBands(t *testing.T) {
 	if got := listed(10); got != "second (1),delta" {
 		t.Errorf("a search within one band shows %q", got)
 	}
-	if p.bandStyle("first").GetForeground() != colorCritical || p.bandStyle("second").GetForeground() == colorCritical || p.bandStyle("").GetForeground() == colorCritical {
-		t.Error("the alert band is not the one drawn in the critical color")
+	exploited := tone.KnownExploited.Color()
+	if p.bandStyle("first").GetForeground() != exploited || p.bandStyle("second").GetForeground() == exploited || p.bandStyle("").GetForeground() == exploited {
+		t.Error("the alert band is not the one drawn in the known-exploited tone")
 	}
 }
 
-// A tab that needs attention has its name drawn in the critical color in the
-// source list, open or not, and in the tab bar a narrow window shows instead;
-// a tab that does not is drawn as before.
+// A tab that needs attention has its name drawn as a notice in the source
+// list, open or not, and in the tab bar a narrow window shows instead; a tab
+// that does not is drawn as before.
 func TestAttentionTabStandsOut(t *testing.T) {
-	alert := strings.SplitN(styleAlert.Render("x"), "x", 2)[0]
+	alert := strings.SplitN(styleNotice.Render("x"), "x", 2)[0]
 	b := newBrowser(Report{Title: "owatch all", Tabs: []Tab{
 		{ID: TabSystem, Name: "System", Note: "nothing"},
 		{ID: TabDatasets, Name: "Datasets", Note: "nothing", Attention: true},
@@ -355,5 +359,27 @@ func TestFilterSwitch(t *testing.T) {
 	lines, _ := b.sidebarLines()
 	if joined := plain(strings.Join(lines, "\n")); !strings.Contains(joined, "affected") || !regexp.MustCompile(`affected\s+2`).MatchString(joined) || !regexp.MustCompile(`fix available\s+1`).MatchString(joined) {
 		t.Errorf("the counts are wrong:\n%s", joined)
+	}
+}
+
+// A tab's note that is longer than the detail pane is wide wraps within it,
+// so the end of the reason it gives is not cut off at the pane's edge.
+func TestNoteWrapsInTheDetail(t *testing.T) {
+	const width = 60
+	note := "Matching was not done: no dataset owatch knows covers this host's packages; " +
+		"matching covers AlmaLinux, Alpine, Red Hat Enterprise Linux, Rocky Linux, and Ubuntu"
+	p := newRecordPane(Tab{ID: TabVulnerabilities, Name: "Vulnerabilities", Note: note})
+	p.refilter("")
+	p.detail.SetWidth(width)
+	p.detail.SetHeight(10)
+	p.show(10, width)
+	view := plain(p.detail.View())
+	if got := strings.Join(strings.Fields(view), " "); !strings.Contains(got, "Rocky Linux, and Ubuntu") {
+		t.Errorf("the note reads %q, want it whole", got)
+	}
+	for _, line := range strings.Split(view, "\n") {
+		if lipgloss.Width(line) > width {
+			t.Errorf("the line %q is wider than the pane", line)
+		}
 	}
 }

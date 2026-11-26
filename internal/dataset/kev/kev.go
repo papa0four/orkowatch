@@ -90,6 +90,10 @@ func (Catalog) ID() string { return id }
 // of every system owatch runs on.
 func (Catalog) AppliesTo(*osfingerprint.OSInfo) bool { return true }
 
+// Gives is what the catalog gives a run: which vulnerabilities are known to
+// be exploited.
+func (Catalog) Gives() string { return "known exploitation" }
+
 // MaxBytes is the most the catalog may hold.
 func (Catalog) MaxBytes() int64 { return maxBytes }
 

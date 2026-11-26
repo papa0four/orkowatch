@@ -127,6 +127,10 @@ func (d Dump) AppliesTo(host *osfingerprint.OSInfo) bool {
 	return host != nil && host.OS == "linux" && host.Platform == d.platform
 }
 
+// Gives is what the records give a run: the installed packages matched
+// against the distribution's vulnerabilities.
+func (Dump) Gives() string { return "matching of the installed packages" }
+
 // MaxBytes is the most the kept records may hold, compressed.
 func (d Dump) MaxBytes() int64 { return d.keptMax }
 

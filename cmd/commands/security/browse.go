@@ -172,7 +172,7 @@ func attackTab(view *audit.View) (tui.Tab, bool) {
 		tactics := strings.Join(g.technique.Tactics, ", ")
 		records = append(records, tui.Record{
 			Title:    safeLines(id + "  " + g.technique.Name),
-			Subtitle: safeLines(tactics),
+			Subtitle: tui.Plain(safeLines(tactics)),
 			Fields: []tui.SummaryLine{
 				{Label: "tactics", Value: safeLines(tactics)},
 				{Label: "page", Value: safeLines(g.technique.URL)},
@@ -286,7 +286,7 @@ func systemTab(system osfingerprint.SystemView) tui.Tab {
 	}
 	return tui.Tab{ID: tui.TabSystem, Name: "System", Records: []tui.Record{{
 		Title:    safeLines(system.Hostname),
-		Subtitle: safeLines(system.OS + " " + system.PlatformVersion),
+		Subtitle: tui.Plain(safeLines(system.OS + " " + system.PlatformVersion)),
 		Fields:   fields,
 	}}}
 }
@@ -303,7 +303,7 @@ func datasetsTab(v *dataset.View, operator *dataset.Operator) tui.Tab {
 		for _, line := range operator.Lines() {
 			fields = append(fields, tui.SummaryLine{Value: safeLines(line)})
 		}
-		tab.Records = append(tab.Records, tui.Record{Title: "from the operator", Subtitle: "what this elevated run installed", Fields: fields})
+		tab.Records = append(tab.Records, tui.Record{Title: "from the operator", Subtitle: tui.Plain("what this elevated run installed"), Fields: fields})
 		tab.Attention = operator.NeedsAction()
 	}
 	if v == nil {
@@ -329,7 +329,7 @@ func datasetsTab(v *dataset.View, operator *dataset.Operator) tui.Tab {
 		add("license", r.License)
 		add("attribution", r.Attribution)
 		add("store", v.Store)
-		tab.Records = append(tab.Records, tui.Record{Title: safeLines(r.ID), Subtitle: safeLines(string(r.State)), Fields: fields})
+		tab.Records = append(tab.Records, tui.Record{Title: safeLines(r.ID), Subtitle: tui.Plain(safeLines(string(r.State))), Fields: fields})
 	}
 	if len(tab.Records) == 0 {
 		tab.Note = safeLines("No dataset applies to this host, and the store at " + v.Store + " holds none.")
@@ -386,7 +386,7 @@ func socketRecord(s sockets.Socket) tui.Record {
 	}
 	return tui.Record{
 		Title:    safeLines(title),
-		Subtitle: safeLines(strings.TrimSpace(s.Protocol + " " + s.State)),
+		Subtitle: tui.Plain(safeLines(strings.TrimSpace(s.Protocol + " " + s.State))),
 		Fields:   fields,
 	}
 }
