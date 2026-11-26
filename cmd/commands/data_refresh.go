@@ -1,7 +1,8 @@
 // cmd/commands/data_refresh.go
 
-// owatch data refresh, the one command that opens a network connection. This
-// is the only file that may import the package that connects.
+// owatch data refresh, and the steps it runs, which r in the results browser
+// runs too: the one way owatch opens a network connection. This is the only
+// file that may import the package that connects.
 
 package cmd
 
@@ -59,8 +60,9 @@ func (d *dataCmd) refreshCmd() *cobra.Command {
 		Args:  cliargs.None,
 		Short: "Fetch the datasets this host needs, over HTTPS",
 		Long: `Fetch the datasets that apply to this host into the account's store, each
-from the address its source publishes it at. This is the only owatch command
-that opens a network connection. It connects over HTTPS to the hosts the
+from the address its source publishes it at. It, and r in the results browser
+of owatch software and owatch all, which runs its steps, are the only ways
+owatch opens a network connection. It connects over HTTPS to the hosts the
 datasets themselves name and to no other, sends nothing about this host, reads
 no more than a dataset's origin may serve, and gives up on a download that runs
 past the time its size allows or that receives nothing for a minute. A proxy
@@ -189,6 +191,13 @@ func (p planned) described() string {
 // String is the line a refresh states the download in before it begins.
 func (p planned) String() string {
 	return fmt.Sprintf("%s: %s from %s, allowed %s", p.dataset.ID(), p.described(), p.dataset.Origin().URL, p.allowed)
+}
+
+// brief is the line without the address the data is fetched from, for the
+// results browser, where a long address would not fit beside the size. The
+// address is in owatch data refresh and owatch data status.
+func (p planned) brief() string {
+	return fmt.Sprintf("%s: %s, allowed %s", p.dataset.ID(), p.described(), p.allowed)
 }
 
 // refreshPlan is what a refresh for host would fetch: each dataset that

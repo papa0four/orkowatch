@@ -43,8 +43,8 @@ const fetchPackage = "github.com/papa0four/orkowatch/internal/dataset/fetch"
 var allowedToConnect = []string{"internal/dataset/fetch/fetch.go"}
 
 // allowedToFetch lists the files that may import the package that connects:
-// the command that refreshes datasets, and no other, so no other command can
-// reach a connection through it.
+// the refresh's, whose steps owatch data refresh and r in the results browser
+// run, and no other, so nothing else can reach a connection through it.
 var allowedToFetch = []string{"cmd/commands/data_refresh.go"}
 
 // No file of owatch outside the first list above imports a package that

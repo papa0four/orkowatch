@@ -300,7 +300,7 @@ func TestSettle(t *testing.T) {
 			"run canceled: datasets it reads are not held. " + noOperatorAdvice},
 	} {
 		var out strings.Builder
-		err := c.run.settle(c.gaps, ubuntu, c.interactive, strings.NewReader(c.answer), &out)
+		err := c.run.settle(context.Background(), c.gaps, ubuntu, c.interactive, strings.NewReader(c.answer), &out)
 		switch {
 		case c.err == "" && err != nil, c.err != "" && (!errors.Is(err, ErrDeclined) || err.Error() != c.err):
 			t.Errorf("%s: %v, want %q", name, err, c.err)
@@ -314,5 +314,40 @@ func TestSettle(t *testing.T) {
 		if c.asked && !strings.HasPrefix(out.String(), question) {
 			t.Errorf("%s: asked %q", name, out.String())
 		}
+	}
+}
+
+// ToFetch opens the run's store when nothing has, so a run asked before it
+// has read a dataset still words what to run from what opening the store did:
+// as the account behind an elevated run, or as this account.
+func TestToFetchOpensTheStore(t *testing.T) {
+	ubuntu := &osfingerprint.OSInfo{OS: "linux", Platform: "ubuntu", PlatformVersion: "22.04"}
+	for _, c := range []struct {
+		adoption store.Adoption
+		want     string
+	}{
+		{store.Adoption{From: "/home/a/store"}, "As the account whose store is /home/a/store, not elevated, run owatch data refresh, then run owatch data status elevated to install what it fetched. "},
+		{store.Adoption{}, "Run owatch data refresh. "},
+	} {
+		adoption, want := c.adoption, c.want
+		opens := 0
+		run := New(func(context.Context, []dataset.Dataset, *osfingerprint.OSInfo, time.Time) (store.Store, store.Adoption, error) {
+			opens++
+			return store.At(t.TempDir()), adoption, nil
+		}, nil, now)
+		if got := run.ToFetch(context.Background(), ubuntu); !strings.HasPrefix(got, want) || opens != 1 {
+			t.Errorf("with %+v: %q after %d opens, want it to begin %q", adoption, got, opens, want)
+		}
+		if run.ToFetch(context.Background(), ubuntu); opens != 1 {
+			t.Errorf("asked again, the store was opened %d times", opens)
+		}
+	}
+}
+
+// ToFetch with a store that cannot be opened names it before what to run.
+func TestToFetchWithNoStore(t *testing.T) {
+	run, _ := counted(store.Store{}, errors.New("locked"))
+	if got := run.ToFetch(context.Background(), host); !strings.HasPrefix(got, "The dataset store could not be read: locked. Run owatch data refresh. ") {
+		t.Errorf("with no store: %q", got)
 	}
 }

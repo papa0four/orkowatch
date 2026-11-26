@@ -45,7 +45,14 @@ type dataCmd struct {
 // newDataCmd returns the owatch data command and its subcommands, reading the
 // host itself.
 func newDataCmd() *cobra.Command {
-	return dataCommand(&dataCmd{
+	return dataCommand(hostData())
+}
+
+// hostData is the data commands' state for this host, which the results
+// browser's refresh shares, so both refresh through one fetcher, one store,
+// and one check of elevation.
+func hostData() *dataCmd {
+	return &dataCmd{
 		known:       held.Known(),
 		open:        store.ForProcess,
 		run:         held.ForHost,
@@ -56,7 +63,7 @@ func newDataCmd() *cobra.Command {
 		elevated:    elevation.Elevated,
 		fetcher:     newFetcher,
 		width:       progressWidth(),
-	})
+	}
 }
 
 // progressWidth is how the data commands ask the width of the terminal their
@@ -78,8 +85,9 @@ func dataCommand(d *dataCmd) *cobra.Command {
 with no network. Each account has its own store, at a fixed place under the
 account's home. A run as root or from an elevated terminal uses another, the
 protected store in the system's data directory, which only the system and its
-administrators can change. Only owatch data refresh opens a network
-connection, and it never runs elevated.
+administrators can change. Only owatch data refresh, and r in the results
+browser of owatch software and owatch all, which refreshes through it, open a
+network connection, and neither runs elevated.
 
 The datasets are CISA's Known Exploited Vulnerabilities catalog (kev), FIRST's
 EPSS scores (epss), and OSV's data for AlmaLinux, Alpine, Red Hat Enterprise

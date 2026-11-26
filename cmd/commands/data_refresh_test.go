@@ -259,6 +259,9 @@ func TestPlanRefresh(t *testing.T) {
 	if got, want := wanted.String(), "wanted: 39 B from https://data.example/wanted, allowed 10m0s"; got != want {
 		t.Errorf("the line is %q, want %q", got, want)
 	}
+	if got, want := wanted.brief(), "wanted: 39 B, allowed 10m0s"; got != want {
+		t.Errorf("the brief line is %q, want %q", got, want)
+	}
 
 	delete(origins.sizes, "wanted")
 	plan, err = d.planRefresh(context.Background(), &osfingerprint.OSInfo{OS: "linux", Platform: "ubuntu"})

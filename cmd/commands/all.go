@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
@@ -99,11 +100,13 @@ type (
 	// allReport adapts a finished ScanResult to delivery.Report. The all,
 	// osinfo and software commands share it: they differ in the title the
 	// browser shows and in the severity floor that governs the audit's
-	// projection, which only all has.
+	// projection, which only all has. refresh is what the browser's r does,
+	// nil for a report that offers none.
 	allReport struct {
 		title       string
 		minSeverity string
 		result      *ScanResult
+		refresh     tui.Refresher
 	}
 )
 
@@ -124,6 +127,8 @@ func newAllCmd() *cobra.Command {
 - System configuration analysis
 
 Results can be output in various formats and saved to a file.
+
+` + refreshHelp + `
 
 ` + held.AskHelp + `
 
@@ -302,7 +307,8 @@ func (c *allCmd) runAllScans(cmd *cobra.Command, args []string) error {
 	// the results browser open for as long as the operator reads, and that
 	// time is not the scan's.
 	result.Duration = time.Since(startTime)
-	if err := c.out.Deliver(allReport{title: "owatch all", minSeverity: c.audit.MinSeverity(), result: result}, mask); err != nil {
+	refresh := liveRefreshFor(hostData(), hostMatching(), data, result, "owatch all", c.audit.MinSeverity(), c.out)
+	if err := c.out.Deliver(allReport{title: "owatch all", minSeverity: c.audit.MinSeverity(), result: result, refresh: refresh}, mask); err != nil {
 		return err
 	}
 
@@ -443,8 +449,21 @@ func collectSoftware(ctx context.Context, data *held.Run, result *ScanResult) {
 		return
 	}
 	result.Software = software
-	result.Vulns = hostMatching().run(ctx, data, result.OSInfo, software)
-	result.Modules = append(result.Modules, softwareModule(result.Vulns))
+	matchSoftware(ctx, hostMatching(), data, result)
+}
+
+// matchSoftware matches result's inventory with m against what data holds and
+// records the software module's row with what the match found, replacing the
+// row an earlier match recorded, so a run matched again after its datasets
+// are refreshed says what the later match found.
+func matchSoftware(ctx context.Context, m inventoryMatching, data *held.Run, result *ScanResult) {
+	result.Vulns = m.run(ctx, data, result.OSInfo, result.Software)
+	row := softwareModule(result.Vulns)
+	if at := slices.IndexFunc(result.Modules, func(r moduleRun) bool { return r.Name == selection.NameSoftware }); at >= 0 {
+		result.Modules[at] = row
+		return
+	}
+	result.Modules = append(result.Modules, row)
 }
 
 // collectListeners runs the sockets module and records how it ended in
@@ -557,7 +576,9 @@ func (r allReport) View() any {
 // Browse returns what the results browser shows for the scan, from the same
 // projection View returns, so a saved report opens to the same tabs.
 func (r allReport) Browse(text string) tui.Report {
-	return security.BrowserReport(allSource(r.title, toAllResult(r.result, r.minSeverity), text))
+	report := security.BrowserReport(allSource(r.title, toAllResult(r.result, r.minSeverity), text))
+	report.Refresh = r.refresh
+	return report
 }
 
 // allSource is what the browser shows for an all report: the projection a

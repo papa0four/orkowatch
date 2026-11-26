@@ -79,7 +79,9 @@ func newModuleCmd(m standaloneModule, module inventory, name string, data func()
 				return fmt.Errorf("%s: %s", name, ran.Reason)
 			}
 			result.Duration = time.Since(started)
-			return out.Deliver(allReport{title: "owatch " + name, result: result}, module.mask)
+			title := "owatch " + name
+			refresh := liveRefreshFor(hostData(), hostMatching(), run, result, title, "", out)
+			return out.Deliver(allReport{title: title, result: result, refresh: refresh}, module.mask)
 		},
 	}
 	out = delivery.Bind(cmd)

@@ -276,7 +276,7 @@ func (r *Run) Ask(ctx context.Context, reads Reads, interactive bool, in io.Read
 	if err != nil {
 		host = nil
 	}
-	return r.settle(r.missing(ctx, host, reads(host)), host, interactive, in, out)
+	return r.settle(ctx, r.missing(ctx, host, reads(host)), host, interactive, in, out)
 }
 
 // settle is whether a run goes on without gaps. With none it goes on. With no
@@ -284,7 +284,7 @@ func (r *Run) Ask(ctx context.Context, reads Reads, interactive bool, in io.Read
 // it goes without, since the report then says what was not read and a script
 // is not stopped. Otherwise it names each gap and asks; anything but yes is
 // ErrDeclined with what to run for host.
-func (r *Run) settle(gaps []Gap, host *osfingerprint.OSInfo, interactive bool, in io.Reader, out io.Writer) error {
+func (r *Run) settle(ctx context.Context, gaps []Gap, host *osfingerprint.OSInfo, interactive bool, in io.Reader, out io.Writer) error {
 	if len(gaps) == 0 {
 		return nil
 	}
@@ -303,17 +303,22 @@ func (r *Run) settle(gaps []Gap, host *osfingerprint.OSInfo, interactive bool, i
 	case err != nil:
 		return err
 	case !ok:
-		return fmt.Errorf("%w. %s", ErrDeclined, r.toFetch(host))
+		return fmt.Errorf("%w. %s", ErrDeclined, r.ToFetch(ctx, host))
 	}
 	return nil
 }
 
-// toFetch is what to run for host to hold what a run reads: a refresh by the
+// ToFetch is what to run for host to hold what a run reads: a refresh by the
 // account behind the run, and the route for a host with no network. An
 // elevated run is told to refresh as the account behind it and install what
 // that fetched, since an elevated run never fetches, and one with no account
-// behind it is told how datasets reach the host.
-func (r *Run) toFetch(host *osfingerprint.OSInfo) string {
+// behind it is told how datasets reach the host. It opens the run's store if
+// nothing has, since what it says rests on what opening the store did, and
+// names a store that cannot be opened first.
+func (r *Run) ToFetch(ctx context.Context, host *osfingerprint.OSInfo) string {
+	if _, err := r.Open(ctx, host); err != nil {
+		return "The dataset store could not be read: " + err.Error() + ". Run owatch data refresh. " + Carried(host) + "."
+	}
 	switch {
 	case r.adoption.NoOperator:
 		return noOperatorAdvice

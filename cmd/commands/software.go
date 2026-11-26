@@ -29,7 +29,9 @@ was not read.
 
 ` + held.ElevatedHelp + `
 
-The report opens in the results browser on a terminal, with the same layout as an audit.`,
+The report opens in the results browser on a terminal, with the same layout as an audit.
+
+` + refreshHelp,
 		example: `  # Open the installed software in the results browser
   owatch software
 

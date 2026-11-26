@@ -372,3 +372,15 @@ func TestKnownDatasets(t *testing.T) {
 		t.Errorf("status of an empty store saved %q, %v", report, err)
 	}
 }
+
+// The data commands and the browser's refresh read the host through one
+// dataCmd, every part of which is given: what owatch knows, the store, the
+// host, the clock, the terminal, elevation, and the fetcher. The width is
+// left out where standard output is not a terminal.
+func TestHostData(t *testing.T) {
+	d := hostData()
+	if len(d.known) == 0 || d.open == nil || d.run == nil || d.host == nil || d.now == nil ||
+		d.interactive == nil || d.in == nil || d.elevated == nil || d.fetcher == nil {
+		t.Errorf("hostData left a part out: %+v", d)
+	}
+}
