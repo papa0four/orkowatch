@@ -22,6 +22,7 @@ import (
 	"github.com/papa0four/orkowatch/internal/dataset/osv"
 	"github.com/papa0four/orkowatch/internal/dataset/store"
 	"github.com/papa0four/orkowatch/internal/osfingerprint"
+	"github.com/papa0four/orkowatch/internal/render"
 )
 
 // Opener opens the store a process reads, made ready to read for host at now,
@@ -40,6 +41,7 @@ type Run struct {
 
 	opened   bool
 	store    store.Store
+	adoption store.Adoption
 	operator *dataset.Operator
 	err      error
 
@@ -74,9 +76,8 @@ func New(open Opener, known []dataset.Dataset, now time.Time) *Run {
 // datasets once and Operator can say what it did.
 func (r *Run) Open(ctx context.Context, host *osfingerprint.OSInfo) (store.Store, error) {
 	if !r.opened {
-		var adoption store.Adoption
-		r.store, adoption, r.err = r.open(ctx, r.known, host, r.now)
-		r.operator = operatorOf(adoption)
+		r.store, r.adoption, r.err = r.open(ctx, r.known, host, r.now)
+		r.operator = operatorOf(r.adoption)
 		r.opened = true
 	}
 	return r.store, r.err
@@ -186,4 +187,101 @@ func (r *Run) Exploited(ctx context.Context, host *osfingerprint.OSInfo) (kev.In
 		r.exploitedRead = true
 	}
 	return r.exploited, r.exploitedUse
+}
+
+// ErrDeclined is a run the operator chose not to start without the datasets
+// it does not hold. The error that carries it says what to run to get them.
+var ErrDeclined = errors.New("run canceled: datasets it reads are not held")
+
+// Gap is a dataset a run reads that its store cannot give it: the dataset,
+// what the run lacks without it, and why it cannot be read.
+type Gap struct {
+	ID, Gives, Reason string
+}
+
+// String is the gap as the question before a run names it.
+func (g Gap) String() string {
+	return fmt.Sprintf("%s (%s): %s", g.ID, g.Gives, g.Reason)
+}
+
+// Missing is what of needed, the datasets a run reads, the run's store cannot
+// give it for host, each named once in the order needed first gives it. It
+// opens the store as a read does, so an elevated run has installed what the
+// operator holds newer before it is judged, and judges each dataset that
+// applies to host as a read would before reading its data, without reading
+// any. A dataset that does not apply to host is not read, and is no gap.
+func (r *Run) Missing(ctx context.Context, host *osfingerprint.OSInfo, needed []dataset.Dataset) []Gap {
+	var gaps []Gap
+	seen := make(map[string]bool, len(needed))
+	for _, d := range needed {
+		if seen[d.ID()] || !d.AppliesTo(host) {
+			continue
+		}
+		seen[d.ID()] = true
+		if reason := r.unreadable(ctx, d, host); reason != "" {
+			gaps = append(gaps, Gap{ID: d.ID(), Gives: d.Gives(), Reason: reason})
+		}
+	}
+	return gaps
+}
+
+// unreadable is why d cannot be read for host from the run's store, or
+// nothing when it can.
+func (r *Run) unreadable(ctx context.Context, d dataset.Dataset, host *osfingerprint.OSInfo) string {
+	if _, err := r.Open(ctx, host); err != nil {
+		return "the dataset store could not be read: " + err.Error()
+	}
+	switch err := r.store.Usable(d, r.now); {
+	case errors.Is(err, store.ErrNotHeld):
+		return "not held"
+	case err != nil:
+		return "cannot be used: " + strings.TrimSpace(err.Error())
+	}
+	return ""
+}
+
+// Ask settles whether a run goes on without gaps, the datasets it reads that
+// Missing found it cannot, before anything of the run is collected. With no
+// gaps, or yes, it goes on. With no one at the terminal to answer, it goes on
+// and says on out, in one line, what it goes without, since the report then
+// says what was not read and a script is not stopped. Otherwise it names each
+// gap and asks; anything but yes is ErrDeclined with what to run for host.
+func (r *Run) Ask(gaps []Gap, host *osfingerprint.OSInfo, yes, interactive bool, in io.Reader, out io.Writer) error {
+	if len(gaps) == 0 || yes {
+		return nil
+	}
+	named := make([]string, len(gaps))
+	for i, g := range gaps {
+		named[i] = render.HostText(g.String())
+	}
+	if !interactive {
+		_, err := fmt.Fprintln(out, "This run goes without "+strings.Join(named, "; ")+"; its report says what was not read.")
+		return err
+	}
+	if _, err := fmt.Fprintln(out, "This run reads datasets it cannot read here, and would go without what they give:\n  "+strings.Join(named, "\n  ")); err != nil {
+		return err
+	}
+	switch ok, err := render.Confirm(in, out, "Continue without them?"); {
+	case err != nil:
+		return err
+	case !ok:
+		return fmt.Errorf("%w. %s", ErrDeclined, r.toFetch(host))
+	}
+	return nil
+}
+
+// toFetch is what to run for host to hold what a run reads: a refresh by the
+// account behind the run, and the route for a host with no network. An
+// elevated run is told to refresh as the account behind it and install what
+// that fetched, since an elevated run never fetches, and one with no account
+// behind it is told how datasets reach the host.
+func (r *Run) toFetch(host *osfingerprint.OSInfo) string {
+	switch {
+	case r.adoption.NoOperator:
+		return noOperatorAdvice
+	case r.adoption.From != "":
+		return "As the account whose store is " + r.adoption.From + ", not elevated, run owatch data refresh, " +
+			"then run owatch data status elevated to install what it fetched. " + Carried(host) + "."
+	}
+	return "Run owatch data refresh. " + Carried(host) + "."
 }
