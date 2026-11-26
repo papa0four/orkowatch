@@ -10,12 +10,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"strconv"
 	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/papa0four/orkowatch/cmd/commands/cliargs"
+	"github.com/papa0four/orkowatch/cmd/commands/held"
 	"github.com/papa0four/orkowatch/internal/dataset"
 	"github.com/papa0four/orkowatch/internal/dataset/fetch"
 	"github.com/papa0four/orkowatch/internal/dataset/progress"
@@ -171,16 +171,9 @@ func (d *dataCmd) runRefresh(ctx context.Context, out, prompt io.Writer, to, for
 }
 
 // noNetwork is the end of a refresh that could make no connection, with the
-// route for a host with no network: a refresh on a host with one, for this
-// host, carried here and imported. A host its target cannot name is pointed
-// to the Target line owatch osinfo prints.
+// route for a host with no network.
 func noNetwork(cause error, host *osfingerprint.OSInfo) error {
-	forHost := "<the Target line owatch osinfo prints here>"
-	if target := host.Target(); target != "" {
-		forHost = strconv.Quote(target)
-	}
-	return fmt.Errorf("%w; nothing after it was fetched. On a host with no network, run "+
-		"owatch data refresh --to <directory> --for %s on a host with one, and owatch data import <directory> here", cause, forHost)
+	return fmt.Errorf("%w; nothing after it was fetched. %s", cause, held.Carried(host))
 }
 
 // refreshTarget settles which host is fetched for and where the datasets go:

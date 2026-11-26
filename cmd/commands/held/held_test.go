@@ -190,3 +190,24 @@ func TestReadNotDone(t *testing.T) {
 		t.Errorf("a store that cannot be opened was tried %d times, want once", *opens)
 	}
 }
+
+// The route for a host with no network names the host by its target, and a
+// host not identified, or one its target cannot name, by the line that gives
+// it.
+func TestCarried(t *testing.T) {
+	const unnamed = "<the Target line owatch osinfo prints here>"
+	for name, c := range map[string]struct {
+		host *osfingerprint.OSInfo
+		want string
+	}{
+		"named":           {&osfingerprint.OSInfo{OS: "linux", Platform: "ubuntu", PlatformVersion: "22.04"}, `"linux/ubuntu/22.04"`},
+		"not identified":  {nil, unnamed},
+		"cannot be named": {&osfingerprint.OSInfo{OS: "plan9"}, unnamed},
+	} {
+		want := "On a host with no network, run owatch data refresh --to <directory> --for " + c.want +
+			" on a host with one, and owatch data import <directory> here"
+		if got := Carried(c.host); got != want {
+			t.Errorf("%s: %q, want %q", name, got, want)
+		}
+	}
+}

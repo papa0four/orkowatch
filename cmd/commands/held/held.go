@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
 	"time"
 
@@ -95,6 +96,23 @@ as owatch data status does. The report says what was installed and what was
 left alone and why: at the head of its text, under operator in JSON and YAML,
 and in the results browser's Datasets tab, whose name is drawn in red when
 something needs doing.`
+
+// Carried is the route by which datasets reach host when it has no network:
+// a refresh for host on a host with one, into a directory carried here and
+// imported. Every command that sends the operator there words it here, so a
+// refresh that could not connect and a run that does not hold its datasets
+// say it alike. A host its target cannot name, or one not identified, is
+// pointed to the Target line owatch osinfo prints.
+func Carried(host *osfingerprint.OSInfo) string {
+	forHost := "<the Target line owatch osinfo prints here>"
+	if host != nil {
+		if target := host.Target(); target != "" {
+			forHost = strconv.Quote(target)
+		}
+	}
+	return "On a host with no network, run owatch data refresh --to <directory> --for " + forHost +
+		" on a host with one, and owatch data import <directory> here"
+}
 
 // noOperatorAdvice is what an elevated run with no one behind it is told,
 // since it has no account's store to install from and never fetches itself.
