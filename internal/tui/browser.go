@@ -105,6 +105,10 @@ type (
 		// naming a tab the report does not offer, it opens on the findings.
 		Start string
 		Text  string
+
+		// Refresh fetches the datasets the report was matched against and
+		// matches it again, on r. A report with none offers no r.
+		Refresh Refresher
 	}
 
 	// SummaryLine is one labeled figure in the browser's summary, or one
@@ -209,15 +213,24 @@ type (
 		active  int
 		panes   []*recordPane
 		queries []string
+
+		// refreshing is the refresh r asked for, and leave the text a
+		// refresh that cannot be made here closed the browser with.
+		refreshing refreshState
+		leave      *Leave
 	}
 )
 
 // Browse opens the results browser on report and returns when the operator
-// leaves it.
+// leaves it. A refresh that cannot be made here closes it with a Leave, whose
+// text is for the caller to print.
 func Browse(report Report) error {
-	_, err := tea.NewProgram(newBrowser(report)).Run()
+	final, err := tea.NewProgram(newBrowser(report)).Run()
 	if errors.Is(err, tea.ErrInterrupted) {
 		return nil
+	}
+	if b, ok := final.(browser); ok && err == nil && b.leave != nil {
+		return *b.leave
 	}
 	return err
 }
@@ -329,6 +342,9 @@ func (b browser) Init() tea.Cmd {
 }
 
 func (b browser) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if m, cmd, ok := b.onRefreshMsg(msg); ok {
+		return m, cmd
+	}
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		b.width, b.height = msg.Width, msg.Height
@@ -348,6 +364,12 @@ func (b browser) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // pane keeps esc for going back to the list.
 func (b browser) onKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
+	if m, cmd, ok := b.onRefreshKey(key); ok {
+		return m, cmd
+	}
+	// Why the last refresh did not replace the report is shown until the
+	// next key.
+	b.refreshing.failed, b.refreshing.notice = "", ""
 	switch {
 	case b.searching:
 		b.onSearchKey(msg)
@@ -377,6 +399,11 @@ func (b browser) onKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch key {
 	case "t":
 		b.showText = true
+		return b, nil
+	case "r":
+		if b.report.Refresh != nil {
+			return b, b.startRefresh()
+		}
 		return b, nil
 	case "/":
 		if p := b.activePane(); p == nil || !p.listless() {
@@ -805,6 +832,12 @@ func (b browser) render() string {
 			body,
 		)
 	}
+	if replaced, ok := b.refreshBody(body); ok {
+		body = replaced
+	}
+	if replaced, ok := b.refreshFooter(); ok {
+		footer = replaced
+	}
 	return top + "\n" + body + "\n" + footer
 }
 
@@ -965,6 +998,9 @@ func (b browser) help() []hint {
 			out = append(out, keyHint("clear search", "esc"))
 		}
 		out = append(out, report)
+		if b.report.Refresh != nil {
+			out = append(out, keyHint("refresh", "r"))
+		}
 		out = append(out, tabs...)
 		out = append(out, pane)
 		out = append(out, toggles...)

@@ -17,6 +17,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/papa0four/orkowatch/cmd/commands/delivery"
+	"github.com/papa0four/orkowatch/cmd/commands/held"
 	"github.com/papa0four/orkowatch/cmd/commands/security"
 	"github.com/papa0four/orkowatch/internal/dataset"
 	"github.com/papa0four/orkowatch/internal/osfingerprint"
@@ -74,7 +75,14 @@ data status. The format is taken from the file's extension, or
 from --input-format when the extension does not say. With no file named, the
 newest owatch report in the current directory is opened. The full report under
 t is shown as text unless --output names another format; every other part of the
-browser is plain text.`, delivery.LosslessNames()),
+browser is plain text.
+
+On a saved report of owatch software or owatch all that was matched against this
+host's own dataset and release, r refreshes the datasets and matches the saved
+packages again, recounting the audit's counts of known-exploited
+vulnerabilities, and the banner says so; the file is never written. A report
+matched against another release can be matched again only on a host of that
+release.`, delivery.LosslessNames()),
 		Example: `  # Open the newest report in the current directory
   owatch browse
 
@@ -120,11 +128,18 @@ func (c *browseCmd) runE(_ *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	report, err := decodeReport(path, format, view, data)
+	saved, err := readSaved(path, format, data)
 	if err != nil {
 		return err
 	}
-	return tui.Browse(report)
+	report, err := savedBrowserReport(path, view, saved)
+	if err != nil {
+		return err
+	}
+	if saved.isAll() {
+		report.Refresh = savedRefreshFor(hostData(), hostMatching(), held.ForHost(), path, saved.all(), view)
+	}
+	return delivery.Browse(report)
 }
 
 // namedFormat resolves --input-format, or returns the empty format when it was
@@ -230,6 +245,15 @@ func readReport(path string) ([]byte, error) {
 // whose results carry no result, which reports from before the current result
 // model lack, is refused.
 func decodeReport(path string, format, view delivery.Format, data []byte) (tui.Report, error) {
+	saved, err := readSaved(path, format, data)
+	if err != nil {
+		return tui.Report{}, err
+	}
+	return savedBrowserReport(path, view, saved)
+}
+
+// readSaved decodes a report file in the format given.
+func readSaved(path string, format delivery.Format, data []byte) (savedReport, error) {
 	var saved savedReport
 	var err error
 	switch format {
@@ -238,31 +262,56 @@ func decodeReport(path string, format, view delivery.Format, data []byte) (tui.R
 	case delivery.FormatYAML:
 		err = yaml.NewDecoder(bytes.NewReader(data)).Decode(&saved)
 	default:
-		return tui.Report{}, losslessOrRefuse(format)
+		return savedReport{}, losslessOrRefuse(format)
 	}
 	if err != nil {
-		return tui.Report{}, fmt.Errorf("%s is not an owatch report this version can read: %w", path, err)
+		return savedReport{}, fmt.Errorf("%s is not an owatch report this version can read: %w", path, err)
 	}
+	return saved, nil
+}
 
+// isAll reports whether saved is an all report, or one of a command that runs
+// one of all's modules, and one this version can read.
+func (saved savedReport) isAll() bool {
+	return len(saved.Modules) > 0 && readable(saved.Security)
+}
+
+// all is the all report saved holds, as a run projects one.
+func (saved savedReport) all() allResult {
+	return allResult{
+		Timestamp: saved.Timestamp,
+		Duration:  saved.Duration,
+		Modules:   saved.Modules,
+		System:    saved.System,
+		Software:  saved.Software,
+		Vulns:     saved.Vulns,
+		Sockets:   saved.Sockets,
+		Datasets:  saved.Datasets,
+		Security:  saved.Security,
+	}
+}
+
+// allBrowserReport is what the browser shows of the saved all report all,
+// titled title, with its full report in the format view names: as the file
+// was read, and as it is matched again.
+func allBrowserReport(title string, view delivery.Format, all allResult) (tui.Report, error) {
+	text, err := fullReport(all, view, func(w io.Writer) error { return writeAllText(w, all) })
+	if err != nil {
+		return tui.Report{}, err
+	}
+	return security.BrowserReport(allSource(title, all, text)), nil
+}
+
+// savedBrowserReport is what the browser shows of saved, read from path.
+func savedBrowserReport(path string, view delivery.Format, saved savedReport) (tui.Report, error) {
 	title := "owatch browse  " + filepath.Base(path)
 	switch {
-	case len(saved.Modules) > 0 && readable(saved.Security):
-		all := allResult{
-			Timestamp: saved.Timestamp,
-			Duration:  saved.Duration,
-			Modules:   saved.Modules,
-			System:    saved.System,
-			Software:  saved.Software,
-			Vulns:     saved.Vulns,
-			Sockets:   saved.Sockets,
-			Datasets:  saved.Datasets,
-			Security:  saved.Security,
-		}
-		text, err := fullReport(all, view, func(w io.Writer) error { return writeAllText(w, all) })
+	case saved.isAll():
+		report, err := allBrowserReport(title, view, saved.all())
 		if err != nil {
 			return tui.Report{}, fmt.Errorf("render %s: %w", path, err)
 		}
-		return security.BrowserReport(allSource(title, all, text)), nil
+		return report, nil
 	case len(saved.Modules) == 0 && len(saved.Results) > 0 && readable(&saved.View):
 		text, err := fullReport(saved.View, view, func(w io.Writer) error { return security.WriteAuditText(w, saved.View) })
 		if err != nil {

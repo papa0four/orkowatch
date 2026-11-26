@@ -418,6 +418,7 @@ full report under `t` are plain text, for the tools that read them.
 | `/` | Search the active tab: on Findings, titles, rule keys, descriptions, references and evidence, and the detail pane then shows only the matching evidence lines; on Software, package names and versions. `enter` keeps the search, `esc` clears it, and each tab keeps its own |
 | `a` | On Findings, show every evaluated rule, not only findings and rules that could not be evaluated; on Software, switch between every package and the affected ones |
 | `x` | On Findings, load all of a finding's evidence when only the first 500 lines are shown |
+| `r` | On `owatch software` or `owatch all` whose packages were matched against a dataset, refresh the datasets and match again: each dataset is named with its size and you are asked first; the results are faded under a line of progress while the datasets are fetched, then replaced by the packages matched again, with the audit's known-exploited counts recounted. `esc` cancels and keeps the results shown, and a refresh that fails keeps them with the reason. Elevated, it fetches nothing: the browser closes and prints what to run. In `owatch browse`, a saved report matched against this host's own dataset and release is matched again the same way from its saved packages, the banner says so, and the file is never written; a report of another release can be matched again only on a host of that release |
 | `t` | Show the complete plain report; `t` or `esc` returns |
 | `esc` | Return from the detail pane to the list |
 | `q`, ctrl+c | Quit |
@@ -564,8 +565,9 @@ system and its administrators can change:
 | macOS | `/Library/Application Support/owatch/datasets` |
 | Windows | `owatch\datasets` in the ProgramData folder |
 
-`owatch data refresh` is the only owatch command that opens a network
-connection, and it never runs elevated. An elevated run of a command that reads
+`owatch data refresh`, and `r` in the results browser of `owatch software` and
+`owatch all`, which refreshes through it, are the only ways owatch opens a
+network connection, and neither runs elevated. An elevated run of a command that reads
 datasets (`owatch software`, `owatch audit`, `owatch all`, and
 `owatch data status`) first installs into the protected store what the account
 behind the run holds newer: the user who ran `sudo` or `doas`, or on Windows

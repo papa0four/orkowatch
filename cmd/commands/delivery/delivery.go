@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
@@ -161,31 +162,55 @@ func Encode(v any, format Format) ([]byte, error) {
 // format added to report.formats and not handled here fails loudly instead of
 // silently falling back to text.
 func (f *Flags) Deliver(r Report, mask selection.CheckMask) error {
-	var payload []byte
-	switch f.format {
-	case FormatJSON, FormatYAML:
-		encoded, err := Encode(r.View(), f.format)
-		if err != nil {
-			return err
-		}
-		payload = encoded
-	case FormatText:
-		var buf bytes.Buffer
-		if err := r.WriteText(&buf); err != nil {
-			return fmt.Errorf("failed to render text output: %w", err)
-		}
-		payload = buf.Bytes()
-	default:
-		return fmt.Errorf("unsupported output format: %s", f.format)
+	payload, err := f.Payload(r)
+	if err != nil {
+		return err
 	}
 
 	if b, ok := r.(Browsable); ok && f.browses() {
-		if err := tui.Browse(b.Browse(string(payload))); err != nil {
+		if err := Browse(b.Browse(string(payload))); err != nil {
 			return fmt.Errorf("results browser: %w", err)
 		}
 		return nil
 	}
 	return f.emit(payload, mask)
+}
+
+// Browse opens the results browser on report, for a command's report and for
+// a saved one alike. A refresh the browser cannot make here closes it with
+// what to run instead, which is printed on standard error once the screen is
+// the terminal's again, and is not an error of the command.
+func Browse(report tui.Report) error {
+	return browseWith(tui.Browse, os.Stderr)(report)
+}
+
+// browseWith is Browse over the browser open and the writer out.
+func browseWith(open func(tui.Report) error, out io.Writer) func(tui.Report) error {
+	return func(report tui.Report) error {
+		var leave tui.Leave
+		err := open(report)
+		if errors.As(err, &leave) {
+			_, err = fmt.Fprintln(out, leave.Text)
+		}
+		return err
+	}
+}
+
+// Payload is r encoded at the resolved format: what Deliver prints, writes,
+// or gives the results browser as the full report under t, and what a report
+// the browser replaces is rendered as, so the two cannot differ in format.
+func (f *Flags) Payload(r Report) ([]byte, error) {
+	switch f.format {
+	case FormatJSON, FormatYAML:
+		return Encode(r.View(), f.format)
+	case FormatText:
+		var buf bytes.Buffer
+		if err := r.WriteText(&buf); err != nil {
+			return nil, fmt.Errorf("failed to render text output: %w", err)
+		}
+		return buf.Bytes(), nil
+	}
+	return nil, fmt.Errorf("unsupported output format: %s", f.format)
 }
 
 // emit writes payload to the resolved destination: a file under --report-file

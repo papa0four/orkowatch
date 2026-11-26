@@ -301,10 +301,17 @@ func (sa *SecurityAuditor) RunAudit(ctx context.Context) (*Result, error) {
 
 	finalize(result)
 	if read := sa.options.KnownExploited; read != nil {
-		counts, use := read(ctx, fingerprint)
-		result.KnownExploited, result.classCounts = &use, counts
+		result.MarkExploited(read(ctx, fingerprint))
 	}
 	return result, nil
+}
+
+// MarkExploited gives the result the counts of known-exploited
+// vulnerabilities by weakness class and the data they were read from, or why
+// none was. A result marked again, as when the catalog is refreshed after the
+// audit ran, takes the later counts, with no check run again.
+func (r *Result) MarkExploited(counts ClassCounts, use dataset.Use) {
+	r.KnownExploited, r.classCounts = &use, counts
 }
 
 // checkRunners returns the canonical ordered check set. Slice position is

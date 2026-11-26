@@ -19,11 +19,14 @@ import (
 
 // recordSource is a dataset of a distribution's security records that the
 // installed packages are matched against: the manager whose packages it
-// names, and its records given one at a time as they are checked.
+// names, its records given one at a time as they are checked, and the release
+// whose records a match of a host reads, which a match carries as its
+// Version.
 type recordSource interface {
 	dataset.Dataset
 	Manager() string
 	Records(data io.Reader, host *osfingerprint.OSInfo, each func(osv.Record) error) (dataset.Facts, error)
+	Release(host *osfingerprint.OSInfo) (string, error)
 }
 
 // inventoryMatching is what matching the software inventory reads from the
@@ -91,6 +94,21 @@ func (m inventoryMatching) source(host *osfingerprint.OSInfo) dataset.Dataset {
 		return nil
 	}
 	return m.matched[at]
+}
+
+// release is the dataset and the release a match of host reads, the ID and
+// Version that match carries, or why no match of host is made.
+func (m inventoryMatching) release(host *osfingerprint.OSInfo) (id, release string, err error) {
+	chosen := m.source(host)
+	if chosen == nil {
+		return "", "", fmt.Errorf("no dataset owatch knows covers this host's packages; matching covers %s", m.coverage)
+	}
+	source, ok := chosen.(recordSource)
+	if !ok {
+		return chosen.ID(), "", fmt.Errorf("%s holds no records to match against", chosen.ID())
+	}
+	release, err = source.Release(host)
+	return source.ID(), release, err
 }
 
 // reads is what matching reads for host: the dataset of its distribution, and
