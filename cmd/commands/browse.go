@@ -75,7 +75,14 @@ data status. The format is taken from the file's extension, or
 from --input-format when the extension does not say. With no file named, the
 newest owatch report in the current directory is opened. The full report under
 t is shown as text unless --output names another format; every other part of the
-browser is plain text.`, delivery.LosslessNames()),
+browser is plain text.
+
+On a saved report of owatch software or owatch all that was matched against this
+host's own dataset and release, r refreshes the datasets and matches the saved
+packages again, recounting the audit's counts of known-exploited
+vulnerabilities, and the banner says so; the file is never written. A report
+matched against another release can be matched again only on a host of that
+release.`, delivery.LosslessNames()),
 		Example: `  # Open the newest report in the current directory
   owatch browse
 
