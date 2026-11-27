@@ -12,6 +12,7 @@ import (
 	"github.com/papa0four/orkowatch/internal/dataset"
 	"github.com/papa0four/orkowatch/internal/dataset/epss"
 	"github.com/papa0four/orkowatch/internal/dataset/osv"
+	"github.com/papa0four/orkowatch/internal/dataset/vuxml"
 	"github.com/papa0four/orkowatch/internal/osfingerprint"
 	"github.com/papa0four/orkowatch/internal/softwarelist"
 	"github.com/papa0four/orkowatch/internal/vulnmatch"
@@ -40,12 +41,17 @@ type inventoryMatching struct {
 	coverage string
 }
 
+// coverage names the systems whose packages matching covers, as a match not
+// made and the help of owatch software name them: OSV's distributions, and
+// FreeBSD, whose packages VuXML covers.
+const coverage = "AlmaLinux, Alpine, FreeBSD, Red Hat Enterprise Linux, Rocky Linux, and Ubuntu"
+
 // hostMatching is inventoryMatching that reads this host.
 func hostMatching() inventoryMatching {
 	return inventoryMatching{
 		host:     osfingerprint.GetOSFingerprint,
-		matched:  osv.Datasets(),
-		coverage: "AlmaLinux, Alpine, Red Hat Enterprise Linux, Rocky Linux, and Ubuntu",
+		matched:  append(osv.Datasets(), vuxml.Document{}),
+		coverage: coverage,
 	}
 }
 

@@ -21,6 +21,7 @@ import (
 	"github.com/papa0four/orkowatch/internal/dataset/kev"
 	"github.com/papa0four/orkowatch/internal/dataset/osv"
 	"github.com/papa0four/orkowatch/internal/dataset/store"
+	"github.com/papa0four/orkowatch/internal/dataset/vuxml"
 	"github.com/papa0four/orkowatch/internal/osfingerprint"
 	"github.com/papa0four/orkowatch/internal/render"
 )
@@ -58,7 +59,8 @@ type Run struct {
 // read every source through that interface and name none. They are listed in
 // name order, which is the order status shows them in.
 func Known() []dataset.Dataset {
-	return append([]dataset.Dataset{epss.Scores{}, kev.Catalog{}}, osv.Datasets()...)
+	known := append([]dataset.Dataset{epss.Scores{}, kev.Catalog{}}, osv.Datasets()...)
+	return append(known, vuxml.Document{})
 }
 
 // ForHost is a run that reads this process's store, with the datasets owatch

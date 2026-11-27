@@ -10,6 +10,7 @@ import (
 	"io"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -267,5 +268,25 @@ func TestSoftwareModuleStatesTheMatch(t *testing.T) {
 	}
 	if !strings.HasPrefix(matched.Summary(), "matched against records: ") {
 		t.Errorf("the match states itself as %q", matched.Summary())
+	}
+}
+
+// A FreeBSD host's packages are matched against VuXML, which owatch knows, a
+// match of it carries VuXML's one release, and the coverage a match not made
+// names FreeBSD among the systems matching covers.
+func TestMatchingCoversFreeBSD(t *testing.T) {
+	host := &osfingerprint.OSInfo{OS: "freebsd", Platform: "freebsd", PlatformVersion: "15.1-RELEASE"}
+	m := hostMatching()
+	if source := m.source(host); source == nil || source.ID() != "vuxml" {
+		t.Fatalf("a FreeBSD host is matched against %v", source)
+	}
+	if id, release, err := m.release(host); err != nil || id != "vuxml" || release != "FreeBSD ports" {
+		t.Errorf("release %q %q, %v", id, release, err)
+	}
+	if !strings.Contains(m.coverage, "FreeBSD") {
+		t.Errorf("the coverage %q leaves FreeBSD out", m.coverage)
+	}
+	if !slices.ContainsFunc(held.Known(), func(d dataset.Dataset) bool { return d.ID() == "vuxml" }) {
+		t.Error("owatch does not know VuXML")
 	}
 }
