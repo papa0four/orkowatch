@@ -161,7 +161,9 @@ func proxyFromEnvironment(*http.Request) (*url.URL, error) {
 // Source is where the data of a dataset is fetched from for one host: the
 // origin it was located through, the data's address, the standing of the
 // place it was found at, the SHA-256 the origin's index states for it, empty
-// when the origin has no index, and its size when Stated.
+// when the origin has no index, and its size when Stated. For an origin with
+// pages, URL is the listing and Pages the addresses it named, fetched in
+// order.
 type Source struct {
 	Origin   dataset.Origin
 	URL      string
@@ -169,7 +171,11 @@ type Source struct {
 	SHA256   string
 	Size     int64
 	Stated   bool
+	Pages    []string
 }
+
+// Requests is how many requests fetching the source takes.
+func (s Source) Requests() int { return max(1, len(s.Pages)) }
 
 // sumPattern is a SHA-256 written as an index must state one.
 var sumPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
@@ -184,8 +190,13 @@ func (c *Client) Locate(ctx context.Context, d dataset.Dataset, host *osfingerpr
 	if _, err := origin.Hosts(); err != nil {
 		return Source{}, &Error{err: err}
 	}
-	if origin.Index != nil && (origin.Index.MaxBytes <= 0 || origin.Index.Locate == nil) {
+	switch {
+	case origin.Index != nil && origin.Pages != nil:
+		return Source{}, lasting("%s states both an index and pages", d.ID())
+	case origin.Index != nil && (origin.Index.MaxBytes <= 0 || origin.Index.Locate == nil):
 		return Source{}, lasting("%s states an index without its limit and reader", d.ID())
+	case origin.Pages != nil && (origin.Pages.MaxBytes <= 0 || origin.Pages.MaxPages <= 0 || origin.Pages.List == nil):
+		return Source{}, lasting("%s states pages without their limits and reader", d.ID())
 	}
 	ctx, cancel := context.WithTimeout(ctx, sizeTimeout)
 	defer cancel()
@@ -204,7 +215,7 @@ func (c *Client) Locate(ctx context.Context, d dataset.Dataset, host *osfingerpr
 // source taking the place's standing.
 func (c *Client) locateAt(ctx context.Context, d dataset.Dataset, origin dataset.Origin, place dataset.Place) (src Source, err error) {
 	method := http.MethodHead
-	if origin.Index != nil {
+	if origin.Index != nil || origin.Pages != nil {
 		method = http.MethodGet
 	}
 	resp, err := c.do(ctx, method, origin, place.URL)
@@ -212,32 +223,74 @@ func (c *Client) locateAt(ctx context.Context, d dataset.Dataset, origin dataset
 		return Source{}, err
 	}
 	defer func() { err = errors.Join(err, resp.Body.Close()) }()
-	if origin.Index == nil {
+	switch {
+	case origin.Index != nil:
+		src, err = c.readIndex(ctx, d, origin, place.URL, resp.Body)
+	case origin.Pages != nil:
+		src, err = c.readListing(ctx, d, origin, place.URL, resp.Body)
+	default:
 		return Source{Origin: origin, URL: place.URL, Standing: place.Standing, Size: resp.ContentLength, Stated: resp.ContentLength >= 0}, nil
 	}
-	src, err = c.readIndex(ctx, d, origin, place.URL, resp.Body)
 	src.Standing = place.Standing
 	return src, err
 }
 
-// readIndex reads the index at place from body for where the data of d is.
-func (c *Client) readIndex(ctx context.Context, d dataset.Dataset, origin dataset.Origin, place string, body io.Reader) (Source, error) {
-	index, err := io.ReadAll(io.LimitReader(body, origin.Index.MaxBytes+1))
+// readLimited reads body, what place answered, refusing more than limit
+// bytes, which what names.
+func readLimited(ctx context.Context, body io.Reader, limit int64, place, what string) ([]byte, *url.URL, error) {
+	data, err := io.ReadAll(io.LimitReader(body, limit+1))
 	switch {
 	case err != nil:
-		return Source{}, failure(ctx, fmt.Errorf("read %s: %w", place, err))
-	case int64(len(index)) > origin.Index.MaxBytes:
-		return Source{}, lasting("the index at %s is more than the %d bytes it may hold", place, origin.Index.MaxBytes)
+		return nil, nil, failure(ctx, fmt.Errorf("read %s: %w", place, err))
+	case int64(len(data)) > limit:
+		return nil, nil, lasting("the %s at %s is more than the %d bytes it may hold", what, place, limit)
 	}
 	at, err := url.Parse(place)
 	if err != nil {
-		return Source{}, &Error{err: err}
+		return nil, nil, &Error{err: err}
+	}
+	return data, at, nil
+}
+
+// readIndex reads the index at place from body for where the data of d is.
+func (c *Client) readIndex(ctx context.Context, d dataset.Dataset, origin dataset.Origin, place string, body io.Reader) (Source, error) {
+	index, at, err := readLimited(ctx, body, origin.Index.MaxBytes, place, "index")
+	if err != nil {
+		return Source{}, err
 	}
 	loc, err := origin.Index.Locate(bytes.NewReader(index), at)
 	if err != nil {
 		return Source{}, lasting("the index at %s: %w", place, err)
 	}
 	return located(d, origin, place, loc)
+}
+
+// readListing reads the listing at place from body for the pages the data of
+// d is in, each held to origin, no more than it may name. The size is not
+// stated: the most the dataset's origin may serve is what the pages may hold
+// together.
+func (c *Client) readListing(ctx context.Context, d dataset.Dataset, origin dataset.Origin, place string, body io.Reader) (Source, error) {
+	listing, at, err := readLimited(ctx, body, origin.Pages.MaxBytes, place, "listing")
+	if err != nil {
+		return Source{}, err
+	}
+	pages, err := origin.Pages.List(bytes.NewReader(listing), at)
+	switch {
+	case err != nil:
+		return Source{}, lasting("the listing at %s: %w", place, err)
+	case len(pages) > origin.Pages.MaxPages:
+		return Source{}, lasting("the listing at %s names %d pages, more than the %d %s may take", place, len(pages), origin.Pages.MaxPages, d.ID())
+	}
+	for _, page := range pages {
+		u, err := url.Parse(page)
+		if err != nil {
+			return Source{}, lasting("the listing at %s names %q, which is not an address", place, dataset.Printable(page))
+		}
+		if err := origin.Allows(u); err != nil {
+			return Source{}, lasting("the listing at %s names a page that is refused: %w", place, err)
+		}
+	}
+	return Source{Origin: origin, URL: place, Size: dataset.FetchLimit(d), Pages: pages}, nil
 }
 
 // located is the source an index at place gives, held to origin: an address
@@ -262,21 +315,43 @@ func located(d dataset.Dataset, origin dataset.Origin, place string, loc dataset
 
 // Fetch writes the data of d to w from src, where Locate found it. It reads
 // at most what d's origin may serve, and refuses data whose checksum is not
-// the one src's index states. The download is allowed the time its stated
+// the one src's index states. Each download is allowed the time its stated
 // size needs, or the most it may serve when the server does not say, and is
-// ended when it receives nothing for the stall time.
-func (c *Client) Fetch(ctx context.Context, d dataset.Dataset, src Source, w io.Writer) (err error) {
+// ended when it receives nothing for the stall time. A source in pages has
+// each page fetched in turn, never two at once, and written one after
+// another; a page that cannot be fetched ends the fetch there.
+func (c *Client) Fetch(ctx context.Context, d dataset.Dataset, src Source, w io.Writer) error {
+	limit := dataset.FetchLimit(d)
+	if len(src.Pages) == 0 {
+		_, err := c.fetchOne(ctx, src, src.URL, limit, w)
+		return err
+	}
+	for _, page := range src.Pages {
+		if err := ctx.Err(); err != nil {
+			return &Error{err: err}
+		}
+		n, err := c.fetchOne(ctx, Source{Origin: src.Origin}, page, limit, w)
+		if err != nil {
+			return err
+		}
+		limit -= n
+	}
+	return nil
+}
+
+// fetchOne writes what address, one of src's, answers to w, reading at most
+// limit bytes, and returns how many it wrote.
+func (c *Client) fetchOne(ctx context.Context, src Source, address string, limit int64, w io.Writer) (written int64, err error) {
 	ctx, cancel := context.WithCancelCause(ctx)
 	defer cancel(nil)
-	resp, err := c.do(ctx, http.MethodGet, src.Origin, src.URL)
+	resp, err := c.do(ctx, http.MethodGet, src.Origin, address)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	defer func() { err = errors.Join(err, resp.Body.Close()) }()
 
-	limit := dataset.FetchLimit(d)
 	if resp.ContentLength > limit {
-		return lasting("%s is %d bytes, more than the %d the dataset's origin may serve", src.URL, resp.ContentLength, limit)
+		return 0, lasting("%s is %d bytes, more than the %d the dataset's origin may serve", address, resp.ContentLength, limit)
 	}
 	size := resp.ContentLength
 	if size < 0 {
@@ -294,14 +369,14 @@ func (c *Client) Fetch(ctx context.Context, d dataset.Dataset, src Source, w io.
 	n, err := io.Copy(io.MultiWriter(w, hash), io.LimitReader(body, limit+1))
 	switch {
 	case err != nil:
-		return failure(ctx, fmt.Errorf("read %s: %w", src.URL, err))
+		return n, failure(ctx, fmt.Errorf("read %s: %w", address, err))
 	case n > limit:
-		return lasting("%s sent more than the %d bytes the dataset's origin may serve", src.URL, limit)
+		return n, lasting("%s sent more than the %d bytes the dataset's origin may serve", address, limit)
 	}
 	if sum := hex.EncodeToString(hash.Sum(nil)); src.SHA256 != "" && sum != src.SHA256 {
-		return lasting("%s is not the file its index names: its SHA-256 is %s, where the index states %s", src.URL, sum, src.SHA256)
+		return n, lasting("%s is not the file its index names: its SHA-256 is %s, where the index states %s", address, sum, src.SHA256)
 	}
-	return nil
+	return n, nil
 }
 
 // watched reads r and restarts timer, which ends a stalled download, each

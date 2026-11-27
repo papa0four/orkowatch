@@ -15,7 +15,6 @@ import (
 
 	"github.com/papa0four/orkowatch/cmd/commands/delivery"
 	"github.com/papa0four/orkowatch/cmd/commands/held"
-	"github.com/papa0four/orkowatch/internal/dataset"
 	"github.com/papa0four/orkowatch/internal/dataset/progress"
 	"github.com/papa0four/orkowatch/internal/dataset/store"
 	"github.com/papa0four/orkowatch/internal/osfingerprint"
@@ -72,7 +71,7 @@ func (r *browserRefresh) Plan(ctx context.Context) ([]string, error) {
 	for i, p := range plan.datasets {
 		lines[i] = render.HostText(p.brief())
 		if p.large() {
-			lines[i] += ", larger than " + dataset.Size(largeDownload)
+			lines[i] += ", " + p.why()
 		}
 	}
 	return lines, nil

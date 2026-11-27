@@ -686,8 +686,10 @@ detail. It reads no more than a dataset's origin may serve, allows a download it
 size at 256 KiB a second and never less than 10 minutes, and gives up on one that
 receives nothing for a minute. A proxy named by `HTTPS_PROXY` is used, and no
 other environment variable changes where it connects. It prints each dataset's
-size and the time its download is allowed before fetching it, and asks before one
-larger than 100 MiB; `--yes` skips the question. What is fetched is checked as any
+size and the time its download is allowed before fetching it, and the number of
+requests for a source that answers in pages, fetched one page at a time, and asks
+before one larger than 100 MiB or of more than 100 requests; `--yes` skips the
+question. What is fetched is checked as any
 dataset is before it replaces the copy held, a download that fails because a
 server is briefly unable to answer, or that stalls, is tried three times, and a
 dataset that could not be refreshed keeps the copy held. A refresh that can make
