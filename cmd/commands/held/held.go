@@ -12,12 +12,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/papa0four/orkowatch/internal/dataset"
 	"github.com/papa0four/orkowatch/internal/dataset/epss"
+	"github.com/papa0four/orkowatch/internal/dataset/fedora"
 	"github.com/papa0four/orkowatch/internal/dataset/kev"
 	"github.com/papa0four/orkowatch/internal/dataset/osv"
 	"github.com/papa0four/orkowatch/internal/dataset/store"
@@ -54,13 +56,23 @@ type Run struct {
 	exploitedUse  dataset.Use
 }
 
-// Known lists the datasets this version of owatch knows. A source is added
-// here as a type that satisfies dataset.Dataset; the commands and the store
-// read every source through that interface and name none. They are listed in
-// name order, which is the order status shows them in.
+// Known lists the datasets this version of owatch knows: the catalog, the
+// scores, and those installed packages are matched against. A source is added
+// here, or to Matched, as a type that satisfies dataset.Dataset; the commands
+// and the store read every source through that interface and name none. They
+// are listed in name order, which is the order status shows them in.
 func Known() []dataset.Dataset {
-	known := append([]dataset.Dataset{epss.Scores{}, kev.Catalog{}}, osv.Datasets()...)
-	return append(known, vuxml.Document{})
+	known := append([]dataset.Dataset{epss.Scores{}, kev.Catalog{}}, Matched()...)
+	slices.SortFunc(known, func(a, b dataset.Dataset) int { return strings.Compare(a.ID(), b.ID()) })
+	return known
+}
+
+// Matched lists the datasets installed packages are matched against, of
+// which a host reads those that apply to it, the first the one its match is
+// of: OSV's for each distribution it covers, Fedora's updates and then its
+// tracking bugs, and VuXML on FreeBSD.
+func Matched() []dataset.Dataset {
+	return append(osv.Datasets(), fedora.Updates{}, fedora.TrackingBugs{}, vuxml.Document{})
 }
 
 // ForHost is a run that reads this process's store, with the datasets owatch

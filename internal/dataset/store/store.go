@@ -215,32 +215,20 @@ func readData(path string, m dataset.Manifest, consume func(io.Reader) error) (e
 	defer func() { err = errors.Join(err, f.Close()) }()
 
 	hash := sha256.New()
-	counted := &countingReader{r: io.TeeReader(io.LimitReader(f, m.Size+1), hash)}
+	counted := dataset.Limited(io.TeeReader(f, hash), m.Size)
 	consumeErr := consume(counted)
 	if _, err := io.Copy(io.Discard, counted); err != nil {
 		return err
 	}
 	switch {
-	case counted.n != m.Size:
-		return fmt.Errorf("the data held %d bytes when read, where the manifest says %d", counted.n, m.Size)
+	case counted.N() != m.Size:
+		return fmt.Errorf("the data held %d bytes when read, where the manifest says %d", counted.N(), m.Size)
 	case hex.EncodeToString(hash.Sum(nil)) != m.SHA256:
 		return errors.New("the data does not match the checksum in its manifest")
 	case consumeErr != nil:
 		return consumeErr
 	}
 	return nil
-}
-
-// countingReader counts what is read through it.
-type countingReader struct {
-	r io.Reader
-	n int64
-}
-
-func (c *countingReader) Read(p []byte) (int, error) {
-	n, err := c.r.Read(p)
-	c.n += int64(n)
-	return n, err
 }
 
 // unusable states err as the reason a dataset is not used.

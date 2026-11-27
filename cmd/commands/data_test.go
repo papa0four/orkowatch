@@ -325,12 +325,43 @@ func TestDataStatusRefusesAnOpenStore(t *testing.T) {
 	}
 }
 
+// matchedHosts are a host of each system whose packages owatch matches.
+var matchedHosts = []*osfingerprint.OSInfo{
+	{OS: "linux", Platform: "almalinux", PlatformVersion: "9.4"},
+	{OS: "linux", Platform: "alpine", PlatformVersion: "3.20.3"},
+	{OS: "linux", Platform: "fedora", PlatformVersion: "44"},
+	{OS: "linux", Platform: "redhat", PlatformVersion: "9.4"},
+	{OS: "linux", Platform: "rocky", PlatformVersion: "9.4"},
+	{OS: "linux", Platform: "ubuntu", PlatformVersion: "22.04"},
+	{OS: "freebsd", Platform: "freebsd", PlatformVersion: "15.1-RELEASE"},
+}
+
+// fetchable fails the test unless k applies to a host of the systems owatch
+// matches, its origin for that host is one a fetch can start from, and it
+// states a limit on what it may hold and a license its manifest records.
+func fetchable(t *testing.T, k dataset.Dataset) {
+	t.Helper()
+	at := slices.IndexFunc(matchedHosts, k.AppliesTo)
+	if at < 0 {
+		t.Errorf("%s applies to none of the systems owatch matches", k.ID())
+		return
+	}
+	origin := k.Origin(matchedHosts[at])
+	if hosts, err := origin.Hosts(); err != nil || len(hosts) == 0 {
+		t.Errorf("%s: hosts a fetch may reach = %q, %v", k.ID(), hosts, err)
+	}
+	if k.MaxBytes() <= 0 || origin.License == "" {
+		t.Errorf("%s: may hold %d bytes under the license %q", k.ID(), k.MaxBytes(), origin.License)
+	}
+}
+
 // Every dataset owatch knows can be held and fetched: a name the store can
-// hold that no other dataset has, an origin a fetch can start from, a limit
-// on what it may hold, and a license its manifest records. They are listed in
-// name order. CISA's catalog, FIRST's scores, and OSV's data for five
-// distributions are among them, and a store without them lists each that
-// applies to the host as not held.
+// hold that no other dataset has, a host of the systems owatch matches that it
+// applies to, an origin a fetch for that host can start from, a limit on what
+// it may hold, and a license its manifest records. They are listed in name
+// order. CISA's catalog, FIRST's scores, OSV's data for five distributions,
+// Fedora's updates and tracking bugs, and VuXML are among them, and a store without them lists
+// each that applies to the host as not held.
 func TestKnownDatasets(t *testing.T) {
 	seen := map[string]bool{}
 	var ids []string
@@ -341,14 +372,9 @@ func TestKnownDatasets(t *testing.T) {
 		}
 		seen[id] = true
 		ids = append(ids, id)
-		if hosts, err := k.Origin().Hosts(); err != nil || len(hosts) == 0 {
-			t.Errorf("%s: hosts a fetch may reach = %q, %v", id, hosts, err)
-		}
-		if k.MaxBytes() <= 0 || k.Origin().License == "" {
-			t.Errorf("%s: may hold %d bytes under the license %q", id, k.MaxBytes(), k.Origin().License)
-		}
+		fetchable(t, k)
 	}
-	for _, id := range []string{"epss", "kev", "osv-almalinux", "osv-alpine", "osv-redhat", "osv-rocky", "osv-ubuntu"} {
+	for _, id := range []string{"epss", "fedora-tracking-bugs", "fedora-updates", "kev", "osv-almalinux", "osv-alpine", "osv-redhat", "osv-rocky", "osv-ubuntu", "vuxml"} {
 		if !seen[id] {
 			t.Errorf("the known datasets are %v, want %s among them", ids, id)
 		}

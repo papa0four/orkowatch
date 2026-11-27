@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/papa0four/orkowatch/internal/dataset"
+	"github.com/papa0four/orkowatch/internal/dataset/xmldoc"
 	"github.com/papa0four/orkowatch/internal/osfingerprint"
 	"github.com/papa0four/orkowatch/internal/pkgversion"
 	"github.com/papa0four/orkowatch/internal/softwarelist"
@@ -105,12 +106,6 @@ type (
 		XMLName xml.Name
 		Version string `xml:",chardata"`
 	}
-
-	// counter counts what is read through it.
-	counter struct {
-		r io.Reader
-		n int64
-	}
 )
 
 // ID names the dataset.
@@ -129,8 +124,8 @@ func (Document) Gives() string { return "matching of the installed packages" }
 func (Document) MaxBytes() int64 { return maxBytes }
 
 // Origin is the document as vuxml.freebsd.org publishes it, compressed with
-// bzip2.
-func (Document) Origin() dataset.Origin {
+// bzip2, one for every FreeBSD release.
+func (Document) Origin(*osfingerprint.OSInfo) dataset.Origin {
 	return dataset.Origin{URL: address, License: license, Attribution: attribution}
 }
 
@@ -177,7 +172,7 @@ func (d Document) Records(data io.Reader, host *osfingerprint.OSInfo, each func(
 // far say of the data.
 type reader struct {
 	dec     *xml.Decoder
-	counted *counter
+	counted *dataset.Counted
 	limit   int64
 	each    func(vulnrecord.Record) error
 	newest  time.Time
@@ -188,13 +183,13 @@ type reader struct {
 // read reads the expanded document, refusing it when it expands past limit.
 // An error each returns is returned as it is.
 func read(expanded io.Reader, limit int64, each func(vulnrecord.Record) error) (dataset.Facts, error) {
-	counted := &counter{r: io.LimitReader(expanded, limit+1)}
+	counted := dataset.Limited(expanded, limit)
 	r := &reader{dec: xml.NewDecoder(counted), counted: counted, limit: limit, each: each}
 	facts, err := r.entries()
 	switch {
 	case r.stopped != nil:
 		return dataset.Facts{}, r.stopped
-	case err != nil && counted.n > limit:
+	case err != nil && counted.Past():
 		return dataset.Facts{}, fmt.Errorf("the document expands past %d bytes", limit)
 	}
 	return facts, err
@@ -203,7 +198,7 @@ func read(expanded io.Reader, limit int64, each func(vulnrecord.Record) error) (
 // entries reads the document from its root to its end, giving each entry as
 // it is read.
 func (r *reader) entries() (dataset.Facts, error) {
-	if err := root(r.dec); err != nil {
+	if err := xmldoc.Root(r.dec, xml.Name{Space: namespace, Local: "vuxml"}, "VuXML"); err != nil {
 		return dataset.Facts{}, err
 	}
 	for {
@@ -257,55 +252,13 @@ func (r *reader) entry(start xml.StartElement) error {
 // finish reads past the root's end to the end of the file and gives what the
 // entries say of the data: the newest date they give, and the release.
 func (r *reader) finish() (dataset.Facts, error) {
-	if err := end(r.dec); err != nil {
+	if err := xmldoc.End(r.dec); err != nil {
 		return dataset.Facts{}, err
 	}
 	if r.given == 0 {
 		return dataset.Facts{}, errors.New("the document holds no entry")
 	}
 	return dataset.Facts{Date: r.newest, Version: release}, nil
-}
-
-// root reads up to the document's root element and refuses one that is not
-// VuXML's. The declaration, the DOCTYPE, and comments before it are passed
-// over; no entity it declares is read.
-func root(dec *xml.Decoder) error {
-	for {
-		tok, err := dec.Token()
-		if err != nil {
-			return fmt.Errorf("not VuXML: %w", err)
-		}
-		if t, ok := tok.(xml.StartElement); ok {
-			if t.Name.Space != namespace || t.Name.Local != "vuxml" {
-				return fmt.Errorf("not VuXML: the document is %s", dataset.Printable(t.Name.Local))
-			}
-			return nil
-		}
-	}
-}
-
-// end reads what follows the root element to the end of the file, which
-// must hold no element or text, so a document with anything after its end is
-// refused, and the compressed stream is read to its end, where bzip2 checks
-// it.
-func end(dec *xml.Decoder) error {
-	for {
-		tok, err := dec.Token()
-		if errors.Is(err, io.EOF) {
-			return nil
-		}
-		if err != nil {
-			return fmt.Errorf("the document cannot be read to its end: %w", err)
-		}
-		switch t := tok.(type) {
-		case xml.StartElement:
-			return errors.New("the document holds an element after its end")
-		case xml.CharData:
-			if len(strings.TrimSpace(string(t))) > 0 {
-				return errors.New("the document holds text after its end")
-			}
-		}
-	}
 }
 
 // record is the entry as matching reads it, and the newest date it gives,
@@ -464,10 +417,4 @@ func later(a, b time.Time) time.Time {
 		return b
 	}
 	return a
-}
-
-func (c *counter) Read(p []byte) (int, error) {
-	n, err := c.r.Read(p)
-	c.n += int64(n)
-	return n, err
 }

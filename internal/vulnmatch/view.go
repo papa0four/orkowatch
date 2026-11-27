@@ -24,6 +24,12 @@ const (
 	// StatusUnfixed is a package in a range no record gives a fixed version
 	// for.
 	StatusUnfixed = "unfixed"
+
+	// StatusTracked is a package a record only tracks the vulnerability
+	// against, as an open tracking bug does, which no other record affects
+	// or clears: it says the vulnerability is tracked, not that the package
+	// is affected.
+	StatusTracked = "tracking bug open"
 )
 
 // View is the serializable projection of a match of a host's packages: the
@@ -39,6 +45,11 @@ type View struct {
 
 	// Order is the version order the packages were compared in.
 	Order string `json:"version_order,omitempty" yaml:"version_order,omitempty"`
+
+	// Also is each further dataset the match read records from beside the
+	// one it is of, such as a release's tracking bugs, or why it read
+	// nothing from one.
+	Also []dataset.Use `json:"also_matched_against,omitempty" yaml:"also_matched_against,omitempty"`
 
 	// KnownExploited is the catalog of known-exploited vulnerabilities the
 	// match was marked from, or why it was not, for a match that was made.
@@ -68,6 +79,8 @@ type Counts struct {
 	PackagesWithFix     int `json:"packages_with_fix_available" yaml:"packages_with_fix_available"`
 	Unfixed             int `json:"unfixed" yaml:"unfixed"`
 	PackagesWithUnfixed int `json:"packages_with_unfixed" yaml:"packages_with_unfixed"`
+	Tracked             int `json:"tracking_bugs_open,omitempty" yaml:"tracking_bugs_open,omitempty"`
+	PackagesWithTracked int `json:"packages_with_tracking_bugs_open,omitempty" yaml:"packages_with_tracking_bugs_open,omitempty"`
 	KnownExploited      int `json:"known_exploited" yaml:"known_exploited"`
 	NotMatched          int `json:"not_matched" yaml:"not_matched"`
 }
@@ -166,33 +179,47 @@ type NotMatched struct {
 func (v *View) count() {
 	v.Counts = Counts{Packages: v.Installed, NotCovered: v.NotCovered, NotMatched: len(v.NotMatched)}
 	for _, pkg := range v.Packages {
-		fixable, unfixed, known := pkg.counts()
-		v.Counts.FixAvailable += fixable
-		v.Counts.Unfixed += unfixed
-		v.Counts.KnownExploited += known
-		if fixable > 0 {
+		c := pkg.counts()
+		v.Counts.FixAvailable += c.fixable
+		v.Counts.Unfixed += c.unfixed
+		v.Counts.Tracked += c.tracked
+		v.Counts.KnownExploited += c.known
+		if c.fixable > 0 {
 			v.Counts.PackagesWithFix++
 		}
-		if unfixed > 0 {
+		if c.unfixed > 0 {
 			v.Counts.PackagesWithUnfixed++
+		}
+		if c.tracked > 0 {
+			v.Counts.PackagesWithTracked++
 		}
 	}
 }
 
-// counts is how many of the package's vulnerabilities have a fix available,
-// how many are unfixed, and how many are known to be exploited.
-func (p PackageMatches) counts() (fixable, unfixed, known int) {
+// statusCounts is how many of a package's vulnerabilities have a fix
+// available, are unfixed, or have a tracking bug open, and how many are known
+// to be exploited.
+type statusCounts struct {
+	fixable, unfixed, tracked, known int
+}
+
+// counts counts the package's vulnerabilities by their status.
+func (p PackageMatches) counts() statusCounts {
+	var c statusCounts
 	for _, found := range p.Vulnerabilities {
 		if found.KnownExploited != nil {
-			known++
+			c.known++
 		}
-		if found.Status == StatusFixAvailable {
-			fixable++
-		} else {
-			unfixed++
+		switch found.Status {
+		case StatusFixAvailable:
+			c.fixable++
+		case StatusTracked:
+			c.tracked++
+		default:
+			c.unfixed++
 		}
 	}
-	return fixable, unfixed, known
+	return c
 }
 
 // WriteText writes v as the vulnerabilities section of a text report: the
@@ -212,6 +239,16 @@ func WriteText(w io.Writer, v View) error {
 		return ew.Err()
 	}
 	ew.Printf("%s\n", render.HostText("Matched against "+v.About()))
+	for _, also := range v.Also {
+		if also.NotDone != "" {
+			ew.Printf("%s\n", render.HostText("Also not read: "+also.NotDone))
+			continue
+		}
+		ew.Printf("%s\n", render.HostText("Also matched against "+also.About()))
+		if also.Attribution != "" {
+			ew.Printf("  %s\n", render.HostText(also.Attribution))
+		}
+	}
 	c := v.Counts
 	ew.Printf("%s\n", render.HostText(fmt.Sprintf("%s matched: %s with a fix available in %s, %s in %s, %s not matched, %s no record covers",
 		render.Count(c.Packages, "package", "packages"),
@@ -225,11 +262,12 @@ func WriteText(w io.Writer, v View) error {
 	if c.Unfixed > 0 {
 		ew.Printf("\nUnfixed, by package:\n")
 		for _, pkg := range v.Packages {
-			if _, unfixed, _ := pkg.counts(); unfixed > 0 {
+			if unfixed := pkg.counts().unfixed; unfixed > 0 {
 				ew.Printf("  %s\n", render.HostText(fmt.Sprintf("%s %s: %s", pkg.Package, pkg.Installed, render.Count(unfixed, "unfixed", "unfixed"))))
 			}
 		}
 	}
+	writeTracked(ew, v)
 	if len(v.NotMatched) > 0 {
 		ew.Printf("\nNot matched:\n")
 		for _, n := range v.NotMatched {
@@ -252,10 +290,29 @@ func (v View) Summary() string {
 		render.Count(c.FixAvailable, "vulnerability", "vulnerabilities") + " with a fix available",
 		render.Count(c.Unfixed, "unfixed", "unfixed"),
 	}
+	if c.Tracked > 0 {
+		found = append(found, render.Count(c.Tracked, "tracking bug open", "tracking bugs open"))
+	}
 	if v.KnownExploited != nil && v.KnownExploited.NotDone == "" {
 		found = append(found, render.Count(c.KnownExploited, "known exploited", "known exploited"))
 	}
 	return "matched against " + v.ID + ": " + strings.Join(found, ", ")
+}
+
+// writeTracked writes each vulnerability of v a tracking bug is open for,
+// with the records that track it: that the vulnerability is tracked against
+// the package, which does not say the package is affected.
+func writeTracked(ew *render.ErrWriter, v View) {
+	if v.Counts.Tracked == 0 {
+		return
+	}
+	ew.Printf("\n%s\n", render.HostText(fmt.Sprintf("Tracking bugs open, %s in %s; a bug says a vulnerability is tracked against a package, not that the package is affected:",
+		render.Count(v.Counts.Tracked, "vulnerability", "vulnerabilities"), render.Count(v.Counts.PackagesWithTracked, "package", "packages"))))
+	for _, l := range v.InOrder() {
+		if found := l.Vulnerability; found.Status == StatusTracked {
+			ew.Printf("  %s\n", render.HostText(fmt.Sprintf("%-20s %s %s, %s", found.ID, l.Package.Package, l.Package.Installed, strings.Join(found.Records, ", "))))
+		}
+	}
 }
 
 // Listed is one vulnerability of an affected package.
@@ -321,7 +378,7 @@ func writeKnownExploited(ew *render.ErrWriter, v View) {
 		if found.KnownExploited == nil {
 			break
 		}
-		state := "unfixed"
+		state := found.Status
 		if found.Status == StatusFixAvailable {
 			state = "fixed in " + found.Fixed
 		}

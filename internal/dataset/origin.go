@@ -3,19 +3,38 @@
 package dataset
 
 import (
+	"fmt"
+	"io"
 	"net/url"
+	"slices"
 	"strings"
 )
 
 // Origin is where a dataset's data is fetched from and the terms it comes
 // under, as its source states them.
 type Origin struct {
-	// URL is the HTTPS address of the data.
+	// URL is the HTTPS address of the data, or of its index when Index is
+	// set.
 	URL string
 
-	// RedirectHosts are the hosts, other than the URL's own, that a
-	// redirect from the URL may lead to. A redirect anywhere else is
-	// refused, so a source lists here only hosts it is known to use.
+	// Elsewhere are further places of the same thing, tried in order when
+	// the one before answers that it holds nothing there, as a release moved
+	// to an archive does. Any other failure ends the fetch.
+	Elsewhere []Place
+
+	// Index is set when the data's address is read from an index at URL,
+	// as a repository names a file by its checksum, and is nil when URL is
+	// the data itself.
+	Index *Index
+
+	// Pages is set when the data is in pages a listing at URL names, as a
+	// tracker that answers a fixed number of entries a request is read, and
+	// is nil otherwise. An origin has an index or pages, not both.
+	Pages *Pages
+
+	// RedirectHosts are the hosts, other than those of URL and Elsewhere,
+	// that a redirect may lead to. A redirect anywhere else is refused, so
+	// a source lists here only hosts it is known to use.
 	RedirectHosts []string
 
 	// License and Attribution are what the source asks to be stated with
@@ -24,24 +43,115 @@ type Origin struct {
 	Attribution string
 }
 
-// Hosts returns the hosts a fetch of the data may reach: the URL's own and
-// the redirect hosts, in lower case. It refuses an origin whose URL is not an
-// HTTPS address of a host, or that lists an empty redirect host, so a fetch
-// never starts from an origin it could not hold to its list.
+// Index is how a dataset finds its data in an index: the most the index may
+// hold, and how to read the data's address from it. Locate is given the
+// address the index was fetched from, which a relative address in it is
+// resolved against.
+type Index struct {
+	MaxBytes int64
+	Locate   func(index io.Reader, at *url.URL) (Location, error)
+}
+
+// Pages is how a dataset finds its data in pages a listing names: the most
+// the listing may hold, the most pages it may name, and how to read their
+// addresses from it. List is given the address the listing was fetched
+// from. The pages are fetched in series, in the order List gives them, and
+// kept as one file, so the set is the one the listing named however long the
+// fetch takes.
+//
+// A Gate, when set, is read before the listing. Its answer can stand the
+// listing down, as a tracker says a release is no longer one it files for:
+// the listing is then not read, the gate's answer is the data, and its
+// standing is recorded. Otherwise the gate's answer opens the data, before
+// the pages.
+type Pages struct {
+	MaxBytes int64
+	MaxPages int
+	List     func(listing io.Reader, at *url.URL) ([]string, error)
+	Gate     *Gate
+}
+
+// Gate is an address read before a listing: the most its answer may hold,
+// and how to read from it whether the listing is read. Read gives a standing
+// when it is not, and none when it is.
+type Gate struct {
+	URL      string
+	MaxBytes int64
+	Read     func(answer io.Reader) (standing string, err error)
+}
+
+// Place is an address data may be at, and its standing: what holding the data
+// there says of it, as an archive says a release receives no updates, which
+// the manifest of a copy fetched from it records and every report shows. A
+// place with nothing to say has no standing.
+type Place struct {
+	URL      string
+	Standing string
+}
+
+// Location is where an index places the data: its address, the SHA-256 the
+// index states for it in lower-case hexadecimal, and its size.
+type Location struct {
+	URL    string
+	SHA256 string
+	Size   int64
+}
+
+// Places returns the places the origin names, in the order they are tried:
+// URL, which has no standing, then each of Elsewhere.
+func (o Origin) Places() []Place {
+	return append([]Place{{URL: o.URL}}, o.Elsewhere...)
+}
+
+// Hosts returns the hosts a fetch of the data may reach: those of its places
+// and the redirect hosts, in lower case, each once. It refuses an origin with
+// a place that is not an HTTPS address of a host or whose standing a terminal
+// would act on, or that lists an empty redirect host, so a fetch never starts from an origin it could not hold to
+// its list.
 func (o Origin) Hosts() ([]string, error) {
-	if err := validSource(o.URL); err != nil {
-		return nil, err
+	var hosts []string
+	add := func(h string) {
+		if h = strings.ToLower(h); !slices.Contains(hosts, h) {
+			hosts = append(hosts, h)
+		}
 	}
-	u, err := url.Parse(o.URL)
-	if err != nil {
-		return nil, refuse("the source %q is not an address", o.URL)
+	for _, place := range o.Places() {
+		if err := validSource(place.URL); err != nil {
+			return nil, err
+		}
+		if err := validText("standing", place.Standing); err != nil {
+			return nil, err
+		}
+		u, err := url.Parse(place.URL)
+		if err != nil {
+			return nil, refuse("the source %q is not an address", place.URL)
+		}
+		add(u.Hostname())
 	}
-	hosts := []string{strings.ToLower(u.Hostname())}
 	for _, h := range o.RedirectHosts {
 		if h == "" || strings.ContainsAny(h, "/:@ ") {
 			return nil, refuse("%q is not a host a redirect may lead to", h)
 		}
-		hosts = append(hosts, strings.ToLower(h))
+		add(h)
 	}
 	return hosts, nil
+}
+
+// Allows refuses an address a fetch of the data may not reach: one that is
+// not HTTPS, names a user, or is on a host the origin does not list. A
+// redirect and an address an index gives are held to the same rule.
+func (o Origin) Allows(u *url.URL) error {
+	hosts, err := o.Hosts()
+	if err != nil {
+		return err
+	}
+	switch {
+	case u.Scheme != "https":
+		return fmt.Errorf("%s is not an HTTPS address", u.Redacted())
+	case u.User != nil:
+		return fmt.Errorf("%s names a user", u.Redacted())
+	case !slices.Contains(hosts, strings.ToLower(u.Hostname())):
+		return fmt.Errorf("%s is not a host this dataset is fetched from", u.Hostname())
+	}
+	return nil
 }

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -24,8 +25,31 @@ func TestRowEncoding(t *testing.T) {
 	}
 }
 
+// A report names the data it read on one line, with the standing of the
+// place it was fetched from when that place has one, and the provenance
+// carries the standing in JSON beside the source, from its manifest.
+func TestAboutStatesTheStanding(t *testing.T) {
+	p := Provenance{ID: "fedora-updates", State: StateCurrent, Source: "https://archive.example/f42", DataDate: "2026-05-27", Version: "Fedora 42"}
+	if got := p.About(); got != "fedora-updates, Fedora 42, data of 2026-05-27, current" {
+		t.Errorf("with no standing: %q", got)
+	}
+	p.Standing = "Fedora 42 is archived and receives no updates"
+	if got := (Use{Provenance: p}).Lines(); len(got) != 1 || got[0] != "fedora-updates, Fedora 42, data of 2026-05-27, current; Fedora 42 is archived and receives no updates" {
+		t.Errorf("with a standing: %q", got)
+	}
+	asJSON, err := json.Marshal(p)
+	if err != nil || !strings.Contains(string(asJSON), `"source":"https://archive.example/f42","standing":"Fedora 42 is archived and receives no updates"`) {
+		t.Errorf("JSON %s, %v", asJSON, err)
+	}
+	m := Manifest{Source: p.Source, Standing: p.Standing}
+	if got := ProvenanceOf("fedora-updates", m, Facts{}, now); got.Standing != p.Standing {
+		t.Errorf("the provenance of a manifest with a standing has %q", got.Standing)
+	}
+}
+
 // Each row is written with what bears on its state, a held dataset with its
-// source and license under it, and an empty store says so. A name holding a
+// source, the standing of the place it was fetched from when it has one, and
+// its license under it, and an empty store says so. A name holding a
 // terminal escape is written quoted and escaped.
 func TestWriteText(t *testing.T) {
 	var b strings.Builder
@@ -33,6 +57,8 @@ func TestWriteText(t *testing.T) {
 		{Provenance: Provenance{ID: "kev", State: StateCurrent, Source: "https://data.example/kev", DataDate: "2026-11-20", Version: "2026.11.20",
 			Fetched: "2026-11-22T11:00:00Z", License: "CC0 1.0", Attribution: "CISA"}, Size: 3 << 20},
 		{Provenance: Provenance{ID: "epss", State: StateNotHeld}},
+		{Provenance: Provenance{ID: "fedora", State: StateCurrent, Source: "https://archive.example/f42", Standing: "Fedora 42 is archived and receives no updates",
+			DataDate: "2026-05-27", Version: "Fedora 42", Fetched: "2026-11-22T11:00:00Z", License: "CC BY-SA 4.0", Attribution: "Fedora"}, Size: 1 << 20},
 		{Provenance: Provenance{ID: "bad", State: StateUnusable}, Reason: "checksum", Attention: "the import failed"},
 		{Provenance: Provenance{ID: "old", State: StateNotApplicable}, Size: 512},
 		{Provenance: Provenance{ID: "x\x1b[2J", State: StateUnknown}, Size: 1},
@@ -46,6 +72,10 @@ kev         current: data of 2026-11-20, version 2026.11.20, fetched 2026-11-22T
             source https://data.example/kev
             license CC0 1.0; CISA
 epss        not held
+fedora      current: data of 2026-05-27, version Fedora 42, fetched 2026-11-22T11:00:00Z, 1.0 MiB
+            source https://archive.example/f42
+            standing Fedora 42 is archived and receives no updates
+            license CC BY-SA 4.0; Fedora
 bad         unusable: checksum
             needs attention: the import failed
 old         no longer applies, 512 B
@@ -104,5 +134,18 @@ func TestSize(t *testing.T) {
 		if got := Size(n); got != want {
 			t.Errorf("Size(%d) = %q, want %q", n, got, want)
 		}
+	}
+}
+
+// Data that states no date of its own is dated by when it was fetched, and
+// data that states one keeps it.
+func TestProvenanceOfUndatedData(t *testing.T) {
+	m := Manifest{Fetched: time.Date(2026, 11, 27, 20, 0, 0, 0, time.UTC)}
+	if got := ProvenanceOf("fedora-tracking-bugs", m, Facts{Version: "Fedora 42"}, m.Fetched); got.DataDate != "2026-11-27" {
+		t.Errorf("undated data is dated %q", got.DataDate)
+	}
+	dated := Facts{Date: time.Date(2026, 5, 27, 0, 0, 0, 0, time.UTC)}
+	if got := ProvenanceOf("fedora-updates", m, dated, m.Fetched); got.DataDate != "2026-05-27" {
+		t.Errorf("dated data is dated %q", got.DataDate)
 	}
 }

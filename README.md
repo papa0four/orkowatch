@@ -29,10 +29,11 @@ and open an issue against this doc.
   and find nothing on a localized Windows; and files owned by a SID that no
   longer resolves go undetected. Tracked as a single fix (#111). Linux/Unix
   audit checks are not affected.
-- **CVE matching covers five distributions' packages and FreeBSD's.**
+- **CVE matching covers six distributions' packages and FreeBSD's.**
   `owatch software` and `owatch all` match installed packages on AlmaLinux,
-  Alpine, FreeBSD, Red Hat Enterprise Linux, Rocky Linux, and Ubuntu against
-  the dataset held for the host, OSV's for a distribution and VuXML on FreeBSD,
+  Alpine, Fedora, FreeBSD, Red Hat Enterprise Linux, Rocky Linux, and Ubuntu
+  against the dataset held for the host, OSV's for a distribution, the
+  release's updateinfo on Fedora, and VuXML on FreeBSD,
   shown in the results browser's Vulnerabilities tab. The operating
   system and kernel as such are not matched. A finding names no CVE of its own;
   it gives how many vulnerabilities in CISA's Known Exploited Vulnerabilities
@@ -166,15 +167,18 @@ packages against the vulnerability dataset of the host's distribution (see
 Vulnerability Datasets below) and add a Vulnerabilities section to the report. A
 package is found by the name the distribution's records use: the source package and
 its version on Ubuntu and Alpine, the binary package and its version, with its epoch,
-on AlmaLinux, Rocky Linux, and Red Hat, and on FreeBSD the package's name and version,
-not its port's origin. Each record's ranges are evaluated as the OSV schema states, in
-the distribution's own version order, and VuXML's ranges as `pkg audit` evaluates them,
-in pkg's version order. For each CVE and package:
+on AlmaLinux, Rocky Linux, Red Hat, and Fedora, and on FreeBSD the package's name and
+version, not its port's origin. Each record's ranges are evaluated as the OSV schema
+states, in the distribution's own version order; a Fedora update affects each binary
+package it ships before the build it ships, in RPM's order, as dnf judges its
+advisories; and VuXML's ranges are evaluated as `pkg audit` evaluates them, in pkg's
+version order. For each CVE and package:
 
 | Result | Meaning |
 |---|---|
 | Fix available | The installed version is below the lowest version any record gives as fixing it |
 | Unfixed | The installed version is in an affected range and no record gives a fixed version |
+| Tracking bug open | A tracking bug tracks the vulnerability against the package's source, and no record gives a fix the installed version is below or has reached; the bug does not say the package is affected |
 | Not matched | The versions cannot be compared, or the package is a module build and the records give fixes for several module streams without saying which is its |
 | Not covered | No record names the package; this is not a statement that it is clean |
 
@@ -593,6 +597,8 @@ gives for it:
 | Dataset | What it is | Fetched from | Applies to | License |
 |---|---|---|---|---|
 | `epss` | FIRST's daily Exploit Prediction Scoring System scores | `epss.empiricalsecurity.com` | Every host | None stated |
+| `fedora-tracking-bugs` | The open security tracking bugs of the host's Fedora release | `bugzilla.redhat.com` | Fedora hosts | None stated |
+| `fedora-updates` | The updateinfo of the host's Fedora release, the file dnf reads | `dl.fedoraproject.org` | Fedora hosts | CC BY-SA 4.0 |
 | `kev` | CISA's Known Exploited Vulnerabilities catalog | `www.cisa.gov` | Every host | CC0 1.0 |
 | `osv-almalinux` | OSV's data for AlmaLinux | `storage.googleapis.com` | AlmaLinux hosts | MIT |
 | `osv-alpine` | OSV's data for Alpine Linux | `storage.googleapis.com` | Alpine hosts | CC-BY-SA 4.0 |
@@ -614,6 +620,40 @@ are not kept: a host's version does not show them. Ubuntu's file was 845 MB on
 holding a record of the release that is not in the OSV schema's form is refused
 whole, naming the record, and the copy held stays. Debian, SUSE, and openSUSE
 wait on the terms of the data OSV republishes for them.
+
+Fedora publishes each release's updates in the updateinfo of its updates
+repository, which the repository's index names by its checksum: `refresh` reads the
+index, fetches the file it names, the file dnf reads, 2.5 MiB for Fedora 44 on
+2026-11-27, and refuses it unless it has the checksum the index states. It keeps the
+release's security updates alone, each as the file holds it, 0.5 MiB for Fedora 44,
+since reading the whole file took a second on each run; the manifest records the file
+fetched beside what was kept, and `status` shows the release as the dataset's version,
+`Fedora 44`. An update's CVEs are those
+the titles of its bug references name, and an update that names none, as many do, is
+matched by its own identifier, such as `FEDORA-2026-09e76d9a09`. An update's rating,
+Critical, Important, Moderate, or Low, is placed on the scale as Red Hat's ratings are,
+and an update rated None states no severity. A release Fedora has archived is fetched from
+Fedora's archive, and `status` and every report that reads it say the release is
+archived and receives no updates.
+
+Fedora tracks a vulnerability it has not fixed as a security tracking bug in Red Hat
+Bugzilla, filed against the package's source and the release, or against rawhide for
+every release when its summary says `[fedora-all]`. `refresh` asks Bugzilla,
+anonymously, for the identifiers of the open tracking bugs of the host's release and
+of rawhide, then for the bugs 20 at a time, the most Bugzilla gives an anonymous
+request: 327 requests, fetched in under 3 minutes, for Fedora 44 on 2026-11-27, so a
+refresh asks first, and `--yes` skips the question. It keeps each public bug's number,
+component, status, last change, and the CVEs its summary opens with, and not its
+summary; a bug naming no CVE is left out. A tracking bug is matched to each installed
+package built from its component, and shown as an open tracking bug with its number:
+Red Hat Product Security files these bugs on a best-effort basis, and whether a
+package is affected is its maintainer's to establish. A CVE an update has fixed at or
+below the installed build is not shown for its tracking bug, and one an update fixes
+above it is shown with that fix. A release Bugzilla no longer names an active version, as an
+archived one, keeps no tracking bug, since a `[fedora-all]` bug is filed for the releases
+current when it is filed, and `status` and every report say no tracking bugs are filed
+for it. No license states the terms of Bugzilla's bug data; owatch keeps facts of each
+bug alone.
 
 VuXML is the FreeBSD project's own document of the vulnerabilities of the Ports
 Collection, one file for every FreeBSD release, so `status` shows its version as
@@ -667,8 +707,10 @@ detail. It reads no more than a dataset's origin may serve, allows a download it
 size at 256 KiB a second and never less than 10 minutes, and gives up on one that
 receives nothing for a minute. A proxy named by `HTTPS_PROXY` is used, and no
 other environment variable changes where it connects. It prints each dataset's
-size and the time its download is allowed before fetching it, and asks before one
-larger than 100 MiB; `--yes` skips the question. What is fetched is checked as any
+size and the time its download is allowed before fetching it, and the number of
+requests for a source that answers in pages, fetched one page at a time, and asks
+before one larger than 100 MiB or of more than 100 requests; `--yes` skips the
+question. What is fetched is checked as any
 dataset is before it replaces the copy held, a download that fails because a
 server is briefly unable to answer, or that stalls, is tried three times, and a
 dataset that could not be refreshed keeps the copy held. A refresh that can make

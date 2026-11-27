@@ -53,6 +53,8 @@ func TestKnownGive(t *testing.T) {
 			want = "known exploitation"
 		case "epss":
 			want = "exploit prediction"
+		case "fedora-tracking-bugs":
+			want = "the open tracking bugs of the installed packages"
 		}
 		if got := d.Gives(); got != want {
 			t.Errorf("%s gives %q, want %q", d.ID(), got, want)
@@ -92,7 +94,7 @@ func TestExploitedIsReadOnce(t *testing.T) {
 
 	x, use := run.Exploited(context.Background(), host)
 	entry, listed := x.Entry("CVE-2026-0001")
-	if use.NotDone != "" || use.ID != "kev" || use.Version != "2026.11.21" || use.Attribution != catalog.Origin().Attribution ||
+	if use.NotDone != "" || use.ID != "kev" || use.Version != "2026.11.21" || use.Attribution != catalog.Origin(nil).Attribution ||
 		!listed || entry.Ransomware != "Known" || x.ClassCount("CWE-306") != 1 {
 		t.Fatalf("the catalog read as %+v, %+v, %v", use, entry, listed)
 	}

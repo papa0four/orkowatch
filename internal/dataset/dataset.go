@@ -25,10 +25,11 @@ type (
 		// which a run names before it starts when the dataset is not held.
 		Gives() string
 
-		// Origin is where the dataset is fetched from and the terms it
-		// comes under. Only a fetch reads it; a dataset held is judged by
-		// its manifest and its content.
-		Origin() Origin
+		// Origin is where the dataset is fetched from for host and the
+		// terms it comes under. A source that publishes one file for every
+		// host gives the same origin whatever host is. Only a fetch reads
+		// it; a dataset held is judged by its manifest and its content.
+		Origin(host *osfingerprint.OSInfo) Origin
 
 		// MaxBytes is the most the dataset's data may hold. A larger file is
 		// refused before it is read.

@@ -32,6 +32,7 @@ const (
 type judgment struct {
 	verdict verdict
 	above   []string
+	open    bool
 }
 
 // judge evaluates the ranges of one package of a record against an installed
