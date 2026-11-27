@@ -129,8 +129,8 @@ func (Document) Gives() string { return "matching of the installed packages" }
 func (Document) MaxBytes() int64 { return maxBytes }
 
 // Origin is the document as vuxml.freebsd.org publishes it, compressed with
-// bzip2.
-func (Document) Origin() dataset.Origin {
+// bzip2, one for every FreeBSD release.
+func (Document) Origin(*osfingerprint.OSInfo) dataset.Origin {
 	return dataset.Origin{URL: address, License: license, Attribution: attribution}
 }
 

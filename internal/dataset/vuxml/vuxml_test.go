@@ -69,7 +69,7 @@ func TestDocumentStatesItself(t *testing.T) {
 	if d.ID() != "vuxml" || d.Manager() != softwarelist.ManagerPkg || d.MaxBytes() != 8<<20 {
 		t.Errorf("id %q, manager %q, max %d", d.ID(), d.Manager(), d.MaxBytes())
 	}
-	if o := d.Origin(); o.URL != "https://vuxml.freebsd.org/freebsd/vuln.xml.bz2" || o.License != "BSD 2-clause" || o.Attribution == "" {
+	if o := d.Origin(nil); o.URL != "https://vuxml.freebsd.org/freebsd/vuln.xml.bz2" || o.License != "BSD 2-clause" || o.Attribution == "" {
 		t.Errorf("origin %+v", o)
 	}
 	for host, want := range map[*osfingerprint.OSInfo]bool{

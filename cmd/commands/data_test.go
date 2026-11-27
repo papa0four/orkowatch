@@ -341,11 +341,11 @@ func TestKnownDatasets(t *testing.T) {
 		}
 		seen[id] = true
 		ids = append(ids, id)
-		if hosts, err := k.Origin().Hosts(); err != nil || len(hosts) == 0 {
+		if hosts, err := k.Origin(nil).Hosts(); err != nil || len(hosts) == 0 {
 			t.Errorf("%s: hosts a fetch may reach = %q, %v", id, hosts, err)
 		}
-		if k.MaxBytes() <= 0 || k.Origin().License == "" {
-			t.Errorf("%s: may hold %d bytes under the license %q", id, k.MaxBytes(), k.Origin().License)
+		if k.MaxBytes() <= 0 || k.Origin(nil).License == "" {
+			t.Errorf("%s: may hold %d bytes under the license %q", id, k.MaxBytes(), k.Origin(nil).License)
 		}
 	}
 	for _, id := range []string{"epss", "kev", "osv-almalinux", "osv-alpine", "osv-redhat", "osv-rocky", "osv-ubuntu"} {

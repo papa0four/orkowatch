@@ -21,7 +21,7 @@ func (testDataset) ID() string                           { return "test-data" }
 func (testDataset) AppliesTo(*osfingerprint.OSInfo) bool { return true }
 func (testDataset) Gives() string                        { return "the tests' data" }
 func (testDataset) MaxBytes() int64                      { return 1 << 10 }
-func (testDataset) Origin() Origin                       { return Origin{} }
+func (testDataset) Origin(*osfingerprint.OSInfo) Origin  { return Origin{} }
 
 func (testDataset) Check(io.Reader, *osfingerprint.OSInfo) (Facts, error) { return Facts{}, nil }
 

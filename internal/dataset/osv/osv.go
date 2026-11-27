@@ -139,8 +139,9 @@ func (d Dump) MaxBytes() int64 { return d.keptMax }
 func (d Dump) FetchMaxBytes() int64 { return d.fetchMax }
 
 // Origin is the distribution's dump in OSV's bucket, with the license OSV
-// states for that distribution's data.
-func (d Dump) Origin() dataset.Origin {
+// states for that distribution's data. One dump holds every release of the
+// distribution, so it is the same for every host it applies to.
+func (d Dump) Origin(*osfingerprint.OSInfo) dataset.Origin {
 	return dataset.Origin{
 		URL:         bucket + url.PathEscape(d.directory) + "/" + dumpName,
 		License:     d.license,

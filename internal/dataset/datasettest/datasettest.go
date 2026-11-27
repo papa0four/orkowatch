@@ -64,7 +64,7 @@ func (d Dataset) AppliesTo(*osfingerprint.OSInfo) bool { return d.Applies }
 func (d Dataset) Gives() string { return "what " + d.Name + " gives" }
 
 // Origin is From.
-func (d Dataset) Origin() dataset.Origin { return d.From }
+func (d Dataset) Origin(*osfingerprint.OSInfo) dataset.Origin { return d.From }
 
 // MaxBytes is MaxBytes.
 func (Dataset) MaxBytes() int64 { return MaxBytes }
@@ -106,7 +106,7 @@ func PutCatalog(t *testing.T, root string, fetched time.Time, entries ...string)
 	data := fmt.Sprintf(`{"catalogVersion": "2026.11.21", "dateReleased": "2026-11-21T12:00:00Z", "count": %d, "vulnerabilities": [%s]}`,
 		len(entries), strings.Join(entries, ", "))
 	Put(t, root, catalog, data, fetched, func(m *dataset.Manifest) {
-		o := catalog.Origin()
+		o := catalog.Origin(nil)
 		m.Source, m.License, m.Attribution = o.URL, o.License, o.Attribution
 	})
 }
@@ -127,7 +127,7 @@ func PutScores(t *testing.T, root string, fetched time.Time, rows ...string) {
 		t.Fatal(err)
 	}
 	Put(t, root, scores, data.String(), fetched, func(m *dataset.Manifest) {
-		o := scores.Origin()
+		o := scores.Origin(nil)
 		m.Source, m.License, m.Attribution = o.URL, o.License, o.Attribution
 	})
 }

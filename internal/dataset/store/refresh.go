@@ -181,7 +181,7 @@ func stage(ctx context.Context, p Progress, attempt int, fetch Fetch, d dataset.
 		return err
 	}
 
-	origin := d.Origin()
+	origin := d.Origin(host)
 	m := dataset.Manifest{
 		Format:      dataset.ManifestFormat,
 		ID:          d.ID(),

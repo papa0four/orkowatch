@@ -92,7 +92,7 @@ func TestExploitedIsReadOnce(t *testing.T) {
 
 	x, use := run.Exploited(context.Background(), host)
 	entry, listed := x.Entry("CVE-2026-0001")
-	if use.NotDone != "" || use.ID != "kev" || use.Version != "2026.11.21" || use.Attribution != catalog.Origin().Attribution ||
+	if use.NotDone != "" || use.ID != "kev" || use.Version != "2026.11.21" || use.Attribution != catalog.Origin(nil).Attribution ||
 		!listed || entry.Ransomware != "Known" || x.ClassCount("CWE-306") != 1 {
 		t.Fatalf("the catalog read as %+v, %+v, %v", use, entry, listed)
 	}
