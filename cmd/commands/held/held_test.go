@@ -53,6 +53,8 @@ func TestKnownGive(t *testing.T) {
 			want = "known exploitation"
 		case "epss":
 			want = "exploit prediction"
+		case "fedora-tracking-bugs":
+			want = "the open tracking bugs of the installed packages"
 		}
 		if got := d.Gives(); got != want {
 			t.Errorf("%s gives %q, want %q", d.ID(), got, want)

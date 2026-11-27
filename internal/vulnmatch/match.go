@@ -40,6 +40,7 @@ type Matcher struct {
 	compare   pkgversion.Compare
 	combining vulnrecord.Combining
 	installed map[string][]*unit
+	bySource  map[string][]*unit
 	pairs     map[pairKey]*pair
 }
 
@@ -78,7 +79,7 @@ func New(manager string, combining vulnrecord.Combining, entries []softwarelist.
 	if !ok {
 		return nil, fmt.Errorf("no version order is known for packages of %q", manager)
 	}
-	m := &Matcher{manager: manager, compare: compare, combining: combining, installed: map[string][]*unit{}, pairs: map[pairKey]*pair{}}
+	m := &Matcher{manager: manager, compare: compare, combining: combining, installed: map[string][]*unit{}, bySource: map[string][]*unit{}, pairs: map[pairKey]*pair{}}
 	for _, e := range entries {
 		if e.Manager != manager {
 			continue
@@ -92,6 +93,9 @@ func New(manager string, combining vulnrecord.Combining, entries []softwarelist.
 		u := m.installed[name][at]
 		if !slices.Contains(u.binaries, e.Name) {
 			u.binaries = append(u.binaries, e.Name)
+		}
+		if e.Source != "" && !slices.Contains(m.bySource[e.Source], u) {
+			m.bySource[e.Source] = append(m.bySource[e.Source], u)
 		}
 	}
 	return m, nil
@@ -116,16 +120,23 @@ func Named(e softwarelist.SoftwareEntry) (string, string) {
 	return name, version
 }
 
-// Add judges one record against the installed packages it names.
+// Add judges one record against the installed packages it names: those of
+// the name, or for a package named as a source, each installed package built
+// from it.
 func (m *Matcher) Add(r vulnrecord.Record) error {
 	ids := r.CVEs
 	if len(ids) == 0 {
 		ids = []string{r.ID}
 	}
 	for _, a := range r.Affected {
-		for _, u := range m.installed[a.Package] {
+		units := m.installed[a.Package]
+		if a.Source {
+			units = m.bySource[a.Package]
+		}
+		for _, u := range units {
 			u.covered = true
 			j, err := judge(u.version, a.Ranges, m.compare)
+			j.open = r.Open
 			for _, id := range ids {
 				m.pair(pairKey{id: id, name: u.name, version: u.version}).note(r, a, j, err)
 			}
@@ -218,7 +229,7 @@ func (m *Matcher) Result() View {
 
 // statusOrder puts the vulnerabilities with a fix available ahead of the
 // unfixed.
-var statusOrder = map[string]string{StatusFixAvailable: "0", StatusUnfixed: "1"}
+var statusOrder = map[string]string{StatusFixAvailable: "0", StatusUnfixed: "1", StatusTracked: "2"}
 
 // vulnerabilityOrder is the one order every view lists vulnerabilities in,
 // within a package and across packages. Those known to be exploited come
@@ -274,20 +285,27 @@ func (m *Matcher) packageOf(affected map[unitKey]*PackageMatches, key pairKey) *
 // does. Fixed versions that cannot be ordered among themselves are an error.
 func (m *Matcher) decide(key pairKey, p *pair) (Vulnerability, bool, error) {
 	var above []string
-	in := false
+	in, fixed, tracked := false, false, false
 	for _, j := range p.judgments {
-		switch j.verdict {
-		case cleared:
-			if m.combining == vulnrecord.FixClears {
-				return Vulnerability{}, false, nil
-			}
-		case inside:
+		switch {
+		case j.verdict == cleared && m.combining == vulnrecord.FixClears:
+			return Vulnerability{}, false, nil
+		case j.verdict == cleared:
+			fixed = true
+		case j.verdict == inside && j.open:
+			tracked = true
+		case j.verdict == inside:
 			in = true
 			above = append(above, j.above...)
 		}
 	}
 	if !in {
-		return Vulnerability{}, false, nil
+		// A record only tracking the vulnerability says nothing of a
+		// version a fix another record gives has reached.
+		if !tracked || fixed {
+			return Vulnerability{}, false, nil
+		}
+		return Vulnerability{ID: key.id, Status: StatusTracked, Severity: severityOf(p.severity, p.ratings), Scores: p.severity, Records: p.records}, true, nil
 	}
 	found := Vulnerability{ID: key.id, Status: StatusUnfixed, Severity: severityOf(p.severity, p.ratings), Scores: p.severity, Records: p.records}
 	if len(above) > 0 {

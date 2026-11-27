@@ -19,7 +19,7 @@ import (
 // the dataset itself gives them, so the two cannot drift apart. A dataset
 // fetched from an address of the host's release is stated by that address
 // with <release> in place of the release, which the address for a host of
-// that release must be.
+// that release must be; one asked by a query is stated without the query.
 func TestNoticesStateWhatReportsAttribute(t *testing.T) {
 	fedora44 := &osfingerprint.OSInfo{OS: "linux", Platform: "fedora", PlatformVersion: "44"}
 	for _, tt := range []struct {
@@ -31,9 +31,10 @@ func TestNoticesStateWhatReportsAttribute(t *testing.T) {
 		{kev.Catalog{}, nil, ""},
 		{vuxml.Document{}, nil, ""},
 		{fedora.Updates{}, fedora44, "44"},
+		{fedora.TrackingBugs{}, fedora44, ""},
 	} {
 		origin := tt.d.Origin(tt.host)
-		stated := origin.URL
+		stated, _, _ := strings.Cut(origin.URL, "?")
 		if tt.release != "" {
 			stated = strings.Replace(stated, "/"+tt.release+"/", "/<release>/", 1)
 		}

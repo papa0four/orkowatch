@@ -28,6 +28,7 @@ import (
 // which fetched, and from where.
 type served struct {
 	sizes      map[string]int64
+	pages      map[string]int
 	addresses  map[string]string
 	standings  map[string]string
 	locateErrs map[string]error
@@ -48,7 +49,11 @@ func (s *served) Locate(_ context.Context, d dataset.Dataset, host *osfingerprin
 		address = origin.URL
 	}
 	size, stated := s.sizes[d.ID()]
-	return fetch.Source{Origin: origin, URL: address, Standing: s.standings[d.ID()], Size: size, Stated: stated}, nil
+	src := fetch.Source{Origin: origin, URL: address, Standing: s.standings[d.ID()], Size: size, Stated: stated}
+	for i := range s.pages[d.ID()] {
+		src.Pages = append(src.Pages, fmt.Sprintf("%s?page=%d", address, i))
+	}
+	return src, nil
 }
 
 // TimeLimit allows every download ten minutes.
@@ -335,6 +340,34 @@ func TestRefreshPlanFetch(t *testing.T) {
 	origins.fails["debian-data"] = unreachable{}
 	if _, err := plan.fetch(context.Background(), s, plan.datasets[1:], dataNow, &told); !errors.Is(err, store.ErrUnreachable) {
 		t.Errorf("with no network the fetch ended with %v", err)
+	}
+}
+
+// / A download of exactly 100 requests is not asked about, where one of a
+// request more is, named by its requests: a question at a terminal, and with
+// no one there, not fetched unless --yes is given.
+func TestDataRefreshAtTheRequestLimit(t *testing.T) {
+	d, s, origins := refreshing(t, false, "")
+	origins.pages = map[string]int{"wanted": manyRequests}
+	plan, err := d.planRefresh(context.Background(), &osfingerprint.OSInfo{})
+	if err != nil || len(plan.datasets) != 1 || plan.datasets[0].large() || plan.datasets[0].described() != "100 requests, 39 B" {
+		t.Fatalf("at the limit planned %+v as %q, %v", plan, plan.datasets[0].described(), err)
+	}
+	origins.pages["wanted"] = manyRequests + 1
+	plan, err = d.planRefresh(context.Background(), &osfingerprint.OSInfo{})
+	if err != nil || !plan.datasets[0].large() || plan.datasets[0].why() != "more than 100 requests" {
+		t.Fatalf("past the limit planned %+v, %v", plan, err)
+	}
+	if out, err := run(d, "refresh"); err == nil || holds(s.Root(), "wanted") || !strings.Contains(out, "wanted: not fetched: it is more than 100 requests; pass --yes to fetch it") {
+		t.Errorf("past the limit with no one at the terminal: %q, %v", out, err)
+	}
+	if out, err := run(d, "refresh", "--yes"); err != nil || !holds(s.Root(), "wanted") || !strings.Contains(out, "wanted: 101 requests, 39 B from https://data.example/wanted") {
+		t.Errorf("past the limit with --yes: %q, %v", out, err)
+	}
+	asking, _, origins := refreshing(t, true, "n\n")
+	origins.pages = map[string]int{"wanted": manyRequests + 1}
+	if out, err := run(asking, "refresh"); err == nil || !strings.Contains(out, "Fetch wanted, 101 requests, 39 B?") {
+		t.Errorf("at a terminal, declined, the question was %q and the refresh ended with %v", out, err)
 	}
 }
 

@@ -13,7 +13,10 @@ type (
 	// Record is one record of vulnerabilities: its identifier, the CVEs it
 	// covers, when it was published and last modified, the advisory it
 	// names, the source's own rating of it, its scores, and the packages it
-	// affects.
+	// affects. An Open record says a vulnerability is tracked against its
+	// packages, as a tracking bug does, and not that their versions are
+	// affected: a fix another record gives clears it, and with none it is
+	// shown as tracked.
 	Record struct {
 		ID        string
 		CVEs      []string
@@ -23,15 +26,19 @@ type (
 		Rating    string
 		Scores    []Score
 		Affected  []Affected
+		Open      bool
 	}
 
 	// Affected is a package a record affects, the ecosystem it names the
 	// package in, and the ranges of its versions that are affected. A version
-	// in any one range is affected.
+	// in any one range is affected. Source says Package names a source
+	// package, as a tracker files against, where the manager's records name
+	// binary packages: each installed package built from it is affected.
 	Affected struct {
 		Package   string
 		Ecosystem string
 		Ranges    [][]Bound
+		Source    bool
 	}
 
 	// Bound is one bound of a range: what it says of versions, and the

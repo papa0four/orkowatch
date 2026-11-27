@@ -306,6 +306,151 @@ func TestLocateRefuses(t *testing.T) {
 	}
 }
 
+// lineListing reads a listing of one relative address a line, resolving each
+// against where the listing was fetched from.
+func lineListing(listing io.Reader, at *url.URL) ([]string, error) {
+	data, err := io.ReadAll(listing)
+	if err != nil {
+		return nil, err
+	}
+	var pages []string
+	for _, line := range strings.Fields(string(data)) {
+		ref, err := url.Parse(line)
+		if err != nil {
+			return nil, err
+		}
+		pages = append(pages, at.ResolveReference(ref).String())
+	}
+	return pages, nil
+}
+
+// paged is the test dataset whose listing is at path of o, read by
+// lineListing within 1 KiB and naming at most maxPages pages.
+func (o *origin) paged(path string, maxPages int) datasettest.Dataset {
+	return datasettest.Dataset{Name: "wanted", Applies: true, From: dataset.Origin{URL: o.URL + path, Pages: &dataset.Pages{MaxBytes: 1 << 10, MaxPages: maxPages, List: lineListing}}}
+}
+
+// An origin with pages is located by reading its listing, each page's
+// address held to the origin, and fetched one page after another in the
+// listing's order, each written after the one before; the size is not
+// stated, so the most the dataset's origin may serve is planned for.
+func TestPagesAreFetchedInTurn(t *testing.T) {
+	o := serve(t, map[string]http.HandlerFunc{
+		"/list":   send(t, "p/1\np/2\np/3\n", true),
+		"/p/1":    send(t, "one ", true),
+		"/p/2":    send(t, "two ", false),
+		"/p/3":    send(t, "three", true),
+		"/unused": send(t, "never", true),
+	})
+	d := o.paged("/list", 3)
+	src, err := o.client.Locate(context.Background(), d, nil)
+	want := []string{o.URL + "/p/1", o.URL + "/p/2", o.URL + "/p/3"}
+	if err != nil || !slices.Equal(src.Pages, want) || src.Requests() != 3 || src.Stated || src.Size != dataset.FetchLimit(d) || src.URL != o.URL+"/list" {
+		t.Fatalf("located %+v, %v", src, err)
+	}
+	var got bytes.Buffer
+	if err := o.client.Fetch(context.Background(), d, src, &got); err != nil || got.String() != "one two three" {
+		t.Fatalf("fetched %q, %v", got.String(), err)
+	}
+	var asked []string
+	for _, r := range o.received() {
+		asked = append(asked, r.Method+" "+r.URL.Path)
+	}
+	if !slices.Equal(asked, []string{"GET /list", "GET /p/1", "GET /p/2", "GET /p/3"}) {
+		t.Errorf("the server was asked %q", asked)
+	}
+	if (Source{}).Requests() != 1 {
+		t.Error("a source with no pages is not one request")
+	}
+}
+
+// A page that cannot be fetched ends the fetch there, naming it, and the
+// pages after it are not asked for; pages that together pass what the
+// dataset's origin may serve are refused for good.
+func TestAPageThatFailsEndsTheFetch(t *testing.T) {
+	half := strings.Repeat("x", datasettest.MaxBytes/2+1)
+	o := serve(t, map[string]http.HandlerFunc{
+		"/list":  send(t, "p/1 p/2 p/3", true),
+		"/large": send(t, "big/1 big/2", true),
+		"/p/1":   send(t, "one", true),
+		"/p/2":   status(http.StatusServiceUnavailable),
+		"/p/3":   send(t, "three", true),
+		"/big/1": send(t, half, true),
+		"/big/2": send(t, half, false),
+	})
+	d := o.paged("/list", 3)
+	src, err := o.client.Locate(context.Background(), d, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fe *Error
+	var got bytes.Buffer
+	if err := o.client.Fetch(context.Background(), d, src, &got); !errors.As(err, &fe) || !fe.Passing() || !strings.Contains(err.Error(), "/p/2") {
+		t.Errorf("a page the server could not answer gave %v", err)
+	}
+	for _, r := range o.received() {
+		if r.URL.Path == "/p/3" {
+			t.Error("a page after the one that failed was asked for")
+		}
+	}
+
+	big := o.paged("/large", 2)
+	src, err = o.client.Locate(context.Background(), big, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := o.client.Fetch(context.Background(), big, src, &got); !refused(err, "the dataset's origin may serve") {
+		t.Errorf("pages past the limit together gave %v, want them refused for good", err)
+	}
+}
+
+// A listing past its limit, one that names more pages than the dataset may
+// take, one its reader refuses, or a page that is not HTTPS or is on another
+// host, is refused for good before any page is fetched; so is an origin with
+// both an index and pages, or pages without their limits and reader.
+func TestPagesRefuses(t *testing.T) {
+	o := serve(t, map[string]http.HandlerFunc{
+		"/big":     send(t, strings.Repeat("p/1 ", 1<<9), true),
+		"/many":    send(t, "p/1 p/2 p/3", true),
+		"/away":    send(t, "p/1 https://elsewhere.example/p/2", true),
+		"/plain":   send(t, "http://127.0.0.1/p/1", true),
+		"/garbled": send(t, "%zz", true),
+	})
+	for path, tt := range map[string]struct {
+		pages int
+		what  string
+	}{
+		"/big":     {10, "more than the 1024 bytes it may hold"},
+		"/many":    {2, "names 3 pages, more than the 2 wanted may take"},
+		"/away":    {10, "elsewhere.example is not a host this dataset is fetched from"},
+		"/plain":   {10, "is not an HTTPS address"},
+		"/garbled": {10, "the listing at"},
+	} {
+		before := len(o.received())
+		if _, err := o.client.Locate(context.Background(), o.paged(path, tt.pages), nil); !refused(err, tt.what) {
+			t.Errorf("%s gave %v, want it refused for good: %s", path, err, tt.what)
+		}
+		if asked := len(o.received()) - before; asked != 1 {
+			t.Errorf("%s: the server was asked %d times, want only for the listing", path, asked)
+		}
+	}
+	both := o.paged("/many", 10)
+	both.From.Index = &dataset.Index{MaxBytes: 1 << 10, Locate: lineIndex}
+	if _, err := o.client.Locate(context.Background(), both, nil); !refused(err, "states both an index and pages") {
+		t.Errorf("an origin with an index and pages gave %v", err)
+	}
+	for name, pages := range map[string]*dataset.Pages{
+		"no limit":    {MaxPages: 10, List: lineListing},
+		"no page cap": {MaxBytes: 1 << 10, List: lineListing},
+		"no reader":   {MaxBytes: 1 << 10, MaxPages: 10},
+	} {
+		d := datasettest.Dataset{Name: "wanted", From: dataset.Origin{URL: o.URL + "/many", Pages: pages}}
+		if _, err := o.client.Locate(context.Background(), d, nil); !refused(err, "states pages without their limits and reader") {
+			t.Errorf("pages with %s gave %v", name, err)
+		}
+	}
+}
+
 // A redirect on the same host is followed, and the address it came from is
 // not sent on. One to a host the dataset does not list, one to plain HTTP,
 // and one too many are each refused, and none is tried again.

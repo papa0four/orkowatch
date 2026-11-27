@@ -27,6 +27,11 @@ type Origin struct {
 	// the data itself.
 	Index *Index
 
+	// Pages is set when the data is in pages a listing at URL names, as a
+	// tracker that answers a fixed number of entries a request is read, and
+	// is nil otherwise. An origin has an index or pages, not both.
+	Pages *Pages
+
 	// RedirectHosts are the hosts, other than those of URL and Elsewhere,
 	// that a redirect may lead to. A redirect anywhere else is refused, so
 	// a source lists here only hosts it is known to use.
@@ -45,6 +50,18 @@ type Origin struct {
 type Index struct {
 	MaxBytes int64
 	Locate   func(index io.Reader, at *url.URL) (Location, error)
+}
+
+// Pages is how a dataset finds its data in pages a listing names: the most
+// the listing may hold, the most pages it may name, and how to read their
+// addresses from it. List is given the address the listing was fetched
+// from. The pages are fetched in series, in the order List gives them, and
+// kept as one file, so the set is the one the listing named however long the
+// fetch takes.
+type Pages struct {
+	MaxBytes int64
+	MaxPages int
+	List     func(listing io.Reader, at *url.URL) ([]string, error)
 }
 
 // Place is an address data may be at, and its standing: what holding the data

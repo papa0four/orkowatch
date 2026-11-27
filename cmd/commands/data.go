@@ -93,7 +93,9 @@ The datasets are CISA's Known Exploited Vulnerabilities catalog (kev), FIRST's
 EPSS scores (epss), OSV's data for AlmaLinux, Alpine, Red Hat Enterprise Linux,
 Rocky Linux, and Ubuntu (osv-almalinux and the others), of which a host holds
 its own distribution's; on Fedora the updateinfo of the host's release
-(fedora-updates), the file dnf reads; and on FreeBSD the FreeBSD project's VuXML
+(fedora-updates), the file dnf reads, and the release's open security tracking
+bugs in Red Hat Bugzilla (fedora-tracking-bugs), about 320 requests a refresh,
+which one asks about first; and on FreeBSD the FreeBSD project's VuXML
 (vuxml), the document pkg audit reads, kept as it is fetched. OSV publishes
 every release of a distribution in one file, and owatch keeps the records of
 the host's release alone; of the updateinfo, owatch keeps the release's

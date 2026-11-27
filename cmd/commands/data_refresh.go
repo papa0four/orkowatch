@@ -26,8 +26,13 @@ import (
 )
 
 // largeDownload is the size past which a dataset is asked about before it is
-// fetched, so a first refresh over a metered or slow link is a choice.
-const largeDownload = 100 << 20
+// fetched, so a first refresh over a metered or slow link is a choice, and
+// manyRequests the number of requests past which one is, so a refresh that
+// takes minutes of a source's server is one too.
+const (
+	largeDownload = 100 << 20
+	manyRequests  = 100
+)
 
 // fetcher is what brings a dataset from its origin: where its data is for a
 // host and how large it is there, how long a download of that size is
@@ -71,9 +76,12 @@ named by HTTPS_PROXY is used; no other environment variable changes where it
 connects.
 
 Each dataset's size, and the time its download is allowed, is printed before it
-is fetched: its size at 256 KiB a second, and never less than ten minutes. One
-larger than 100 MiB is asked about first; --yes skips the question, and is
-needed for such a dataset when no one is at the terminal. What is fetched is
+is fetched: its size at 256 KiB a second, and never less than ten minutes. A
+dataset whose source answers in pages, a set number of entries a request, is
+fetched one page at a time and states how many requests it takes. One larger
+than 100 MiB, or that takes more than 100 requests, is asked about first;
+--yes skips the question, and is needed for such a dataset when no one is at
+the terminal. What is fetched is
 checked as any dataset is before it replaces the copy held. A download that
 fails because a server is briefly unable to answer, or that stalls, is tried
 three times; one that fails for another reason once. A dataset that could not
@@ -181,16 +189,30 @@ type planned struct {
 	allowed time.Duration
 }
 
-// large reports whether the download is asked about before it is fetched.
-func (p planned) large() bool { return p.size > largeDownload }
+// large reports whether the download is asked about before it is fetched:
+// it is larger than largeDownload, or takes more than manyRequests.
+func (p planned) large() bool { return p.size > largeDownload || p.source.Requests() > manyRequests }
+
+// why is what makes the download one asked about, as a refresh names it.
+func (p planned) why() string {
+	if p.source.Requests() > manyRequests {
+		return fmt.Sprintf("more than %d requests", manyRequests)
+	}
+	return "larger than " + dataset.Size(largeDownload)
+}
 
 // described is the download's size as a refresh names it: as stated, or as
-// what it may be at most.
+// what it may be at most, after the number of requests it takes when it
+// takes more than one.
 func (p planned) described() string {
+	size := dataset.Size(p.size)
 	if !p.stated {
-		return "up to " + dataset.Size(p.size)
+		size = "up to " + size
 	}
-	return dataset.Size(p.size)
+	if n := p.source.Requests(); n > 1 {
+		return fmt.Sprintf("%d requests, %s", n, size)
+	}
+	return size
 }
 
 // String is the line a refresh states the download in before it begins.
@@ -328,7 +350,7 @@ func (d *dataCmd) choose(out, prompt io.Writer, wanted []planned, yes bool, repo
 		case !w.large() || yes:
 			chosen = append(chosen, w)
 		case !d.interactive():
-			ew.Printf("%s\n", render.HostText(fmt.Sprintf("%s: not fetched: it is larger than %s; pass --yes to fetch it", w.dataset.ID(), dataset.Size(largeDownload))))
+			ew.Printf("%s\n", render.HostText(fmt.Sprintf("%s: not fetched: it is %s; pass --yes to fetch it", w.dataset.ID(), w.why())))
 			declined++
 		default:
 			ok, err := render.Confirm(d.in, prompt, render.HostText(fmt.Sprintf("Fetch %s, %s?", w.dataset.ID(), w.described())))

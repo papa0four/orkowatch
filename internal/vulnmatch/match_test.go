@@ -595,3 +595,139 @@ func TestCombining(t *testing.T) {
 		}
 	}
 }
+
+// trackingBug is an open record that tracks cve against the source package
+// source at every version, as a tracking bug does.
+func trackingBug(id, cve, source string) vulnrecord.Record {
+	return vulnrecord.Record{ID: id, CVEs: []string{cve}, Open: true, Affected: []vulnrecord.Affected{
+		{Package: source, Source: true, Ranges: [][]vulnrecord.Bound{events("introduced", "0")}},
+	}}
+}
+
+// combined runs a matcher of rpm's entries over records, combining them as
+// combining states.
+func combined(t *testing.T, combining vulnrecord.Combining, entries []softwarelist.SoftwareEntry, records ...vulnrecord.Record) View {
+	t.Helper()
+	m, err := New("rpm", combining, entries)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range records {
+		if err := m.Add(r); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return m.Result()
+}
+
+// statuses is each vulnerability of each package of v, with its status,
+// its fix, and its records.
+func statuses(v View) map[string]string {
+	got := map[string]string{}
+	for _, pkg := range v.Packages {
+		for _, found := range pkg.Vulnerabilities {
+			got[pkg.Package+" "+found.ID] = found.Status + " " + found.Fixed + " " + strings.Join(found.Records, ",")
+		}
+	}
+	return got
+}
+
+// An open record of a source package is a tracking bug of each installed
+// package built from it, and of no package that only shares its name; a
+// record that is not open and is above the installed version gives its own
+// status, and one the installed version has reached clears the pair,
+// whatever tracking bug is open, under either way of combining.
+func TestTrackingBugs(t *testing.T) {
+	entries := []softwarelist.SoftwareEntry{
+		{Name: "zstd", Version: "1.5.7-1.fc44", Manager: "rpm", Source: "zstd"},
+		{Name: "libzstd", Version: "1.5.7-1.fc44", Manager: "rpm", Source: "zstd"},
+		{Name: "openclaw", Version: "2.0-1.fc44", Manager: "rpm", Source: "openclaw-bundle"},
+	}
+	update := func(fixed string) vulnrecord.Record {
+		return vulnrecord.Record{ID: "FEDORA-2026-0000000001", CVEs: []string{"CVE-2026-1"}, Affected: []vulnrecord.Affected{
+			{Package: "libzstd", Ranges: [][]vulnrecord.Bound{events("introduced", "0", "fixed", fixed)}},
+		}}
+	}
+	for _, combining := range []vulnrecord.Combining{vulnrecord.FixClears, vulnrecord.AnyRange} {
+		run := func(records ...vulnrecord.Record) View { return combined(t, combining, entries, records...) }
+		bug := trackingBug("rhbz#2582942", "CVE-2026-1", "zstd")
+		for name, tt := range map[string]struct {
+			records []vulnrecord.Record
+			want    map[string]string
+		}{
+			"the bug alone": {[]vulnrecord.Record{bug, trackingBug("rhbz#1", "CVE-2026-2", "openclaw")}, map[string]string{
+				"zstd CVE-2026-1":    "tracking bug open  rhbz#2582942",
+				"libzstd CVE-2026-1": "tracking bug open  rhbz#2582942",
+			}},
+			"a fix above the installed build": {[]vulnrecord.Record{bug, update("1.6.0-1.fc44")}, map[string]string{
+				"zstd CVE-2026-1":    "tracking bug open  rhbz#2582942",
+				"libzstd CVE-2026-1": "fix available 1.6.0-1.fc44 rhbz#2582942,FEDORA-2026-0000000001",
+			}},
+			"a fix the installed build has reached": {[]vulnrecord.Record{update("1.5.7-1.fc44"), bug}, map[string]string{
+				"zstd CVE-2026-1": "tracking bug open  rhbz#2582942",
+			}},
+		} {
+			v := run(tt.records...)
+			if got := statuses(v); !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("%v, %s: %v, want %v", combining, name, got, tt.want)
+			}
+		}
+		v := run(bug, update("1.6.0-1.fc44"))
+		if c := v.Counts; c.Tracked != 1 || c.PackagesWithTracked != 1 || c.FixAvailable != 1 || c.Unfixed != 0 {
+			t.Errorf("%v: counts %+v", combining, c)
+		}
+	}
+}
+
+// A match with a tracking bug open says so in its counts, its summary, and a
+// section of its own that names each bug, and says what a tracking bug does
+// not say; one with none says nothing of tracking bugs, in JSON as in text.
+func TestWriteTextTracked(t *testing.T) {
+	entries := []softwarelist.SoftwareEntry{{Name: "zstd", Version: "1.5.7-1.fc44", Manager: "rpm", Source: "zstd"}}
+	v := matched(t, "rpm", entries, trackingBug("rhbz#2582942", "CVE-2026-1", "zstd"))
+	v.Use = dataset.Use{Provenance: dataset.Provenance{ID: "fedora-updates", Version: "Fedora 44", DataDate: "2026-11-26", State: dataset.StateCurrent}}
+	var b strings.Builder
+	if err := WriteText(&b, v); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"Tracking bugs open, 1 vulnerability in 1 package; a bug says a vulnerability is tracked against a package, not that the package is affected:",
+		"  CVE-2026-1           zstd 1.5.7-1.fc44, rhbz#2582942",
+	} {
+		if !strings.Contains(b.String(), want) {
+			t.Errorf("the text holds no %q:\n%s", want, b.String())
+		}
+	}
+	if strings.Contains(b.String(), "Unfixed, by package") || v.Counts.Unfixed != 0 {
+		t.Errorf("a tracking bug was counted as unfixed:\n%s", b.String())
+	}
+	if got := v.Summary(); got != "matched against fedora-updates: 0 vulnerabilities with a fix available, 0 unfixed, 1 tracking bug open" {
+		t.Errorf("summary %q", got)
+	}
+	none := exploitedView()
+	b.Reset()
+	if err := WriteText(&b, none); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(b.String(), "racking bug") || strings.Contains(none.Summary(), "tracking") {
+		t.Errorf("a match with no tracking bug names them:\n%s", b.String())
+	}
+}
+
+// A match that read a further dataset names it under the one the match is
+// of, with its attribution, and one it could not read says why.
+func TestWriteTextAlso(t *testing.T) {
+	v := exploitedView()
+	v.Also = []dataset.Use{
+		{Provenance: dataset.Provenance{ID: "fedora-tracking-bugs", Version: "Fedora 44", DataDate: "2026-11-27", State: dataset.StateCurrent, Attribution: "Red Hat Bugzilla"}},
+		{Provenance: dataset.Provenance{ID: "other"}, NotDone: "other is not held; fetch it with owatch data refresh"},
+	}
+	var b strings.Builder
+	if err := WriteText(&b, v); err != nil {
+		t.Fatal(err)
+	}
+	want := "Also matched against fedora-tracking-bugs, Fedora 44, data of 2026-11-27, current\n  Red Hat Bugzilla\nAlso not read: other is not held; fetch it with owatch data refresh\n"
+	if !strings.Contains(b.String(), want) {
+		t.Errorf("the text holds no\n%s\nin\n%s", want, b.String())
+	}
+}
