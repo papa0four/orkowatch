@@ -274,22 +274,45 @@ func TestSoftwareModuleStatesTheMatch(t *testing.T) {
 	}
 }
 
-// A FreeBSD host's packages are matched against VuXML, which owatch knows, a
-// match of it carries VuXML's one release, and the coverage a match not made
-// names FreeBSD among the systems matching covers.
-func TestMatchingCoversFreeBSD(t *testing.T) {
-	host := &osfingerprint.OSInfo{OS: "freebsd", Platform: "freebsd", PlatformVersion: "15.1-RELEASE"}
-	m := hostMatching()
-	if source := m.source(host); source == nil || source.ID() != "vuxml" {
-		t.Fatalf("a FreeBSD host is matched against %v", source)
+// A Fedora host's packages are matched against its release's updates, and a
+// FreeBSD host's against VuXML: each is a dataset owatch knows, a match of it
+// carries the release it reads, and the coverage a match not made names the
+// system among those matching covers.
+func TestMatchingCoversFedoraAndFreeBSD(t *testing.T) {
+	for _, tt := range []struct {
+		host                 *osfingerprint.OSInfo
+		id, release, covered string
+	}{
+		{&osfingerprint.OSInfo{OS: "linux", Platform: "fedora", PlatformVersion: "44"}, "fedora-updates", "Fedora 44", "Fedora"},
+		{&osfingerprint.OSInfo{OS: "freebsd", Platform: "freebsd", PlatformVersion: "15.1-RELEASE"}, "vuxml", "FreeBSD ports", "FreeBSD"},
+	} {
+		m := hostMatching()
+		if source := m.source(tt.host); source == nil || source.ID() != tt.id {
+			t.Errorf("a %s host is matched against %v", tt.covered, source)
+			continue
+		}
+		if id, release, err := m.release(tt.host); err != nil || id != tt.id || release != tt.release {
+			t.Errorf("%s: release %q %q, %v", tt.covered, id, release, err)
+		}
+		if !strings.Contains(m.coverage, tt.covered) {
+			t.Errorf("the coverage %q leaves %s out", m.coverage, tt.covered)
+		}
+		if !slices.ContainsFunc(held.Known(), func(d dataset.Dataset) bool { return d.ID() == tt.id }) {
+			t.Errorf("owatch does not know %s", tt.id)
+		}
 	}
-	if id, release, err := m.release(host); err != nil || id != "vuxml" || release != "FreeBSD ports" {
-		t.Errorf("release %q %q, %v", id, release, err)
+}
+
+// Every dataset matching reads is one owatch knows, and owatch lists what it
+// knows in name order, the order status shows them in.
+func TestKnownHoldsWhatIsMatched(t *testing.T) {
+	known := held.Known()
+	for _, d := range held.Matched() {
+		if !slices.ContainsFunc(known, func(k dataset.Dataset) bool { return k.ID() == d.ID() }) {
+			t.Errorf("%s is matched against but not known", d.ID())
+		}
 	}
-	if !strings.Contains(m.coverage, "FreeBSD") {
-		t.Errorf("the coverage %q leaves FreeBSD out", m.coverage)
-	}
-	if !slices.ContainsFunc(held.Known(), func(d dataset.Dataset) bool { return d.ID() == "vuxml" }) {
-		t.Error("owatch does not know VuXML")
+	if !slices.IsSortedFunc(known, func(a, b dataset.Dataset) int { return strings.Compare(a.ID(), b.ID()) }) {
+		t.Errorf("owatch knows its datasets out of order")
 	}
 }

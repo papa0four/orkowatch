@@ -29,10 +29,11 @@ and open an issue against this doc.
   and find nothing on a localized Windows; and files owned by a SID that no
   longer resolves go undetected. Tracked as a single fix (#111). Linux/Unix
   audit checks are not affected.
-- **CVE matching covers five distributions' packages and FreeBSD's.**
+- **CVE matching covers six distributions' packages and FreeBSD's.**
   `owatch software` and `owatch all` match installed packages on AlmaLinux,
-  Alpine, FreeBSD, Red Hat Enterprise Linux, Rocky Linux, and Ubuntu against
-  the dataset held for the host, OSV's for a distribution and VuXML on FreeBSD,
+  Alpine, Fedora, FreeBSD, Red Hat Enterprise Linux, Rocky Linux, and Ubuntu
+  against the dataset held for the host, OSV's for a distribution, the
+  release's updateinfo on Fedora, and VuXML on FreeBSD,
   shown in the results browser's Vulnerabilities tab. The operating
   system and kernel as such are not matched. A finding names no CVE of its own;
   it gives how many vulnerabilities in CISA's Known Exploited Vulnerabilities
@@ -166,10 +167,12 @@ packages against the vulnerability dataset of the host's distribution (see
 Vulnerability Datasets below) and add a Vulnerabilities section to the report. A
 package is found by the name the distribution's records use: the source package and
 its version on Ubuntu and Alpine, the binary package and its version, with its epoch,
-on AlmaLinux, Rocky Linux, and Red Hat, and on FreeBSD the package's name and version,
-not its port's origin. Each record's ranges are evaluated as the OSV schema states, in
-the distribution's own version order, and VuXML's ranges as `pkg audit` evaluates them,
-in pkg's version order. For each CVE and package:
+on AlmaLinux, Rocky Linux, Red Hat, and Fedora, and on FreeBSD the package's name and
+version, not its port's origin. Each record's ranges are evaluated as the OSV schema
+states, in the distribution's own version order; a Fedora update affects each binary
+package it ships before the build it ships, in RPM's order, as dnf judges its
+advisories; and VuXML's ranges are evaluated as `pkg audit` evaluates them, in pkg's
+version order. For each CVE and package:
 
 | Result | Meaning |
 |---|---|
@@ -593,6 +596,7 @@ gives for it:
 | Dataset | What it is | Fetched from | Applies to | License |
 |---|---|---|---|---|
 | `epss` | FIRST's daily Exploit Prediction Scoring System scores | `epss.empiricalsecurity.com` | Every host | None stated |
+| `fedora-updates` | The updateinfo of the host's Fedora release, the file dnf reads | `dl.fedoraproject.org` | Fedora hosts | CC BY-SA 4.0 |
 | `kev` | CISA's Known Exploited Vulnerabilities catalog | `www.cisa.gov` | Every host | CC0 1.0 |
 | `osv-almalinux` | OSV's data for AlmaLinux | `storage.googleapis.com` | AlmaLinux hosts | MIT |
 | `osv-alpine` | OSV's data for Alpine Linux | `storage.googleapis.com` | Alpine hosts | CC-BY-SA 4.0 |
@@ -614,6 +618,19 @@ are not kept: a host's version does not show them. Ubuntu's file was 845 MB on
 holding a record of the release that is not in the OSV schema's form is refused
 whole, naming the record, and the copy held stays. Debian, SUSE, and openSUSE
 wait on the terms of the data OSV republishes for them.
+
+Fedora publishes each release's updates in the updateinfo of its updates
+repository, which the repository's index names by its checksum: `refresh` reads the
+index, fetches the file it names, 2.5 MiB for Fedora 44 on 2026-11-27, refuses it
+unless it has the checksum the index states, and keeps it as fetched, the same file
+dnf reads; each run reads the host's release's security updates from it, and `status`
+shows the release as the dataset's version, `Fedora 44`. An update's CVEs are those
+the titles of its bug references name, and an update that names none, as many do, is
+matched by its own identifier, such as `FEDORA-2026-09e76d9a09`. An update's rating,
+Critical, Important, Moderate, or Low, is placed on the scale as Red Hat's ratings are,
+and an update rated None states no severity. A release Fedora has archived is fetched from
+Fedora's archive, and `status` and every report that reads it say the release is
+archived and receives no updates.
 
 VuXML is the FreeBSD project's own document of the vulnerabilities of the Ports
 Collection, one file for every FreeBSD release, so `status` shows its version as
