@@ -178,6 +178,7 @@ version order. For each CVE and package:
 |---|---|
 | Fix available | The installed version is below the lowest version any record gives as fixing it |
 | Unfixed | The installed version is in an affected range and no record gives a fixed version |
+| Tracking bug open | A tracking bug tracks the vulnerability against the package's source, and no record gives a fix the installed version is below or has reached; the bug does not say the package is affected |
 | Not matched | The versions cannot be compared, or the package is a module build and the records give fixes for several module streams without saying which is its |
 | Not covered | No record names the package; this is not a statement that it is clean |
 
@@ -596,6 +597,7 @@ gives for it:
 | Dataset | What it is | Fetched from | Applies to | License |
 |---|---|---|---|---|
 | `epss` | FIRST's daily Exploit Prediction Scoring System scores | `epss.empiricalsecurity.com` | Every host | None stated |
+| `fedora-tracking-bugs` | The open security tracking bugs of the host's Fedora release | `bugzilla.redhat.com` | Fedora hosts | None stated |
 | `fedora-updates` | The updateinfo of the host's Fedora release, the file dnf reads | `dl.fedoraproject.org` | Fedora hosts | CC BY-SA 4.0 |
 | `kev` | CISA's Known Exploited Vulnerabilities catalog | `www.cisa.gov` | Every host | CC0 1.0 |
 | `osv-almalinux` | OSV's data for AlmaLinux | `storage.googleapis.com` | AlmaLinux hosts | MIT |
@@ -633,6 +635,22 @@ Critical, Important, Moderate, or Low, is placed on the scale as Red Hat's ratin
 and an update rated None states no severity. A release Fedora has archived is fetched from
 Fedora's archive, and `status` and every report that reads it say the release is
 archived and receives no updates.
+
+Fedora tracks a vulnerability it has not fixed as a security tracking bug in Red Hat
+Bugzilla, filed against the package's source and the release, or against rawhide for
+every release when its summary says `[fedora-all]`. `refresh` asks Bugzilla,
+anonymously, for the identifiers of the open tracking bugs of the host's release and
+of rawhide, then for the bugs 20 at a time, the most Bugzilla gives an anonymous
+request: about 320 requests and 6 minutes for Fedora 44 on 2026-11-27, so a refresh
+asks first, and `--yes` skips the question. It keeps each public bug's number,
+component, status, last change, and the CVEs its summary opens with, and not its
+summary; a bug naming no CVE is left out. A tracking bug is matched to each installed
+package built from its component, and shown as an open tracking bug with its number:
+Red Hat Product Security files these bugs on a best-effort basis, and whether a
+package is affected is its maintainer's to establish. A CVE an update has fixed at or
+below the installed build is not shown for its tracking bug, and one an update fixes
+above it is shown with that fix. No license states the terms of Bugzilla's bug data;
+owatch keeps facts of each bug alone.
 
 VuXML is the FreeBSD project's own document of the vulnerabilities of the Ports
 Collection, one file for every FreeBSD release, so `status` shows its version as

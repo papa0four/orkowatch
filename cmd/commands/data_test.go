@@ -360,7 +360,7 @@ func fetchable(t *testing.T, k dataset.Dataset) {
 // applies to, an origin a fetch for that host can start from, a limit on what
 // it may hold, and a license its manifest records. They are listed in name
 // order. CISA's catalog, FIRST's scores, OSV's data for five distributions,
-// Fedora's updates, and VuXML are among them, and a store without them lists
+// Fedora's updates and tracking bugs, and VuXML are among them, and a store without them lists
 // each that applies to the host as not held.
 func TestKnownDatasets(t *testing.T) {
 	seen := map[string]bool{}
@@ -374,7 +374,7 @@ func TestKnownDatasets(t *testing.T) {
 		ids = append(ids, id)
 		fetchable(t, k)
 	}
-	for _, id := range []string{"epss", "fedora-updates", "kev", "osv-almalinux", "osv-alpine", "osv-redhat", "osv-rocky", "osv-ubuntu", "vuxml"} {
+	for _, id := range []string{"epss", "fedora-tracking-bugs", "fedora-updates", "kev", "osv-almalinux", "osv-alpine", "osv-redhat", "osv-rocky", "osv-ubuntu", "vuxml"} {
 		if !seen[id] {
 			t.Errorf("the known datasets are %v, want %s among them", ids, id)
 		}

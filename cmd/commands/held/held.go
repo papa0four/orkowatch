@@ -68,10 +68,11 @@ func Known() []dataset.Dataset {
 }
 
 // Matched lists the datasets installed packages are matched against, of
-// which a host reads the one that applies to it: OSV's for each distribution
-// it covers, Fedora's updates, and VuXML on FreeBSD.
+// which a host reads those that apply to it, the first the one its match is
+// of: OSV's for each distribution it covers, Fedora's updates and then its
+// tracking bugs, and VuXML on FreeBSD.
 func Matched() []dataset.Dataset {
-	return append(osv.Datasets(), fedora.Updates{}, vuxml.Document{})
+	return append(osv.Datasets(), fedora.Updates{}, fedora.TrackingBugs{}, vuxml.Document{})
 }
 
 // ForHost is a run that reads this process's store, with the datasets owatch
