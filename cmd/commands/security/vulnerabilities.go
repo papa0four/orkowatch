@@ -79,7 +79,7 @@ func vulnerabilitiesTab(v vulnmatch.View) tui.Tab {
 		}
 	}
 	tab.Filters = []tui.Filter{
-		{Name: "status", Options: []string{tui.All, vulnmatch.StatusFixAvailable, vulnmatch.StatusUnfixed, statusNotMatched}, Start: start},
+		{Name: "status", Options: statusOptions(v), Start: start},
 		{Name: "severity", Options: severities, Start: tui.All, Tones: tones},
 	}
 	if banded {
@@ -88,6 +88,17 @@ func vulnerabilitiesTab(v vulnmatch.View) tui.Tab {
 		tab.Filters = append(tab.Filters, tui.Filter{Name: "known exploitation", Options: []string{tui.All, knownExploited, notKnownExploited}, Start: tui.All})
 	}
 	return tab
+}
+
+// / statusOptions are the statuses the tab filters by: those every match has,
+// and an open tracking bug when the match holds one, which only a source of
+// tracking bugs gives.
+func statusOptions(v vulnmatch.View) []string {
+	options := []string{tui.All, vulnmatch.StatusFixAvailable, vulnmatch.StatusUnfixed}
+	if v.Counts.Tracked > 0 {
+		options = append(options, vulnmatch.StatusTracked)
+	}
+	return append(options, statusNotMatched)
 }
 
 // useText names the dataset a match was marked or scored from and its

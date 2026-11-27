@@ -97,15 +97,19 @@ func matchedOptions(found vulnmatch.PackageMatches, affected bool) []string {
 	return options
 }
 
-// packageSummary counts a package's vulnerabilities, those with a fix and
-// those unfixed, and names the worst severity among them, in its tone.
+// packageSummary counts a package's vulnerabilities, those with a fix,
+// those unfixed, and those with a tracking bug open, and names the worst
+// severity among them, in its tone.
 func packageSummary(found vulnmatch.PackageMatches) tui.Line {
-	fixable, unfixed := 0, 0
+	fixable, unfixed, tracked := 0, 0, 0
 	worst := vulnmatch.Severity{Level: vulnmatch.LevelNone}
 	for _, v := range found.Vulnerabilities {
-		if v.Status == vulnmatch.StatusFixAvailable {
+		switch v.Status {
+		case vulnmatch.StatusFixAvailable:
 			fixable++
-		} else {
+		case vulnmatch.StatusTracked:
+			tracked++
+		default:
 			unfixed++
 		}
 		if v.Severity.Worse(worst) {
@@ -118,6 +122,9 @@ func packageSummary(found vulnmatch.PackageMatches) tui.Line {
 	}
 	if unfixed > 0 {
 		parts = append(parts, fmt.Sprintf("%d unfixed", unfixed))
+	}
+	if tracked > 0 {
+		parts = append(parts, fmt.Sprintf("%d with a tracking bug open", tracked))
 	}
 	summary := tui.Plain(strings.Join(parts, ", "))
 	if worst.Level != vulnmatch.LevelNone {

@@ -266,3 +266,25 @@ func TestVulnerabilityFilterTones(t *testing.T) {
 		t.Errorf("the severity filter's tones are %v", got)
 	}
 }
+
+// A match with a tracking bug open offers it as a status to filter by and
+// shows the bug's record, and a package's summary on the Software tab counts
+// it apart from the unfixed.
+func TestVulnerabilitiesTabTracked(t *testing.T) {
+	v := matchedView()
+	v.Packages = append(v.Packages, vulnmatch.PackageMatches{Package: "zstd", Installed: "1.5.7-1.fc44", Vulnerabilities: []vulnmatch.Vulnerability{
+		{ID: "CVE-2026-5", Status: vulnmatch.StatusTracked, Severity: vulnmatch.Severity{Level: vulnmatch.LevelNone}, Records: []string{"rhbz#2582942"}},
+	}})
+	v.Counts.Tracked, v.Counts.PackagesWithTracked = 1, 1
+	tab := vulnerabilitiesTab(v)
+	if !slices.Equal(tab.Filters[0].Options, []string{tui.All, "fix available", "unfixed", "tracking bug open", "not matched"}) {
+		t.Errorf("status options %q", tab.Filters[0].Options)
+	}
+	at := slices.IndexFunc(tab.Records, func(r tui.Record) bool { return strings.HasPrefix(r.Title, "CVE-2026-5") })
+	if at < 0 || tab.Records[at].Filters[0][0] != "tracking bug open" || !strings.Contains(tab.Records[at].Subtitle.String(), "tracking bug open") {
+		t.Fatalf("the tracking bug's record is %+v", tab.Records)
+	}
+	if got := packageSummary(v.Packages[len(v.Packages)-1]).String(); got != "1 with a tracking bug open" {
+		t.Errorf("the package's summary is %q", got)
+	}
+}
