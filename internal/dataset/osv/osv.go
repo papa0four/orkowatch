@@ -31,6 +31,7 @@ import (
 	"github.com/papa0four/orkowatch/internal/dataset"
 	"github.com/papa0four/orkowatch/internal/osfingerprint"
 	"github.com/papa0four/orkowatch/internal/softwarelist"
+	"github.com/papa0four/orkowatch/internal/vulnrecord"
 )
 
 const (
@@ -265,12 +266,12 @@ func (d Dump) Check(data io.Reader, host *osfingerprint.OSInfo) (dataset.Facts, 
 	return d.Records(data, host, nil)
 }
 
-// Records is Check that gives each record to each as it is judged, so the
-// records are read once and never held together. The records are sound only
+// Records is Check that gives each record to each as it is judged, in the
+// form matching reads, so the records are read once and never held together. The records are sound only
 // when Records returns no error: one that fails after some were given, as a
 // trailer that does not count them, means none of them may be used. An error
 // each returns ends the read.
-func (d Dump) Records(data io.Reader, host *osfingerprint.OSInfo, each func(Record) error) (dataset.Facts, error) {
+func (d Dump) Records(data io.Reader, host *osfingerprint.OSInfo, each func(vulnrecord.Record) error) (dataset.Facts, error) {
 	rel, err := d.releaseOf(host)
 	if err != nil {
 		return dataset.Facts{}, err
@@ -309,7 +310,7 @@ func (d Dump) Records(data io.Reader, host *osfingerprint.OSInfo, each func(Reco
 		}
 		got.add(line.Record)
 		if each != nil {
-			if err := each(line.Record); err != nil {
+			if err := each(line.matching()); err != nil {
 				return dataset.Facts{}, err
 			}
 		}

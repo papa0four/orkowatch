@@ -13,9 +13,9 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/papa0four/orkowatch/internal/dataset/osv"
 	"github.com/papa0four/orkowatch/internal/pkgversion"
 	"github.com/papa0four/orkowatch/internal/softwarelist"
+	"github.com/papa0four/orkowatch/internal/vulnrecord"
 )
 
 // moduleMarks are what the release of a package built for a module stream
@@ -63,7 +63,7 @@ type pair struct {
 	judgments []judgment
 	fixes     []string
 	records   []string
-	severity  []osv.Severity
+	severity  []vulnrecord.Score
 	ratings   []string
 	err       string
 }
@@ -113,7 +113,7 @@ func Named(e softwarelist.SoftwareEntry) (string, string) {
 }
 
 // Add judges one record against the installed packages it names.
-func (m *Matcher) Add(r osv.Record) error {
+func (m *Matcher) Add(r vulnrecord.Record) error {
 	ids := r.CVEs
 	if len(ids) == 0 {
 		ids = []string{r.ID}
@@ -133,7 +133,7 @@ func (m *Matcher) Add(r osv.Record) error {
 // note records what r said of the pair through its package a: the record,
 // and its judgment, fixed versions, and scores, or that the versions could
 // not be compared.
-func (p *pair) note(r osv.Record, a osv.Affected, j judgment, err error) {
+func (p *pair) note(r vulnrecord.Record, a vulnrecord.Affected, j judgment, err error) {
 	if !slices.Contains(p.records, r.ID) {
 		p.records = append(p.records, r.ID)
 	}
@@ -146,7 +146,7 @@ func (p *pair) note(r osv.Record, a osv.Affected, j judgment, err error) {
 	if r.Rating != "" {
 		p.ratings = appendNew(p.ratings, r.Rating)
 	}
-	for _, s := range r.Severity {
+	for _, s := range r.Scores {
 		if !slices.Contains(p.severity, s) {
 			p.severity = append(p.severity, s)
 		}
@@ -323,13 +323,14 @@ func isModuleBuild(version string) bool {
 	return slices.ContainsFunc(moduleMarks, func(mark string) bool { return strings.Contains(version, mark) })
 }
 
-// fixedIn lists the fixed versions ranges give.
-func fixedIn(ranges [][]osv.Event) []string {
+// fixedIn lists the fixed versions ranges give: the version of each Before
+// bound, which is the version that leaves the range.
+func fixedIn(ranges [][]vulnrecord.Bound) []string {
 	var fixes []string
-	for _, events := range ranges {
-		for _, e := range events {
-			if v, ok := e[eventFixed]; ok {
-				fixes = appendNew(fixes, v)
+	for _, bounds := range ranges {
+		for _, b := range bounds {
+			if b.Kind == vulnrecord.Before {
+				fixes = appendNew(fixes, b.Version)
 			}
 		}
 	}

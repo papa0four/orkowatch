@@ -11,8 +11,8 @@ import (
 	"github.com/papa0four/orkowatch/internal/dataset"
 	"github.com/papa0four/orkowatch/internal/dataset/epss"
 	"github.com/papa0four/orkowatch/internal/dataset/kev"
-	"github.com/papa0four/orkowatch/internal/dataset/osv"
 	"github.com/papa0four/orkowatch/internal/render"
+	"github.com/papa0four/orkowatch/internal/vulnrecord"
 )
 
 // The status of a match.
@@ -90,14 +90,14 @@ type PackageMatches struct {
 // catalog lists it as known to be exploited, the catalog's entry; and when
 // EPSS scores it, its score and percentile.
 type Vulnerability struct {
-	ID                string           `json:"id" yaml:"id"`
-	Status            string           `json:"status" yaml:"status"`
-	Fixed             string           `json:"fixed,omitempty" yaml:"fixed,omitempty"`
-	Severity          Severity         `json:"severity" yaml:"severity"`
-	Scores            []osv.Severity   `json:"scores,omitempty" yaml:"scores,omitempty"`
-	Records           []string         `json:"records" yaml:"records"`
-	KnownExploited    *kev.Entry       `json:"known_exploited,omitempty" yaml:"known_exploited,omitempty"`
-	ExploitPrediction *epss.Prediction `json:"exploit_prediction,omitempty" yaml:"exploit_prediction,omitempty"`
+	ID                string             `json:"id" yaml:"id"`
+	Status            string             `json:"status" yaml:"status"`
+	Fixed             string             `json:"fixed,omitempty" yaml:"fixed,omitempty"`
+	Severity          Severity           `json:"severity" yaml:"severity"`
+	Scores            []vulnrecord.Score `json:"scores,omitempty" yaml:"scores,omitempty"`
+	Records           []string           `json:"records" yaml:"records"`
+	KnownExploited    *kev.Entry         `json:"known_exploited,omitempty" yaml:"known_exploited,omitempty"`
+	ExploitPrediction *epss.Prediction   `json:"exploit_prediction,omitempty" yaml:"exploit_prediction,omitempty"`
 }
 
 // Exploited is a catalog of vulnerabilities known to be exploited, as a
