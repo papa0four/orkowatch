@@ -242,7 +242,7 @@ func TestCheckStopsAtTheExpandedLimit(t *testing.T) {
 // terms.
 func TestScoresStatesItsSource(t *testing.T) {
 	var d dataset.Dataset = Scores{}
-	origin := d.Origin()
+	origin := d.Origin(nil)
 	hosts, err := origin.Hosts()
 	if err != nil || len(hosts) != 1 || hosts[0] != "epss.empiricalsecurity.com" {
 		t.Errorf("hosts %q, %v; want FIRST's host for the file alone", hosts, err)

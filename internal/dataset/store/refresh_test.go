@@ -33,17 +33,18 @@ func (errBrief) Passing() bool { return true }
 // writes data, and a count of how many times it ran.
 func serving(data string, fails ...error) (Fetch, *int) {
 	calls := new(int)
-	return func(_ context.Context, _ dataset.Dataset, w io.Writer) error {
+	return func(_ context.Context, d dataset.Dataset, w io.Writer) (string, error) {
 		*calls++
+		source := d.Origin(nil).URL
 		if *calls <= len(fails) {
 			// A failed fetch may have written part of the data first.
 			if _, err := io.WriteString(w, data[:len(data)/2]); err != nil {
-				return err
+				return source, err
 			}
-			return fails[*calls-1]
+			return source, fails[*calls-1]
 		}
 		_, err := io.WriteString(w, data)
-		return err
+		return source, err
 	}, calls
 }
 
@@ -89,6 +90,30 @@ func TestRefreshInstalls(t *testing.T) {
 	}, Size: int64(len(content))}
 	if row != want {
 		t.Errorf("row %+v, want %+v", row, want)
+	}
+}
+
+// The manifest's source is the address the fetch says it fetched from, which
+// for an origin with more than one place or an index is not the origin's own
+// address; a fetch that gives no address is refused at the check, as a
+// manifest with no source is.
+func TestRefreshRecordsWhereItFetched(t *testing.T) {
+	s, _ := stores(t)
+	from := func(address string) Fetch {
+		return func(_ context.Context, _ dataset.Dataset, w io.Writer) (string, error) {
+			_, err := io.WriteString(w, content)
+			return address, err
+		}
+	}
+	const mirror = "https://mirror.example/repodata/0123-wanted.zst"
+	if got := refresh(t, s, from(mirror)); got.Result != Installed {
+		t.Fatalf("outcome %+v", got)
+	}
+	if row := rowOf(t, s, []dataset.Dataset{served}, "wanted"); row.Source != mirror || row.License != "CC0 1.0" {
+		t.Errorf("row %+v, want the source %s and the origin's terms", row, mirror)
+	}
+	if got := refresh(t, s, from("")); got.Result == Installed {
+		t.Errorf("a fetch that gave no address was installed: %+v", got)
 	}
 }
 
@@ -289,9 +314,9 @@ func TestRefreshStopsWhenUnreachable(t *testing.T) {
 	s, _ := stores(t)
 	other := testDataset{Name: "other", Applies: true, From: served.From}
 	var fetched []string
-	fetch := func(_ context.Context, d dataset.Dataset, _ io.Writer) error {
+	fetch := func(_ context.Context, d dataset.Dataset, _ io.Writer) (string, error) {
 		fetched = append(fetched, d.ID())
-		return errAway{}
+		return "", errAway{}
 	}
 	outcomes, err := s.Refresh(context.Background(), fetch, []dataset.Dataset{served, other}, &osfingerprint.OSInfo{}, now)
 	if !errors.Is(err, ErrUnreachable) || !strings.Contains(err.Error(), "no connection could be made") {

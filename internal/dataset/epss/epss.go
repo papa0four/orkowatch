@@ -131,8 +131,9 @@ func (Scores) Gives() string { return "exploit prediction" }
 func (Scores) MaxBytes() int64 { return maxBytes }
 
 // Origin is the address FIRST gives for the current file, which redirects
-// only within its own host, and owatch's statement of FIRST's terms.
-func (Scores) Origin() dataset.Origin {
+// only within its own host, and owatch's statement of FIRST's terms. The
+// scores are the same for every host.
+func (Scores) Origin(*osfingerprint.OSInfo) dataset.Origin {
 	return dataset.Origin{URL: feed, License: license, Attribution: attribution}
 }
 

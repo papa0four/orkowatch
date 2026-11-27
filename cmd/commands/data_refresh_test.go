@@ -5,6 +5,7 @@ package cmd
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -16,30 +17,45 @@ import (
 
 	"github.com/papa0four/orkowatch/internal/dataset"
 	"github.com/papa0four/orkowatch/internal/dataset/datasettest"
+	"github.com/papa0four/orkowatch/internal/dataset/fetch"
 	"github.com/papa0four/orkowatch/internal/dataset/store"
 	"github.com/papa0four/orkowatch/internal/osfingerprint"
 )
 
-// served stands in for the datasets' origins: the size each states, or the
-// error asking for it gives, what each sends, and a record of which were
-// fetched.
+// served stands in for the datasets' origins: the size each states, the
+// address each is found at when it is not its origin's own, or the error
+// locating it gives; what each sends; and a record of which were located and
+// which fetched, and from where.
 type served struct {
-	sizes    map[string]int64
-	sizeErrs map[string]error
-	fails    map[string]error
-	fetched  []string
+	sizes      map[string]int64
+	addresses  map[string]string
+	locateErrs map[string]error
+	fails      map[string]error
+	located    []string
+	fetched    []string
+	from       []string
 }
 
-func (s *served) Size(_ context.Context, d dataset.Dataset) (int64, bool, error) {
+func (s *served) Locate(_ context.Context, d dataset.Dataset, host *osfingerprint.OSInfo) (fetch.Source, error) {
+	s.located = append(s.located, d.ID())
+	if err := s.locateErrs[d.ID()]; err != nil {
+		return fetch.Source{}, err
+	}
+	origin := d.Origin(host)
+	address, ok := s.addresses[d.ID()]
+	if !ok {
+		address = origin.URL
+	}
 	size, stated := s.sizes[d.ID()]
-	return size, stated, s.sizeErrs[d.ID()]
+	return fetch.Source{Origin: origin, URL: address, Size: size, Stated: stated}, nil
 }
 
 // TimeLimit allows every download ten minutes.
 func (*served) TimeLimit(int64) time.Duration { return 10 * time.Minute }
 
-func (s *served) Fetch(_ context.Context, d dataset.Dataset, w io.Writer) error {
+func (s *served) Fetch(_ context.Context, d dataset.Dataset, src fetch.Source, w io.Writer) error {
 	s.fetched = append(s.fetched, d.ID())
+	s.from = append(s.from, src.URL)
 	if err := s.fails[d.ID()]; err != nil {
 		return err
 	}
@@ -335,17 +351,53 @@ func TestDataRefreshAtTheLargeLimit(t *testing.T) {
 	}
 }
 
-// A size request that fails is taken as no size stated: the most the dataset
-// may hold, named as up to that.
-func TestPlanRefreshWithASizeRequestThatFails(t *testing.T) {
-	d, _, origins := refreshing(t, false, "")
-	origins.sizeErrs = map[string]error{"wanted": errors.New("HEAD answered 500")}
+// A dataset that could not be located is taken as no size stated: the most
+// the dataset may hold, named as up to that from its origin's own address.
+// It is located again when it is fetched, and fetched from where it is then
+// found.
+func TestPlanRefreshWithALocateThatFails(t *testing.T) {
+	d, s, origins := refreshing(t, false, "")
+	origins.locateErrs = map[string]error{"wanted": errors.New("HEAD answered 500")}
 	plan, err := d.planRefresh(context.Background(), &osfingerprint.OSInfo{})
 	if err != nil || len(plan.datasets) != 1 {
 		t.Fatalf("plan %+v, %v", plan, err)
 	}
-	if p := plan.datasets[0]; p.stated || p.size != dataset.FetchLimit(p.dataset) || !strings.HasPrefix(p.String(), "wanted: up to ") {
-		t.Errorf("with the size request failing, planned %+v as %q", p, p.String())
+	p := plan.datasets[0]
+	if p.stated || p.size != dataset.FetchLimit(p.dataset) || p.String() != fmt.Sprintf("wanted: up to %s from https://data.example/wanted, allowed 10m0s", dataset.Size(p.size)) {
+		t.Errorf("with locating failing, planned %+v as %q", p, p.String())
+	}
+
+	delete(origins.locateErrs, "wanted")
+	origins.addresses = map[string]string{"wanted": "https://mirror.example/wanted"}
+	if _, err := plan.fetch(context.Background(), s, plan.datasets, dataNow, &steps{}); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(origins.located, []string{"wanted", "wanted"}) || !slices.Equal(origins.from, []string{"https://mirror.example/wanted"}) {
+		t.Errorf("located %q and fetched from %q", origins.located, origins.from)
+	}
+}
+
+// A dataset found somewhere other than its origin's own address is named by
+// where it was found, and fetched from there without being located again.
+func TestPlanRefreshNamesWhereItWasFound(t *testing.T) {
+	d, s, origins := refreshing(t, false, "")
+	origins.addresses = map[string]string{"wanted": "https://mirror.example/repodata/0123-wanted.zst"}
+	plan, err := d.planRefresh(context.Background(), &osfingerprint.OSInfo{})
+	if err != nil || len(plan.datasets) != 1 {
+		t.Fatalf("plan %+v, %v", plan, err)
+	}
+	if got, want := plan.datasets[0].String(), "wanted: 39 B from https://mirror.example/repodata/0123-wanted.zst, allowed 10m0s"; got != want {
+		t.Errorf("the line is %q, want %q", got, want)
+	}
+	if _, err := plan.fetch(context.Background(), s, plan.datasets, dataNow, &steps{}); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(origins.located, []string{"wanted"}) || !slices.Equal(origins.from, []string{"https://mirror.example/repodata/0123-wanted.zst"}) {
+		t.Errorf("located %q and fetched from %q", origins.located, origins.from)
+	}
+	view, err := s.Status(d.known, &osfingerprint.OSInfo{}, dataNow)
+	if err != nil || len(view.Datasets) != 1 || view.Datasets[0].Source != "https://mirror.example/repodata/0123-wanted.zst" {
+		t.Errorf("the store holds %+v, %v, want the source where it was found", view, err)
 	}
 }
 

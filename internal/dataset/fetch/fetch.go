@@ -10,9 +10,12 @@
 package fetch
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -20,12 +23,12 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"slices"
-	"strings"
+	"regexp"
 	"time"
 
 	"github.com/papa0four/orkowatch/internal/dataset"
 	"github.com/papa0four/orkowatch/internal/elevation"
+	"github.com/papa0four/orkowatch/internal/osfingerprint"
 )
 
 const (
@@ -74,6 +77,7 @@ type Error struct {
 	err         error
 	passing     bool
 	unreachable bool
+	missing     bool
 }
 
 func (e *Error) Error() string { return e.err.Error() }
@@ -154,29 +158,109 @@ func proxyFromEnvironment(*http.Request) (*url.URL, error) {
 	return proxy, nil
 }
 
-// Size asks the origin of d how large its data is. It reports false when the
-// server does not say.
-func (c *Client) Size(ctx context.Context, d dataset.Dataset) (int64, bool, error) {
-	ctx, cancel := context.WithTimeout(ctx, sizeTimeout)
-	defer cancel()
-	resp, err := c.do(ctx, http.MethodHead, d)
-	if err != nil {
-		return 0, false, err
-	}
-	if err := resp.Body.Close(); err != nil {
-		return 0, false, err
-	}
-	return resp.ContentLength, resp.ContentLength >= 0, nil
+// Source is where the data of a dataset is fetched from for one host: the
+// origin it was located through, the data's address, the SHA-256 the origin's
+// index states for it, empty when the origin has no index, and its size when
+// Stated.
+type Source struct {
+	Origin dataset.Origin
+	URL    string
+	SHA256 string
+	Size   int64
+	Stated bool
 }
 
-// Fetch writes the data of d to w as its origin serves it. It reads at most
-// what d's origin may serve. The download is allowed the time its stated
+// sumPattern is a SHA-256 written as an index must state one.
+var sumPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
+
+// Locate finds where the data of d is for host, trying the places its origin
+// names in order and moving on only from one that answers it holds nothing
+// there. An origin with no index is asked how large its data is; one with an
+// index has the index read for the data's address, checksum, and size, each
+// held to the origin before anything is fetched.
+func (c *Client) Locate(ctx context.Context, d dataset.Dataset, host *osfingerprint.OSInfo) (Source, error) {
+	origin := d.Origin(host)
+	if _, err := origin.Hosts(); err != nil {
+		return Source{}, &Error{err: err}
+	}
+	if origin.Index != nil && (origin.Index.MaxBytes <= 0 || origin.Index.Locate == nil) {
+		return Source{}, lasting("%s states an index without its limit and reader", d.ID())
+	}
+	ctx, cancel := context.WithTimeout(ctx, sizeTimeout)
+	defer cancel()
+	places := origin.Places()
+	for i, place := range places {
+		src, err := c.locateAt(ctx, d, origin, place)
+		var fe *Error
+		if err == nil || !errors.As(err, &fe) || !fe.missing || i == len(places)-1 {
+			return src, err
+		}
+	}
+	return Source{}, lasting("%s names no place to fetch from", d.ID())
+}
+
+// locateAt locates the data of d at place, one of origin's places.
+func (c *Client) locateAt(ctx context.Context, d dataset.Dataset, origin dataset.Origin, place string) (src Source, err error) {
+	method := http.MethodHead
+	if origin.Index != nil {
+		method = http.MethodGet
+	}
+	resp, err := c.do(ctx, method, origin, place)
+	if err != nil {
+		return Source{}, err
+	}
+	defer func() { err = errors.Join(err, resp.Body.Close()) }()
+	if origin.Index == nil {
+		return Source{Origin: origin, URL: place, Size: resp.ContentLength, Stated: resp.ContentLength >= 0}, nil
+	}
+
+	index, err := io.ReadAll(io.LimitReader(resp.Body, origin.Index.MaxBytes+1))
+	switch {
+	case err != nil:
+		return Source{}, failure(ctx, fmt.Errorf("read %s: %w", place, err))
+	case int64(len(index)) > origin.Index.MaxBytes:
+		return Source{}, lasting("the index at %s is more than the %d bytes it may hold", place, origin.Index.MaxBytes)
+	}
+	at, err := url.Parse(place)
+	if err != nil {
+		return Source{}, &Error{err: err}
+	}
+	loc, err := origin.Index.Locate(bytes.NewReader(index), at)
+	if err != nil {
+		return Source{}, lasting("the index at %s: %w", place, err)
+	}
+	return located(d, origin, place, loc)
+}
+
+// located is the source an index at place gives, held to origin: an address
+// the origin allows, a SHA-256 written in full, and a size the dataset's
+// origin may serve.
+func located(d dataset.Dataset, origin dataset.Origin, place string, loc dataset.Location) (Source, error) {
+	u, err := url.Parse(loc.URL)
+	if err != nil {
+		return Source{}, lasting("the index at %s gives %q, which is not an address", place, loc.URL)
+	}
+	if err := origin.Allows(u); err != nil {
+		return Source{}, lasting("the index at %s gives an address that is refused: %w", place, err)
+	}
+	if !sumPattern.MatchString(loc.SHA256) {
+		return Source{}, lasting("the index at %s gives no SHA-256 for %s", place, u.Redacted())
+	}
+	if limit := dataset.FetchLimit(d); loc.Size <= 0 || loc.Size > limit {
+		return Source{}, lasting("the index at %s gives %s as %d bytes, where the dataset's origin may serve 1 to %d", place, u.Redacted(), loc.Size, limit)
+	}
+	return Source{Origin: origin, URL: loc.URL, SHA256: loc.SHA256, Size: loc.Size, Stated: true}, nil
+}
+
+// Fetch writes the data of d to w from src, where Locate found it. It reads
+// at most what d's origin may serve, and refuses data whose checksum is not
+// the one src's index states. The download is allowed the time its stated
 // size needs, or the most it may serve when the server does not say, and is
 // ended when it receives nothing for the stall time.
-func (c *Client) Fetch(ctx context.Context, d dataset.Dataset, w io.Writer) (err error) {
+func (c *Client) Fetch(ctx context.Context, d dataset.Dataset, src Source, w io.Writer) (err error) {
 	ctx, cancel := context.WithCancelCause(ctx)
 	defer cancel(nil)
-	resp, err := c.do(ctx, http.MethodGet, d)
+	resp, err := c.do(ctx, http.MethodGet, src.Origin, src.URL)
 	if err != nil {
 		return err
 	}
@@ -184,7 +268,7 @@ func (c *Client) Fetch(ctx context.Context, d dataset.Dataset, w io.Writer) (err
 
 	limit := dataset.FetchLimit(d)
 	if resp.ContentLength > limit {
-		return lasting("%s is %d bytes, more than the %d the dataset's origin may serve", d.Origin().URL, resp.ContentLength, limit)
+		return lasting("%s is %d bytes, more than the %d the dataset's origin may serve", src.URL, resp.ContentLength, limit)
 	}
 	size := resp.ContentLength
 	if size < 0 {
@@ -198,12 +282,16 @@ func (c *Client) Fetch(ctx context.Context, d dataset.Dataset, w io.Writer) (err
 	})}
 	defer body.timer.Stop()
 
-	n, err := io.Copy(w, io.LimitReader(body, limit+1))
+	hash := sha256.New()
+	n, err := io.Copy(io.MultiWriter(w, hash), io.LimitReader(body, limit+1))
 	switch {
 	case err != nil:
-		return failure(ctx, fmt.Errorf("read %s: %w", d.Origin().URL, err))
+		return failure(ctx, fmt.Errorf("read %s: %w", src.URL, err))
 	case n > limit:
-		return lasting("%s sent more than the %d bytes the dataset's origin may serve", d.Origin().URL, limit)
+		return lasting("%s sent more than the %d bytes the dataset's origin may serve", src.URL, limit)
+	}
+	if sum := hex.EncodeToString(hash.Sum(nil)); src.SHA256 != "" && sum != src.SHA256 {
+		return lasting("%s is not the file its index names: its SHA-256 is %s, where the index states %s", src.URL, sum, src.SHA256)
 	}
 	return nil
 }
@@ -224,31 +312,36 @@ func (w *watched) Read(p []byte) (int, error) {
 	return n, err
 }
 
-// do sends one request for d and returns the answer when it is 200. Every
-// redirect is held to d's own hosts, and the request carries the fixed
-// headers and no other that owatch chooses.
-func (c *Client) do(ctx context.Context, method string, d dataset.Dataset) (*http.Response, error) {
-	origin := d.Origin()
-	hosts, err := origin.Hosts()
+// do sends one request for address, one of origin's, and returns the answer
+// when it is 200. The address and every redirect are held to origin's hosts,
+// and the request carries the fixed headers and no other that owatch
+// chooses. An answer that the server holds nothing there is a failure marked
+// missing, so a fetch can look in the origin's next place.
+func (c *Client) do(ctx context.Context, method string, origin dataset.Origin, address string) (*http.Response, error) {
+	u, err := url.Parse(address)
 	if err != nil {
 		return nil, &Error{err: err}
 	}
-	req, err := http.NewRequestWithContext(ctx, method, origin.URL, nil)
+	if err := origin.Allows(u); err != nil {
+		return nil, &Error{err: err}
+	}
+	req, err := http.NewRequestWithContext(ctx, method, address, nil)
 	if err != nil {
 		return nil, &Error{err: err}
 	}
 	req.Header.Set("User-Agent", userAgent)
 	req.Header.Set("Accept-Encoding", "identity")
 
-	client := &http.Client{Transport: c.transport, CheckRedirect: redirectWithin(hosts)}
+	client := &http.Client{Transport: c.transport, CheckRedirect: redirectWithin(origin)}
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, failure(ctx, err)
 	}
 	if resp.StatusCode != http.StatusOK {
 		status := &Error{
-			err:     fmt.Errorf("%s answered %s", origin.URL, resp.Status),
+			err:     fmt.Errorf("%s answered %s", address, resp.Status),
 			passing: resp.StatusCode >= http.StatusInternalServerError || resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode == http.StatusRequestTimeout,
+			missing: resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusGone,
 		}
 		return nil, errors.Join(status, resp.Body.Close())
 	}
@@ -262,19 +355,17 @@ var (
 	errProxy    = errors.New("proxy unusable")
 )
 
-// redirectWithin returns the rule for following a redirect: only to an HTTPS
-// address on one of hosts, and only so many times. The address a request was
+// redirectWithin returns the rule for following a redirect: only to an
+// address origin allows, and only so many times. The address a request was
 // redirected from is not sent on.
-func redirectWithin(hosts []string) func(*http.Request, []*http.Request) error {
+func redirectWithin(origin dataset.Origin) func(*http.Request, []*http.Request) error {
 	return func(req *http.Request, via []*http.Request) error {
 		req.Header.Del("Referer")
-		switch {
-		case len(via) >= maxRedirects:
+		if len(via) >= maxRedirects {
 			return fmt.Errorf("%w: more than %d redirects", errRedirect, maxRedirects)
-		case req.URL.Scheme != "https":
-			return fmt.Errorf("%w: %s is not an HTTPS address", errRedirect, req.URL.Redacted())
-		case !slices.Contains(hosts, strings.ToLower(req.URL.Hostname())):
-			return fmt.Errorf("%w: %s is not a host this dataset is fetched from", errRedirect, req.URL.Hostname())
+		}
+		if err := origin.Allows(req.URL); err != nil {
+			return fmt.Errorf("%w: %w", errRedirect, err)
 		}
 		return nil
 	}

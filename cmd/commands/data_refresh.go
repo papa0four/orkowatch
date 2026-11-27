@@ -29,12 +29,13 @@ import (
 // fetched, so a first refresh over a metered or slow link is a choice.
 const largeDownload = 100 << 20
 
-// fetcher is what brings a dataset from its origin: how large it is there,
-// how long a download of that size is allowed, and its data.
+// fetcher is what brings a dataset from its origin: where its data is for a
+// host and how large it is there, how long a download of that size is
+// allowed, and the data from where it was found.
 type fetcher interface {
-	Size(ctx context.Context, d dataset.Dataset) (size int64, stated bool, err error)
+	Locate(ctx context.Context, d dataset.Dataset, host *osfingerprint.OSInfo) (fetch.Source, error)
 	TimeLimit(size int64) time.Duration
-	Fetch(ctx context.Context, d dataset.Dataset, w io.Writer) error
+	Fetch(ctx context.Context, d dataset.Dataset, src fetch.Source, w io.Writer) error
 }
 
 // newFetcher returns the fetcher that connects to the datasets' origins.
@@ -167,10 +168,14 @@ func (d *dataCmd) runRefresh(ctx context.Context, out, prompt io.Writer, to, for
 }
 
 // planned is a dataset a refresh would fetch and what its download is to be:
-// its size, as its origin states it or, when the origin states none, the most
-// a fetch may read, and the time the download is allowed.
+// where its data was found, or why it was not; the address the download is
+// named by; its size, as its origin states it or, when the origin states
+// none, the most a fetch may read; and the time the download is allowed.
 type planned struct {
 	dataset dataset.Dataset
+	source  fetch.Source
+	missed  error
+	address string
 	size    int64
 	stated  bool
 	allowed time.Duration
@@ -190,7 +195,7 @@ func (p planned) described() string {
 
 // String is the line a refresh states the download in before it begins.
 func (p planned) String() string {
-	return fmt.Sprintf("%s: %s from %s, allowed %s", p.dataset.ID(), p.described(), p.dataset.Origin().URL, p.allowed)
+	return fmt.Sprintf("%s: %s from %s, allowed %s", p.dataset.ID(), p.described(), p.address, p.allowed)
 }
 
 // brief is the line without the address the data is fetched from, for the
@@ -209,10 +214,12 @@ type refreshPlan struct {
 	f        fetcher
 }
 
-// planRefresh is the refresh of the datasets that apply to host, each sized
-// by its origin. It writes and asks nothing, opens no connection but the size
-// requests, and refuses an elevated process before building a fetcher, so no
-// caller can plan a refresh that runs elevated.
+// planRefresh is the refresh of the datasets that apply to host, each located
+// and sized by its origin. It writes and asks nothing, opens no connection but
+// those that locate and size the data, and refuses an elevated process before
+// building a fetcher, so no caller can plan a refresh that runs elevated. A
+// dataset that could not be located is still planned, by its origin's first
+// address, and is located again when it is fetched.
 func (d *dataCmd) planRefresh(ctx context.Context, host *osfingerprint.OSInfo) (refreshPlan, error) {
 	if d.elevated() {
 		return refreshPlan{}, errRefreshElevated
@@ -233,26 +240,46 @@ func (d *dataCmd) planRefresh(ctx context.Context, host *osfingerprint.OSInfo) (
 	}
 	plan.f = f
 	for _, w := range wanted {
-		size, stated, err := f.Size(ctx, w)
-		if stated = stated && err == nil; !stated {
+		src, err := f.Locate(ctx, w, host)
+		p := planned{dataset: w, source: src, missed: err, address: src.URL, size: src.Size, stated: src.Stated && err == nil}
+		if err != nil {
+			p.address = w.Origin(host).URL
+		}
+		if !p.stated {
 			// The server did not say, so the most its file may hold is
 			// what a fetch could read.
-			size = dataset.FetchLimit(w)
+			p.size = dataset.FetchLimit(w)
 		}
-		plan.datasets = append(plan.datasets, planned{dataset: w, size: size, stated: stated, allowed: f.TimeLimit(size)})
+		p.allowed = f.TimeLimit(p.size)
+		plan.datasets = append(plan.datasets, p)
 	}
 	return plan, nil
 }
 
 // fetch fetches chosen, datasets of the plan, into dest, telling progress each
-// step, and returns what came of each. A refresh that can make no connection
-// ends with store.ErrUnreachable.
+// step, and returns what came of each. Each is fetched from where the plan
+// found it, through every attempt, so what is fetched is what was named; one
+// the plan could not locate is located again first. A refresh that can make
+// no connection ends with store.ErrUnreachable.
 func (p refreshPlan) fetch(ctx context.Context, dest store.Store, chosen []planned, now time.Time, progress store.Progress) ([]store.Outcome, error) {
 	datasets := make([]dataset.Dataset, len(chosen))
-	for i, c := range chosen {
-		datasets[i] = c.dataset
+	found := make(map[string]*planned, len(chosen))
+	for i := range chosen {
+		datasets[i] = chosen[i].dataset
+		found[chosen[i].dataset.ID()] = &chosen[i]
 	}
-	return dest.Reporting(progress).Refresh(ctx, p.f.Fetch, datasets, p.host, now)
+	from := func(ctx context.Context, d dataset.Dataset, w io.Writer) (string, error) {
+		c := found[d.ID()]
+		if c.missed != nil {
+			src, err := p.f.Locate(ctx, d, p.host)
+			if err != nil {
+				return "", err
+			}
+			c.source, c.missed = src, nil
+		}
+		return c.source.URL, p.f.Fetch(ctx, d, c.source, w)
+	}
+	return dest.Reporting(progress).Refresh(ctx, from, datasets, p.host, now)
 }
 
 // noNetwork is the end of a refresh that could make no connection, with the

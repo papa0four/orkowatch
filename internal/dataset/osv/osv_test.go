@@ -123,7 +123,7 @@ func TestDatasets(t *testing.T) {
 		if !dataset.ValidID(d.ID()) || d.FetchMaxBytes() < 4*measured[d.ID()] || d.MaxBytes() <= 0 {
 			t.Errorf("%s: id %q may fetch %d and keep %d bytes", d.ID(), d.ID(), d.FetchMaxBytes(), d.MaxBytes())
 		}
-		if hosts, err := d.Origin().Hosts(); err != nil || len(hosts) != 1 || hosts[0] != "storage.googleapis.com" {
+		if hosts, err := d.Origin(nil).Hosts(); err != nil || len(hosts) != 1 || hosts[0] != "storage.googleapis.com" {
 			t.Errorf("%s: hosts %q, %v", d.ID(), hosts, err)
 		}
 	}
@@ -146,7 +146,7 @@ func TestDatasets(t *testing.T) {
 		"osv-rocky":     {"https://storage.googleapis.com/osv-vulnerabilities/Rocky%20Linux/all.zip", "BSD"},
 		"osv-ubuntu":    {"https://storage.googleapis.com/osv-vulnerabilities/Ubuntu/all.zip", "CC-BY-SA 4.0"},
 	} {
-		if o := dump(t, id).Origin(); o.URL != want[0] || o.License != want[1] || o.Attribution == "" {
+		if o := dump(t, id).Origin(nil); o.URL != want[0] || o.License != want[1] || o.Attribution == "" {
 			t.Errorf("%s: origin %+v", id, o)
 		}
 	}

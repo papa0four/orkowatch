@@ -17,7 +17,7 @@ import (
 // the dataset itself gives them, so the two cannot drift apart.
 func TestNoticesStateWhatReportsAttribute(t *testing.T) {
 	for _, d := range []dataset.Dataset{epss.Scores{}, kev.Catalog{}, vuxml.Document{}} {
-		origin := d.Origin()
+		origin := d.Origin(nil)
 		if !strings.Contains(Text(), origin.URL) || !strings.Contains(Text(), origin.Attribution) {
 			t.Errorf("the notices do not state %s's address %q and attribution %q", d.ID(), origin.URL, origin.Attribution)
 		}

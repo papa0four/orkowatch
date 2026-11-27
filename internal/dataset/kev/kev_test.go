@@ -218,7 +218,7 @@ func TestCatalogStatesItsSource(t *testing.T) {
 	if !dataset.ValidID(c.ID()) || !c.AppliesTo(nil) {
 		t.Errorf("ID %q valid = %v, applies to any host = %v", c.ID(), dataset.ValidID(c.ID()), c.AppliesTo(nil))
 	}
-	hosts, err := c.Origin().Hosts()
+	hosts, err := c.Origin(nil).Hosts()
 	if err != nil || len(hosts) != 1 || hosts[0] != "www.cisa.gov" {
 		t.Errorf("hosts a fetch may reach = %q, %v, want www.cisa.gov alone", hosts, err)
 	}
@@ -226,9 +226,9 @@ func TestCatalogStatesItsSource(t *testing.T) {
 	sum := sha256.Sum256(data)
 	now := time.Date(2026, 11, 23, 13, 0, 0, 0, time.UTC)
 	m := dataset.Manifest{
-		Format: dataset.ManifestFormat, ID: c.ID(), Source: c.Origin().URL, Fetched: now,
+		Format: dataset.ManifestFormat, ID: c.ID(), Source: c.Origin(nil).URL, Fetched: now,
 		SHA256: hex.EncodeToString(sum[:]), Size: int64(len(data)),
-		License: c.Origin().License, Attribution: c.Origin().Attribution,
+		License: c.Origin(nil).License, Attribution: c.Origin(nil).Attribution,
 	}
 	if err := m.Validate(c, now); err != nil {
 		t.Errorf("a manifest of the recorded catalog was refused: %v", err)

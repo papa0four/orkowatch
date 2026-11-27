@@ -98,8 +98,8 @@ func (Catalog) Gives() string { return "known exploitation" }
 func (Catalog) MaxBytes() int64 { return maxBytes }
 
 // Origin is CISA's own address for the catalog, which redirects nowhere, and
-// the terms of its license file.
-func (Catalog) Origin() dataset.Origin {
+// the terms of its license file. The catalog is the same for every host.
+func (Catalog) Origin(*osfingerprint.OSInfo) dataset.Origin {
 	return dataset.Origin{URL: feed, License: license, Attribution: attribution}
 }
 
