@@ -641,8 +641,8 @@ Bugzilla, filed against the package's source and the release, or against rawhide
 every release when its summary says `[fedora-all]`. `refresh` asks Bugzilla,
 anonymously, for the identifiers of the open tracking bugs of the host's release and
 of rawhide, then for the bugs 20 at a time, the most Bugzilla gives an anonymous
-request: about 320 requests and 6 minutes for Fedora 44 on 2026-11-27, so a refresh
-asks first, and `--yes` skips the question. It keeps each public bug's number,
+request: 327 requests, fetched in under 3 minutes, for Fedora 44 on 2026-11-27, so a
+refresh asks first, and `--yes` skips the question. It keeps each public bug's number,
 component, status, last change, and the CVEs its summary opens with, and not its
 summary; a bug naming no CVE is left out. A tracking bug is matched to each installed
 package built from its component, and shown as an open tracking bug with its number:
