@@ -39,7 +39,7 @@ func vulnerabilitiesTab(v vulnmatch.View) tui.Tab {
 	}
 	against := matchedAgainst(v)
 	banded := v.KnownExploited != nil && v.KnownExploited.NotDone == ""
-	data := matchData{view: v, against: against, exploitation: useText(v.KnownExploited), prediction: useText(v.ExploitPrediction), banded: banded}
+	data := matchData{view: v, against: against, also: alsoText(v), exploitation: useText(v.KnownExploited), prediction: useText(v.ExploitPrediction), banded: banded}
 
 	present := map[string]bool{}
 	for _, l := range v.InOrder() {
@@ -111,6 +111,17 @@ func useText(use *dataset.Use) string {
 	return safeLines(strings.Join(use.Lines(), "\n"))
 }
 
+// alsoText names each further dataset a match read records from, with its
+// attribution, or why it read nothing from one; it is empty for a match of
+// one dataset.
+func alsoText(v vulnmatch.View) string {
+	var lines []string
+	for i := range v.Also {
+		lines = append(lines, v.Also[i].Lines()...)
+	}
+	return safeLines(strings.Join(lines, "\n"))
+}
+
 // matchedAgainst names the dataset a match was made against, its release, its
 // date, and its state, on one line.
 func matchedAgainst(v vulnmatch.View) string {
@@ -122,9 +133,29 @@ func matchedAgainst(v vulnmatch.View) string {
 // vulnerabilities and the EPSS scores file as their detail describes them,
 // and whether the records are banded by the catalog.
 type matchData struct {
-	view                              vulnmatch.View
-	against, exploitation, prediction string
-	banded                            bool
+	view                                    vulnmatch.View
+	against, also, exploitation, prediction string
+	banded                                  bool
+}
+
+// / fields are what a record of found shows of the match as a whole: the
+// records that name found, the datasets it was matched against, and the
+// catalog and scores it was marked and scored from.
+func (data matchData) fields(found vulnmatch.Vulnerability) []tui.SummaryLine {
+	fields := []tui.SummaryLine{
+		{Label: "records", Value: safeLines(strings.Join(found.Records, ", "))},
+		{Label: "matched against", Value: data.against},
+	}
+	for _, f := range []tui.SummaryLine{
+		{Label: "also matched against", Value: data.also},
+		{Label: "known exploitation", Value: data.exploitation},
+		{Label: "exploit prediction data", Value: data.prediction},
+	} {
+		if f.Value != "" {
+			fields = append(fields, f)
+		}
+	}
+	return fields
 }
 
 // vulnerabilityRecord is one vulnerability of an affected package as the tab
@@ -183,15 +214,7 @@ func vulnerabilityRecord(pkg vulnmatch.PackageMatches, found vulnmatch.Vulnerabi
 				"percentile %s, the proportion of all scored vulnerabilities with the same score or lower",
 			epss.Percent(p.Score), epss.Percent(p.Percentile))})
 	}
-	fields = append(fields,
-		tui.SummaryLine{Label: "records", Value: safeLines(strings.Join(found.Records, ", "))},
-		tui.SummaryLine{Label: "matched against", Value: data.against})
-	if data.exploitation != "" {
-		fields = append(fields, tui.SummaryLine{Label: "known exploitation", Value: data.exploitation})
-	}
-	if data.prediction != "" {
-		fields = append(fields, tui.SummaryLine{Label: "exploit prediction data", Value: data.prediction})
-	}
+	fields = append(fields, data.fields(found)...)
 	record := tui.Record{
 		Title:    safeLines(found.ID + "  " + pkg.Package),
 		Subtitle: subtitle,

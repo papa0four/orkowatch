@@ -46,6 +46,11 @@ type View struct {
 	// Order is the version order the packages were compared in.
 	Order string `json:"version_order,omitempty" yaml:"version_order,omitempty"`
 
+	// Also is each further dataset the match read records from beside the
+	// one it is of, such as a release's tracking bugs, or why it read
+	// nothing from one.
+	Also []dataset.Use `json:"also_matched_against,omitempty" yaml:"also_matched_against,omitempty"`
+
 	// KnownExploited is the catalog of known-exploited vulnerabilities the
 	// match was marked from, or why it was not, for a match that was made.
 	KnownExploited *dataset.Use `json:"known_exploited_data,omitempty" yaml:"known_exploited_data,omitempty"`
@@ -234,6 +239,16 @@ func WriteText(w io.Writer, v View) error {
 		return ew.Err()
 	}
 	ew.Printf("%s\n", render.HostText("Matched against "+v.About()))
+	for _, also := range v.Also {
+		if also.NotDone != "" {
+			ew.Printf("%s\n", render.HostText("Also not read: "+also.NotDone))
+			continue
+		}
+		ew.Printf("%s\n", render.HostText("Also matched against "+also.About()))
+		if also.Attribution != "" {
+			ew.Printf("  %s\n", render.HostText(also.Attribution))
+		}
+	}
 	c := v.Counts
 	ew.Printf("%s\n", render.HostText(fmt.Sprintf("%s matched: %s with a fix available in %s, %s in %s, %s not matched, %s no record covers",
 		render.Count(c.Packages, "package", "packages"),

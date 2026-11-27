@@ -713,3 +713,21 @@ func TestWriteTextTracked(t *testing.T) {
 		t.Errorf("a match with no tracking bug names them:\n%s", b.String())
 	}
 }
+
+// A match that read a further dataset names it under the one the match is
+// of, with its attribution, and one it could not read says why.
+func TestWriteTextAlso(t *testing.T) {
+	v := exploitedView()
+	v.Also = []dataset.Use{
+		{Provenance: dataset.Provenance{ID: "fedora-tracking-bugs", Version: "Fedora 44", DataDate: "2026-11-27", State: dataset.StateCurrent, Attribution: "Red Hat Bugzilla"}},
+		{Provenance: dataset.Provenance{ID: "other"}, NotDone: "other is not held; fetch it with owatch data refresh"},
+	}
+	var b strings.Builder
+	if err := WriteText(&b, v); err != nil {
+		t.Fatal(err)
+	}
+	want := "Also matched against fedora-tracking-bugs, Fedora 44, data of 2026-11-27, current\n  Red Hat Bugzilla\nAlso not read: other is not held; fetch it with owatch data refresh\n"
+	if !strings.Contains(b.String(), want) {
+		t.Errorf("the text holds no\n%s\nin\n%s", want, b.String())
+	}
+}

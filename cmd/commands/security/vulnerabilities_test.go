@@ -276,6 +276,7 @@ func TestVulnerabilitiesTabTracked(t *testing.T) {
 		{ID: "CVE-2026-5", Status: vulnmatch.StatusTracked, Severity: vulnmatch.Severity{Level: vulnmatch.LevelNone}, Records: []string{"rhbz#2582942"}},
 	}})
 	v.Counts.Tracked, v.Counts.PackagesWithTracked = 1, 1
+	v.Also = []dataset.Use{{Provenance: dataset.Provenance{ID: "fedora-tracking-bugs", Version: "Fedora 44", DataDate: "2026-11-27", State: dataset.StateCurrent, Attribution: "Red Hat Bugzilla"}}}
 	tab := vulnerabilitiesTab(v)
 	if !slices.Equal(tab.Filters[0].Options, []string{tui.All, "fix available", "unfixed", "tracking bug open", "not matched"}) {
 		t.Errorf("status options %q", tab.Filters[0].Options)
@@ -283,6 +284,9 @@ func TestVulnerabilitiesTabTracked(t *testing.T) {
 	at := slices.IndexFunc(tab.Records, func(r tui.Record) bool { return strings.HasPrefix(r.Title, "CVE-2026-5") })
 	if at < 0 || tab.Records[at].Filters[0][0] != "tracking bug open" || !strings.Contains(tab.Records[at].Subtitle.String(), "tracking bug open") {
 		t.Fatalf("the tracking bug's record is %+v", tab.Records)
+	}
+	if got := field(tab.Records[at], "also matched against"); got != "fedora-tracking-bugs, Fedora 44, data of 2026-11-27, current\nRed Hat Bugzilla" {
+		t.Errorf("the record names the further dataset as %q", got)
 	}
 	if got := packageSummary(v.Packages[len(v.Packages)-1]).String(); got != "1 with a tracking bug open" {
 		t.Errorf("the package's summary is %q", got)
