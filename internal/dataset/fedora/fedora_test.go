@@ -4,12 +4,14 @@ package fedora
 
 import (
 	"bytes"
+	"compress/gzip"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"io"
 	"net/url"
 	"os"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -75,12 +77,33 @@ func compressed(t *testing.T, document string) []byte {
 	return b.Bytes()
 }
 
-// records reads data for host and returns what each update gave, by its
-// identifier.
-func records(t *testing.T, data []byte, host *osfingerprint.OSInfo) (map[string]vulnrecord.Record, dataset.Facts, error) {
+// keptOf is what Keep keeps for host of fetched, a file as Fedora serves it.
+func keptOf(fetched []byte, host *osfingerprint.OSInfo) ([]byte, error) {
+	var kept bytes.Buffer
+	err := Updates{}.Keep(bytes.NewReader(fetched), int64(len(fetched)), host, &kept)
+	return kept.Bytes(), err
+}
+
+// mustKeep is keptOf that fails the test when Keep refuses the file.
+func mustKeep(t *testing.T, fetched []byte, host *osfingerprint.OSInfo) []byte {
 	t.Helper()
+	kept, err := keptOf(fetched, host)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return kept
+}
+
+// records keeps fetched, a file as Fedora serves it, for host and reads what
+// was kept, returning what each update gave, by its identifier.
+func records(t *testing.T, fetched []byte, host *osfingerprint.OSInfo) (map[string]vulnrecord.Record, dataset.Facts, error) {
+	t.Helper()
+	kept, err := keptOf(fetched, host)
+	if err != nil {
+		return nil, dataset.Facts{}, err
+	}
 	got := map[string]vulnrecord.Record{}
-	facts, err := Updates{}.Records(bytes.NewReader(data), host, func(r vulnrecord.Record) error {
+	facts, err := Updates{}.Records(bytes.NewReader(kept), host, func(r vulnrecord.Record) error {
 		if _, seen := got[r.ID]; seen {
 			t.Errorf("%s was given twice", r.ID)
 		}
@@ -110,9 +133,10 @@ func TestUpdatesStatesItself(t *testing.T) {
 			t.Errorf("%+v: applies %v, want %v", host, !applies, applies)
 		}
 	}
-	if u.ID() != "fedora-updates" || !dataset.ValidID(u.ID()) || u.MaxBytes() != 16<<20 || u.Manager() != softwarelist.ManagerRPM || u.Combining() != vulnrecord.AnyRange {
-		t.Errorf("states %q, %d, %q, %v", u.ID(), u.MaxBytes(), u.Manager(), u.Combining())
+	if u.ID() != "fedora-updates" || !dataset.ValidID(u.ID()) || u.FetchMaxBytes() != 16<<20 || u.MaxBytes() != 8<<20 || u.Manager() != softwarelist.ManagerRPM || u.Combining() != vulnrecord.AnyRange {
+		t.Errorf("states %q, %d, %d, %q, %v", u.ID(), u.FetchMaxBytes(), u.MaxBytes(), u.Manager(), u.Combining())
 	}
+	var _ dataset.Keeper = u
 	if rel, err := u.Release(f44); err != nil || rel != "Fedora 44" {
 		t.Errorf("release %q, %v", rel, err)
 	}
@@ -273,7 +297,7 @@ func TestRecordsOfTheExcerpt(t *testing.T) {
 // the build as the fix; one at the build is not; and one whose epoch is
 // higher than the build's is not, whatever its version.
 func TestMatchesAsDnfDoes(t *testing.T) {
-	data := testdata(t, excerpt, excerptSum)
+	data := mustKeep(t, testdata(t, excerpt, excerptSum), f44)
 	match := func(name, version string) []string {
 		t.Helper()
 		m, err := vulnmatch.New(softwarelist.ManagerRPM, Updates{}.Combining(), []softwarelist.SoftwareEntry{{Name: name, Version: version, Manager: softwarelist.ManagerRPM, Architecture: "x86_64"}})
@@ -323,10 +347,10 @@ func updateOf(release, packages string) string {
 // pkg is a package element of an update.
 const pkg = `<package name="speex" version="1.2.1" release="4.fc44" epoch="0" arch="x86_64" src="x"><filename>x</filename></package>`
 
-// A file that is not updateinfo, is cut short, expands past its limit, holds
-// no update of the host's release, holds an entity, or holds an update that
-// is not in updateinfo's form is refused, naming why; so is a host the
-// dataset is not for.
+// A file that is not updateinfo, is cut short, holds no security update of
+// the host's release, holds an entity, or holds a security update of the
+// release that is not in updateinfo's form is refused when it is kept,
+// naming why; so is a host the dataset is not for.
 func TestRefuses(t *testing.T) {
 	whole := func(updates string) string { return `<?xml version="1.0"?><updates>` + updates + `</updates>` }
 	cases := map[string]struct {
@@ -336,12 +360,14 @@ func TestRefuses(t *testing.T) {
 		"not zstd":                 {[]byte("<updates/>"), "magic"},
 		"another document":         {compressed(t, `<vuxml/>`), "not Fedora's updateinfo"},
 		"cut short":                {compressed(t, whole(updateOf("Fedora 44", pkg)))[:40], ""},
-		"no update of the release": {compressed(t, whole(updateOf("Fedora 45", pkg))), "holds no update of Fedora 44"},
-		"no update at all":         {compressed(t, whole("")), "holds no update of Fedora 44"},
-		"another element":          {compressed(t, whole(`<advisory/>`)), "advisory is not an update"},
-		"text between updates":     {compressed(t, whole(updateOf("Fedora 44", pkg)+"stray")), "text between its updates"},
-		"after the end":            {compressed(t, whole(updateOf("Fedora 44", pkg))+"<updates/>"), "an element after its end"},
-		"an entity":                {compressed(t, `<!DOCTYPE u [<!ENTITY x "y">]><updates>&x;</updates>`), "invalid character entity"},
+		"no update of the release": {compressed(t, whole(updateOf("Fedora 45", pkg))), "holds no security update of Fedora 44"},
+		"no security update": {compressed(t, whole(strings.Replace(updateOf("Fedora 44", pkg), `type="security"`, `type="bugfix"`, 1))),
+			"holds no security update of Fedora 44"},
+		"no update at all":     {compressed(t, whole("")), "holds no security update of Fedora 44"},
+		"another element":      {compressed(t, whole(`<advisory/>`)), "advisory is not an update"},
+		"text between updates": {compressed(t, whole(updateOf("Fedora 44", pkg)+"stray")), "text between its updates"},
+		"after the end":        {compressed(t, whole(updateOf("Fedora 44", pkg))+"<updates/>"), "an element after its end"},
+		"an entity":            {compressed(t, `<!DOCTYPE u [<!ENTITY x "y">]><updates>&x;</updates>`), "invalid character entity"},
 		"a bad identifier": {compressed(t, whole(strings.Replace(updateOf("Fedora 44", pkg), "FEDORA-2026-0123456789", "FEDORA-EPEL-2026-1", 1))),
 			"its identifier is not an update's"},
 		"no time issued": {compressed(t, whole(strings.Replace(updateOf("Fedora 44", pkg), `<issued date="2026-11-13 14:42:02"/>`, "", 1))),
@@ -365,22 +391,108 @@ func TestRefuses(t *testing.T) {
 	if _, _, err := records(t, compressed(t, whole(updateOf("Fedora 44", pkg))), f44); err != nil {
 		t.Errorf("the update the refusals are made from was refused: %v", err)
 	}
-	if _, err := (Updates{}).Check(bytes.NewReader(testdata(t, excerpt, excerptSum)), &osfingerprint.OSInfo{OS: "linux", Platform: "rocky", PlatformVersion: "9"}); err == nil {
-		t.Error("the updateinfo was checked for a Rocky Linux host")
+	rocky := &osfingerprint.OSInfo{OS: "linux", Platform: "rocky", PlatformVersion: "9"}
+	if _, err := keptOf(testdata(t, excerpt, excerptSum), rocky); err == nil {
+		t.Error("the updateinfo was kept for a Rocky Linux host")
+	}
+	if _, err := (Updates{}).Check(bytes.NewReader(mustKeep(t, testdata(t, excerpt, excerptSum), f44)), rocky); err == nil {
+		t.Error("what was kept was checked for a Rocky Linux host")
 	}
 }
 
-// A file that expands past the limit is refused as that, however it is
-// compressed.
-func TestExpandsPastTheLimit(t *testing.T) {
-	document := `<updates>` + strings.Repeat(" ", 2<<10) + updateOf("Fedora 44", pkg) + `</updates>`
-	z, err := zstd.NewReader(bytes.NewReader(compressed(t, document)))
+// What is kept is the release's security updates, each element as the file
+// holds it, inside an updates element, compressed with gzip, and nothing of
+// another release or that is not a security update.
+func TestKeepsTheReleasesSecurityUpdates(t *testing.T) {
+	kept := mustKeep(t, testdata(t, excerpt, excerptSum), f44)
+	gz, err := gzip.NewReader(bytes.NewReader(kept))
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer z.Close()
-	if _, err := read(z, 1<<10, "Fedora 44", nil); err == nil || !strings.Contains(err.Error(), "expands past 1024 bytes") {
-		t.Errorf("gave %v, want it refused as expanding past its limit", err)
+	text, err := io.ReadAll(gz)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expanded, err := zstd.NewReader(bytes.NewReader(testdata(t, excerpt, excerptSum)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer expanded.Close()
+	original, err := io.ReadAll(expanded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(string(text), keptHead) || !strings.HasSuffix(string(text), keptTail) {
+		t.Errorf("kept %.80q ... %q", text, text[max(0, len(text)-40):])
+	}
+	updates := regexp.MustCompile(`(?s)<update .*?</update>`).FindAllString(string(text), -1)
+	if len(updates) != 7 {
+		t.Fatalf("kept %d updates, want the seven security updates", len(updates))
+	}
+	for _, u := range updates {
+		if !bytes.Contains(original, []byte(u)) || !strings.HasPrefix(u, "<update ") || !strings.HasSuffix(u, "</update>") || !strings.Contains(u, `type="security"`) {
+			t.Errorf("kept %.80q, which is not a security update of the file as it holds it", u)
+		}
+	}
+	if strings.Contains(string(text), "FEDORA-2026-3b692ba186") || strings.Contains(string(text), "FEDORA-2026-47312bda9b") {
+		t.Error("kept the bugfix or the update of Fedora 45")
+	}
+}
+
+// What was kept is refused when it is not gzip, holds an update of another
+// release or one that is not a security update, or anything after its end:
+// none of these is what Keep writes for the host.
+func TestRefusesWhatWasNotKeptForTheHost(t *testing.T) {
+	gzipped := func(document string) []byte {
+		var b bytes.Buffer
+		z := gzip.NewWriter(&b)
+		if _, err := io.WriteString(z, document); err != nil {
+			t.Fatal(err)
+		}
+		if err := z.Close(); err != nil {
+			t.Fatal(err)
+		}
+		return b.Bytes()
+	}
+	kept := mustKeep(t, testdata(t, excerpt, excerptSum), f44)
+	for name, tt := range map[string]struct {
+		data []byte
+		host *osfingerprint.OSInfo
+		what string
+	}{
+		"the file Fedora serves":   {testdata(t, excerpt, excerptSum), f44, "not the updates kept"},
+		"kept for another release": {kept, f42, "it is an update of Fedora 44, not Fedora 42"},
+		"a bugfix": {gzipped(keptHead + strings.Replace(updateOf("Fedora 44", pkg), `type="security"`, `type="bugfix"`, 1) + keptTail), f44,
+			"it is a bugfix update, not a security update"},
+		"after its end":       {gzipped(keptHead + updateOf("Fedora 44", pkg) + keptTail + "<updates/>"), f44, "an element after its end"},
+		"data after the gzip": {append(slices.Clone(kept), "trailing"...), f44, "data follows the updates kept"},
+		"a second member":     {append(slices.Clone(kept), gzipped(keptHead+keptTail)...), f44, "data follows the updates kept"},
+	} {
+		if _, err := (Updates{}).Check(bytes.NewReader(tt.data), tt.host); err == nil || !strings.Contains(err.Error(), tt.what) {
+			t.Errorf("%s: gave %v, want it refused: %s", name, err, tt.what)
+		}
+	}
+}
+
+// A file that expands past what it may is refused as that, both the file
+// Fedora serves and what was kept, however small each is compressed.
+func TestExpandsPastTheLimit(t *testing.T) {
+	padded := func(limit int) string {
+		return keptHead + strings.Repeat(" ", limit) + updateOf("Fedora 44", pkg) + keptTail
+	}
+	if _, err := keptOf(compressed(t, padded(maxExpanded)), f44); err == nil || !strings.Contains(err.Error(), "expands past") {
+		t.Errorf("a file Fedora serves past the limit gave %v", err)
+	}
+	var b bytes.Buffer
+	z := gzip.NewWriter(&b)
+	if _, err := io.WriteString(z, padded(maxKeptExpanded)); err != nil {
+		t.Fatal(err)
+	}
+	if err := z.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := (Updates{}).Check(&b, f44); err == nil || !strings.Contains(err.Error(), "the updates kept expand past") {
+		t.Errorf("what was kept past the limit gave %v", err)
 	}
 }
 
@@ -394,8 +506,8 @@ func securityUpdate(ident, issued, updated, cve, version string) string {
 	return strings.Replace(u, "CVE-2026-1234", cve, 1)
 }
 
-// The data's date is the latest time any update of the release gives,
-// wherever in the file it is, and an update's own latest time is the later
+// The data's date is the latest time any security update of the release
+// gives, wherever in the file it is, and an update's own latest time is the later
 // of when it was issued and updated.
 func TestTheDataIsDatedByItsLatestUpdate(t *testing.T) {
 	document := `<updates>` +
@@ -420,7 +532,7 @@ func TestALaterUpdateOfTheSameCVE(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := (Updates{}).Records(bytes.NewReader(compressed(t, document)), f44, m.Add); err != nil {
+	if _, err := (Updates{}).Records(bytes.NewReader(mustKeep(t, compressed(t, document), f44)), f44, m.Add); err != nil {
 		t.Fatal(err)
 	}
 	v := m.Result()
@@ -434,7 +546,7 @@ func TestALaterUpdateOfTheSameCVE(t *testing.T) {
 func TestRecordsEndAtAnError(t *testing.T) {
 	stop := errors.New("stop")
 	given := 0
-	_, err := Updates{}.Records(bytes.NewReader(testdata(t, excerpt, excerptSum)), f44, func(vulnrecord.Record) error {
+	_, err := Updates{}.Records(bytes.NewReader(mustKeep(t, testdata(t, excerpt, excerptSum), f44)), f44, func(vulnrecord.Record) error {
 		given++
 		return stop
 	})

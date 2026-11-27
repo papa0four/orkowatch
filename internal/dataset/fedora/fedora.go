@@ -2,12 +2,18 @@
 
 // Package fedora reads the security updates of a Fedora release from the
 // updateinfo of its updates repository, the file dnf reads, as the dataset a
-// Fedora host's packages are matched against. The file is kept as fetched,
-// compressed with zstd and checked against the checksum the repository's
-// index states, and read as a stream of updates on each run.
+// Fedora host's packages are matched against. The file is fetched as Fedora
+// serves it, compressed with zstd and checked against the checksum the
+// repository's index states, and owatch keeps the release's security updates
+// alone, each element as the file holds it, compressed with gzip: reading the
+// whole file's XML took a second on each run, and its security updates are a
+// sixth of it. The manifest records the file fetched beside what was kept.
 package fedora
 
 import (
+	"bufio"
+	"bytes"
+	"compress/gzip"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -38,13 +44,23 @@ const (
 	archive    = "https://dl.fedoraproject.org/pub/archive/fedora/linux/updates/"
 	index      = "/Everything/x86_64/repodata/repomd.xml"
 
-	// maxBytes bounds the file fetched and kept. Fedora 44's was 2.5 MiB
-	// on 2026-11-27, and the archived Fedora 42's 2.7 MiB.
-	maxBytes = 16 << 20
-
-	// maxExpanded bounds what the file may expand to. Fedora 44's was 52
-	// MiB, and Fedora 42's 60 MiB.
+	// maxFetched bounds the file fetched. Fedora 44's was 2.5 MiB on
+	// 2026-11-27, and the archived Fedora 42's 2.7 MiB. maxExpanded bounds
+	// what it may expand to, which is held whole while what is kept is cut
+	// from it: Fedora 44's was 52 MiB, and Fedora 42's 60 MiB.
+	maxFetched  = 16 << 20
 	maxExpanded = 128 << 20
+
+	// maxKept bounds what is kept, compressed, and maxKeptExpanded what it
+	// may expand to.
+	maxKept         = 8 << 20
+	maxKeptExpanded = 64 << 20
+
+	// keptHead and keptTail open and close what is kept: the updates
+	// element, holding the release's security updates as the file holds
+	// them.
+	keptHead = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<updates>\n"
+	keptTail = "</updates>\n"
 
 	// maxIndex bounds the repository's index. Fedora 44's was 7 KiB.
 	maxIndex = 64 << 10
@@ -145,8 +161,11 @@ func (Updates) AppliesTo(host *osfingerprint.OSInfo) bool {
 // against the release's security updates.
 func (Updates) Gives() string { return "matching of the installed packages" }
 
-// MaxBytes is the most the file may hold.
-func (Updates) MaxBytes() int64 { return maxBytes }
+// MaxBytes is the most what is kept may hold, compressed.
+func (Updates) MaxBytes() int64 { return maxKept }
+
+// FetchMaxBytes is the most the file Fedora serves may hold.
+func (Updates) FetchMaxBytes() int64 { return maxFetched }
 
 // Origin is the index of host's release's updates repository, which names
 // the updateinfo by its checksum, and then the same index in Fedora's
@@ -219,57 +238,119 @@ func locate(r io.Reader, at *url.URL) (dataset.Location, error) {
 	return dataset.Location{}, errors.New("the index names no updateinfo")
 }
 
-// Check reads the updateinfo whole and refuses it unless it is a Fedora
-// updateinfo holding updates of host's release. It gives the latest time an
-// update of the release gives as the data's date, and the release as its
-// version.
+// Keep reads the updateinfo Fedora serves, size bytes, and writes the
+// security updates of host's release, each element as the file holds it,
+// compressed with gzip. Updates of another release, which a release's file
+// can hold, and updates that are not security updates are left out. A file
+// that is not a Fedora updateinfo, or holds no security update of the
+// release, is refused, so nothing is kept from it.
+func (u Updates) Keep(fetched io.ReaderAt, size int64, host *osfingerprint.OSInfo, kept io.Writer) error {
+	release, err := u.Release(host)
+	if err != nil {
+		return err
+	}
+	z, err := zstd.NewReader(io.NewSectionReader(fetched, 0, size), zstd.WithDecoderConcurrency(1), zstd.WithDecoderLowmem(true), zstd.WithDecoderMaxMemory(maxExpanded))
+	if err != nil {
+		return err
+	}
+	defer z.Close()
+	counted := dataset.Limited(z, maxExpanded)
+	expanded, err := io.ReadAll(counted)
+	switch {
+	case counted.Past():
+		return fmt.Errorf("the updateinfo expands past %d bytes", maxExpanded)
+	case err != nil:
+		return fmt.Errorf("the updateinfo cannot be expanded: %w", err)
+	}
+
+	gz := gzip.NewWriter(kept)
+	if _, err := io.WriteString(gz, keptHead); err != nil {
+		return err
+	}
+	r := &reader{dec: xml.NewDecoder(bytes.NewReader(expanded)), release: release, keep: func(raw []byte) error {
+		if _, err := gz.Write(raw); err != nil {
+			return err
+		}
+		_, err := io.WriteString(gz, "\n")
+		return err
+	}}
+	r.raw = expanded
+	if _, err := r.read(); err != nil {
+		return err
+	}
+	if _, err := io.WriteString(gz, keptTail); err != nil {
+		return err
+	}
+	return gz.Close()
+}
+
+// Check reads what was kept whole and refuses it unless it is the security
+// updates of host's release, as Keep writes them. It gives the latest time
+// an update gives as the data's date, and the release as its version.
 func (u Updates) Check(data io.Reader, host *osfingerprint.OSInfo) (dataset.Facts, error) {
 	return u.Records(data, host, nil)
 }
 
-// Records is Check that gives each security update of host's release to
-// each, in the form matching reads, as it is read, so the updates are read
-// once and never held together. The updates are sound only when Records
-// returns no error: one that fails after some were given means none of them
-// may be used. An error each returns ends the read. Updates of another
-// release, which a release's file can hold, are passed over.
+// Records is Check that gives each kept update to each, in the form matching
+// reads, as it is read, so the updates are read once and never held
+// together. The updates are sound only when Records returns no error: one
+// that fails after some were given means none of them may be used. An error
+// each returns ends the read. An update of another release, or one that is
+// not a security update, refuses what was kept, which Keep would not have
+// kept for this host.
 func (u Updates) Records(data io.Reader, host *osfingerprint.OSInfo, each func(vulnrecord.Record) error) (dataset.Facts, error) {
 	release, err := u.Release(host)
 	if err != nil {
 		return dataset.Facts{}, err
 	}
-	z, err := zstd.NewReader(data, zstd.WithDecoderConcurrency(1), zstd.WithDecoderLowmem(true), zstd.WithDecoderMaxMemory(maxExpanded))
+	// gzip reads a byte at a time from a reader that allows it, so nothing
+	// past the member's end is taken from compressed, and what follows it
+	// can be refused.
+	compressed := bufio.NewReader(data)
+	gz, err := gzip.NewReader(compressed)
 	if err != nil {
+		return dataset.Facts{}, fmt.Errorf("not the updates kept: %w", err)
+	}
+	gz.Multistream(false)
+	counted := dataset.Limited(gz, maxKeptExpanded)
+	r := &reader{dec: xml.NewDecoder(counted), release: release, each: each, kept: true}
+	facts, err := r.read()
+	switch {
+	case counted.Past() && r.stopped == nil:
+		return dataset.Facts{}, fmt.Errorf("the updates kept expand past %d bytes", maxKeptExpanded)
+	case err != nil:
 		return dataset.Facts{}, err
 	}
-	defer z.Close()
-	return read(z, maxExpanded, release, each)
+	if _, err := compressed.ReadByte(); !errors.Is(err, io.EOF) {
+		return dataset.Facts{}, errors.New("data follows the updates kept")
+	}
+	return facts, nil
 }
 
-// reader is one read of an expanded updateinfo: its decoder, what it has
-// read, the release whose updates are given, what each update is given to,
-// and what the updates so far say of the data.
+// reader is one read of an updateinfo: its decoder, the release whose
+// security updates are read, and what each is given to. A read of what was
+// kept refuses any other update; a read of the file Fedora serves passes
+// them over, and gives keep each security update of the release as raw, the
+// bytes of the file that hold it. newest is the latest time the updates read
+// give, and given how many were read.
 type reader struct {
 	dec     *xml.Decoder
-	counted *dataset.Counted
 	release string
+	kept    bool
 	each    func(vulnrecord.Record) error
+	keep    func(raw []byte) error
+	raw     []byte
 	newest  time.Time
-	ofRel   int
+	given   int
 	stopped error
 }
 
-// read reads the expanded updateinfo, refusing it when it expands past limit.
-// An error each returns is returned as it is.
-func read(expanded io.Reader, limit int64, release string, each func(vulnrecord.Record) error) (dataset.Facts, error) {
-	counted := dataset.Limited(expanded, limit)
-	r := &reader{dec: xml.NewDecoder(counted), counted: counted, release: release, each: each}
+// read reads the updateinfo from its root to its end. An error each or keep
+// returns is returned as it is.
+func (r *reader) read() (dataset.Facts, error) {
 	facts, err := r.updates()
-	switch {
-	case r.stopped != nil:
+	if r.stopped != nil {
 		return dataset.Facts{}, r.stopped
-	case err != nil && counted.Past():
-		return dataset.Facts{}, fmt.Errorf("the updateinfo expands past %d bytes", limit)
 	}
 	return facts, err
 }
@@ -281,13 +362,14 @@ func (r *reader) updates() (dataset.Facts, error) {
 		return dataset.Facts{}, err
 	}
 	for {
+		before := r.dec.InputOffset()
 		tok, err := r.dec.Token()
 		if err != nil {
 			return dataset.Facts{}, fmt.Errorf("the updateinfo ends before its last update: %w", err)
 		}
 		switch t := tok.(type) {
 		case xml.StartElement:
-			if err := r.update(t); err != nil {
+			if err := r.update(t, before); err != nil {
 				return dataset.Facts{}, err
 			}
 		case xml.EndElement:
@@ -300,9 +382,9 @@ func (r *reader) updates() (dataset.Facts, error) {
 	}
 }
 
-// update reads the update that start opens and gives it, when it is a
-// security update of the release.
-func (r *reader) update(start xml.StartElement) error {
+// update reads the update that start opens, which begins at offset from in
+// the file, and gives it when it is a security update of the release.
+func (r *reader) update(start xml.StartElement, from int64) error {
 	if start.Name.Space != "" || start.Name.Local != "update" {
 		return fmt.Errorf("%s is not an update", dataset.Printable(start.Name.Local))
 	}
@@ -310,25 +392,26 @@ func (r *reader) update(start xml.StartElement) error {
 	if err := r.dec.DecodeElement(&u, &start); err != nil {
 		return fmt.Errorf("an update cannot be read: %w", err)
 	}
-	if u.Release != r.release {
+	if !r.kept && (u.Release != r.release || u.Type != "security") {
 		return nil
 	}
-	rec, dated, err := u.record()
+	rec, dated, err := u.record(r.release)
 	if err != nil {
 		return fmt.Errorf("update %s: %w", dataset.Printable(u.ID), err)
 	}
-	r.ofRel++
+	r.given++
 	if dated.After(r.newest) {
 		r.newest = dated
 	}
-	if rec == nil || r.each == nil {
-		return nil
+	if r.keep != nil {
+		err = r.keep(r.raw[from:r.dec.InputOffset()])
+	} else if r.each != nil {
+		err = r.each(*rec)
 	}
-	if err := r.each(*rec); err != nil {
+	if err != nil {
 		r.stopped = err
-		return err
 	}
-	return nil
+	return err
 }
 
 // finish reads past the root's end to the end of the file and gives what the
@@ -338,20 +421,26 @@ func (r *reader) finish() (dataset.Facts, error) {
 	if err := xmldoc.End(r.dec); err != nil {
 		return dataset.Facts{}, err
 	}
-	if r.ofRel == 0 {
-		return dataset.Facts{}, fmt.Errorf("the updateinfo holds no update of %s", r.release)
+	if r.given == 0 {
+		return dataset.Facts{}, fmt.Errorf("the updateinfo holds no security update of %s", r.release)
 	}
 	return dataset.Facts{Date: r.newest, Version: r.release}, nil
 }
 
-// record is the update as matching reads it, or nil for an update that is
-// not a security update, and the latest time it gives. Its CVEs are those its
-// references' titles name, each once; an update naming none is matched by its
-// identifier. Each binary package it ships is affected before the build it
-// ships; its source package is not installed and is left out.
-func (u update) record() (*vulnrecord.Record, time.Time, error) {
-	if !updatePattern.MatchString(u.ID) {
+// record is the security update of release as matching reads it, and the
+// latest time it gives. Its CVEs are those its references' titles name, each
+// once; an update naming none is matched by its identifier. Each binary
+// package it ships is affected before the build it ships; its source package
+// is not installed and is left out. An update of another release, or one
+// that is not a security update, is refused.
+func (u update) record(release string) (*vulnrecord.Record, time.Time, error) {
+	switch {
+	case !updatePattern.MatchString(u.ID):
 		return nil, time.Time{}, errors.New("its identifier is not an update's")
+	case u.Release != release:
+		return nil, time.Time{}, fmt.Errorf("it is an update of %s, not %s", dataset.Printable(u.Release), release)
+	case u.Type != "security":
+		return nil, time.Time{}, fmt.Errorf("it is a %s update, not a security update", dataset.Printable(u.Type))
 	}
 	issued, updated, err := u.times()
 	if err != nil {
@@ -360,9 +449,6 @@ func (u update) record() (*vulnrecord.Record, time.Time, error) {
 	latest := issued
 	if updated.After(latest) {
 		latest = updated
-	}
-	if u.Type != "security" {
-		return nil, latest, nil
 	}
 	r := vulnrecord.Record{
 		ID:        u.ID,

@@ -621,10 +621,12 @@ wait on the terms of the data OSV republishes for them.
 
 Fedora publishes each release's updates in the updateinfo of its updates
 repository, which the repository's index names by its checksum: `refresh` reads the
-index, fetches the file it names, 2.5 MiB for Fedora 44 on 2026-11-27, refuses it
-unless it has the checksum the index states, and keeps it as fetched, the same file
-dnf reads; each run reads the host's release's security updates from it, and `status`
-shows the release as the dataset's version, `Fedora 44`. An update's CVEs are those
+index, fetches the file it names, the file dnf reads, 2.5 MiB for Fedora 44 on
+2026-11-27, and refuses it unless it has the checksum the index states. It keeps the
+release's security updates alone, each as the file holds it, 0.5 MiB for Fedora 44,
+since reading the whole file took a second on each run; the manifest records the file
+fetched beside what was kept, and `status` shows the release as the dataset's version,
+`Fedora 44`. An update's CVEs are those
 the titles of its bug references name, and an update that names none, as many do, is
 matched by its own identifier, such as `FEDORA-2026-09e76d9a09`. An update's rating,
 Critical, Important, Moderate, or Low, is placed on the scale as Red Hat's ratings are,
