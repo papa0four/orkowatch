@@ -224,7 +224,7 @@ func (p product) active(release string) (bool, error) {
 			return v.Active, nil
 		}
 	}
-	return false, fmt.Errorf("Bugzilla names no Fedora version %s", release)
+	return false, fmt.Errorf("no Fedora version %s is named in Red Hat Bugzilla", release)
 }
 
 // list reads the listing for the pages of its bugs, pageSize identifiers a
@@ -282,33 +282,42 @@ func (t TrackingBugs) Keep(fetched io.ReaderAt, size int64, host *osfingerprint.
 		}
 		return writeTracked(kept, release, false, nil)
 	}
+	keep, err := keptPages(dec, host.PlatformVersion)
+	if err != nil {
+		return err
+	}
+	if len(keep) == 0 {
+		return fmt.Errorf("the pages hold no open tracking bug of %s", release)
+	}
+	return writeTracked(kept, release, true, keep)
+}
+
+// keptPages reads the pages from dec to their end and gives each bug of
+// them as owatch keeps it for release, refusing a page that holds an error or
+// is not Bugzilla's answer.
+func keptPages(dec *json.Decoder, release string) ([]tracked, error) {
 	var keep []tracked
 	for {
 		var p page
 		err := dec.Decode(&p)
-		if errors.Is(err, io.EOF) {
-			break
-		}
-		if err != nil {
-			return fmt.Errorf("a page is not Bugzilla's answer: %w", err)
-		}
-		if p.Error {
-			return errors.New("a page holds an error from Bugzilla")
+		switch {
+		case errors.Is(err, io.EOF):
+			return keep, nil
+		case err != nil:
+			return nil, fmt.Errorf("a page is not Bugzilla's answer: %w", err)
+		case p.Error:
+			return nil, errors.New("a page holds an error from Bugzilla")
 		}
 		for _, b := range p.Bugs {
-			k, ok, err := b.kept(host.PlatformVersion)
+			k, ok, err := b.kept(release)
 			if err != nil {
-				return fmt.Errorf("bug %d: %w", b.ID, err)
+				return nil, fmt.Errorf("bug %d: %w", b.ID, err)
 			}
 			if ok {
 				keep = append(keep, k...)
 			}
 		}
 	}
-	if len(keep) == 0 {
-		return fmt.Errorf("the pages hold no open tracking bug of %s", release)
-	}
-	return writeTracked(kept, release, true, keep)
 }
 
 // kept is the bug as owatch keeps it, once for each component it is filed

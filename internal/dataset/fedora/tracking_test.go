@@ -293,7 +293,7 @@ func TestActiveVersion(t *testing.T) {
 		}
 	}
 	for name, tt := range map[string]struct{ answer, what string }{
-		"unlisted": {versionsOf, "Bugzilla names no Fedora version 41"},
+		"unlisted": {versionsOf, "no Fedora version 41 is named in Red Hat Bugzilla"},
 		"an error": {`{"error":true}`, "not Bugzilla's answer of Fedora's versions"},
 		"none":     {`{"products":[]}`, "not Bugzilla's answer of Fedora's versions"},
 		"not JSON": {`<html>`, "not Bugzilla's answer of Fedora's versions"},
