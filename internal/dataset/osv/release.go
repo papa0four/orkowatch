@@ -7,6 +7,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/papa0four/orkowatch/internal/dataset"
 )
 
 // release is a release of a distribution as OSV's records name it: the name
@@ -113,5 +115,5 @@ func numbers(distribution, version string, want int) ([]int, error) {
 
 // notRelease is the refusal of a version that names no release.
 func notRelease(distribution, version string) error {
-	return fmt.Errorf("the version %q names no release of %s", printable(version), distribution)
+	return fmt.Errorf("the version %q names no release of %s", dataset.Printable(version), distribution)
 }
