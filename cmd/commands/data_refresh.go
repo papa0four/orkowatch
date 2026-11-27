@@ -268,16 +268,16 @@ func (p refreshPlan) fetch(ctx context.Context, dest store.Store, chosen []plann
 		datasets[i] = chosen[i].dataset
 		found[chosen[i].dataset.ID()] = &chosen[i]
 	}
-	from := func(ctx context.Context, d dataset.Dataset, w io.Writer) error {
+	from := func(ctx context.Context, d dataset.Dataset, w io.Writer) (string, error) {
 		c := found[d.ID()]
 		if c.missed != nil {
 			src, err := p.f.Locate(ctx, d, p.host)
 			if err != nil {
-				return err
+				return "", err
 			}
 			c.source, c.missed = src, nil
 		}
-		return p.f.Fetch(ctx, d, c.source, w)
+		return c.source.URL, p.f.Fetch(ctx, d, c.source, w)
 	}
 	return dest.Reporting(progress).Refresh(ctx, from, datasets, p.host, now)
 }

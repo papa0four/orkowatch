@@ -395,6 +395,10 @@ func TestPlanRefreshNamesWhereItWasFound(t *testing.T) {
 	if !slices.Equal(origins.located, []string{"wanted"}) || !slices.Equal(origins.from, []string{"https://mirror.example/repodata/0123-wanted.zst"}) {
 		t.Errorf("located %q and fetched from %q", origins.located, origins.from)
 	}
+	view, err := s.Status(d.known, &osfingerprint.OSInfo{}, dataNow)
+	if err != nil || len(view.Datasets) != 1 || view.Datasets[0].Source != "https://mirror.example/repodata/0123-wanted.zst" {
+		t.Errorf("the store holds %+v, %v, want the source where it was found", view, err)
+	}
 }
 
 // A fetcher that cannot be built ends the plan with its error and plans
