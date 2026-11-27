@@ -5,3 +5,7 @@
 # The embedded notices reproduce MITRE's license text, so it is the same bytes
 # on every platform the binary is built on.
 internal/notices/*.md text eol=lf
+
+# A dataset's test data is the source's data as it was taken, checked by its
+# SHA-256, so its bytes are never changed on checkout.
+internal/dataset/**/testdata/** -text
