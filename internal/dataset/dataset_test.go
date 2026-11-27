@@ -100,6 +100,21 @@ func TestManifestRoundTrip(t *testing.T) {
 	if err := m.Validate(testDataset{}, now); err != nil {
 		t.Errorf("a good manifest was refused: %v", err)
 	}
+
+	// A manifest of a copy fetched from a place with a standing keeps it,
+	// in the same format as one without.
+	archived := goodManifest()
+	archived.Standing = "Fedora 42 is archived and receives no updates"
+	buf.Reset()
+	if err := archived.Encode(&buf); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(buf.String(), `"standing":`) {
+		t.Errorf("the manifest was written as %s", buf.String())
+	}
+	if m, err := DecodeManifest(&buf); err != nil || m != archived || m.Validate(testDataset{}, now) != nil {
+		t.Errorf("decoded %+v, %v, want %+v", m, err, archived)
+	}
 }
 
 // A manifest that is too large, holds a field this version does not know, is
@@ -125,21 +140,22 @@ func TestDecodeManifestRefuses(t *testing.T) {
 // Each way a manifest can misdescribe its dataset is refused.
 func TestValidateRefuses(t *testing.T) {
 	for name, change := range map[string]func(*Manifest){
-		"another format":           func(m *Manifest) { m.Format = ManifestFormat + 1 },
-		"an id that is a path":     func(m *Manifest) { m.ID = "../test-data" },
-		"another dataset's id":     func(m *Manifest) { m.ID = "other-data" },
-		"no fetch time":            func(m *Manifest) { m.Fetched = time.Time{} },
-		"a fetch time to come":     func(m *Manifest) { m.Fetched = now.Add(time.Second) },
-		"a short checksum":         func(m *Manifest) { m.SHA256 = "abcd" },
-		"an upper-case checksum":   func(m *Manifest) { m.SHA256 = strings.Repeat("AB", 32) },
-		"a checksum not in hex":    func(m *Manifest) { m.SHA256 = strings.Repeat("zz", 32) },
-		"no size":                  func(m *Manifest) { m.Size = 0 },
-		"a size over the limit":    func(m *Manifest) { m.Size = testDataset{}.MaxBytes() + 1 },
-		"a plain HTTP source":      func(m *Manifest) { m.Source = "http://data.example/test.json" },
-		"a source with no host":    func(m *Manifest) { m.Source = "https:///test.json" },
-		"a source with a password": func(m *Manifest) { m.Source = "https://user:pw@data.example/test.json" },
-		"a license with an escape": func(m *Manifest) { m.License = "CC0\x1b[2J" },
-		"an attribution too long":  func(m *Manifest) { m.Attribution = strings.Repeat("a", maxTextLen+1) },
+		"another format":            func(m *Manifest) { m.Format = ManifestFormat + 1 },
+		"an id that is a path":      func(m *Manifest) { m.ID = "../test-data" },
+		"another dataset's id":      func(m *Manifest) { m.ID = "other-data" },
+		"no fetch time":             func(m *Manifest) { m.Fetched = time.Time{} },
+		"a fetch time to come":      func(m *Manifest) { m.Fetched = now.Add(time.Second) },
+		"a short checksum":          func(m *Manifest) { m.SHA256 = "abcd" },
+		"an upper-case checksum":    func(m *Manifest) { m.SHA256 = strings.Repeat("AB", 32) },
+		"a checksum not in hex":     func(m *Manifest) { m.SHA256 = strings.Repeat("zz", 32) },
+		"no size":                   func(m *Manifest) { m.Size = 0 },
+		"a size over the limit":     func(m *Manifest) { m.Size = testDataset{}.MaxBytes() + 1 },
+		"a plain HTTP source":       func(m *Manifest) { m.Source = "http://data.example/test.json" },
+		"a source with no host":     func(m *Manifest) { m.Source = "https:///test.json" },
+		"a source with a password":  func(m *Manifest) { m.Source = "https://user:pw@data.example/test.json" },
+		"a license with an escape":  func(m *Manifest) { m.License = "CC0\x1b[2J" },
+		"a standing with an escape": func(m *Manifest) { m.Standing = "archived\x1b[2J" },
+		"an attribution too long":   func(m *Manifest) { m.Attribution = strings.Repeat("a", maxTextLen+1) },
 	} {
 		m := goodManifest()
 		change(&m)
@@ -238,13 +254,14 @@ func TestOriginHosts(t *testing.T) {
 		t.Errorf("hosts %q, %v", hosts, err)
 	}
 	for name, o := range map[string]Origin{
-		"plain HTTP":           {URL: "http://data.example/kev.json"},
-		"no address":           {},
-		"a redirect with path": {URL: "https://data.example/k", RedirectHosts: []string{"cdn.example/x"}},
-		"a redirect with port": {URL: "https://data.example/k", RedirectHosts: []string{"cdn.example:8443"}},
-		"an empty redirect":    {URL: "https://data.example/k", RedirectHosts: []string{""}},
-		"elsewhere over HTTP":  {URL: "https://data.example/k", Elsewhere: []string{"http://archive.example/k"}},
-		"elsewhere empty":      {URL: "https://data.example/k", Elsewhere: []string{""}},
+		"plain HTTP":                {URL: "http://data.example/kev.json"},
+		"no address":                {},
+		"a redirect with path":      {URL: "https://data.example/k", RedirectHosts: []string{"cdn.example/x"}},
+		"a redirect with port":      {URL: "https://data.example/k", RedirectHosts: []string{"cdn.example:8443"}},
+		"an empty redirect":         {URL: "https://data.example/k", RedirectHosts: []string{""}},
+		"elsewhere over HTTP":       {URL: "https://data.example/k", Elsewhere: []Place{{URL: "http://archive.example/k"}}},
+		"elsewhere empty":           {URL: "https://data.example/k", Elsewhere: []Place{{}}},
+		"a standing with an escape": {URL: "https://data.example/k", Elsewhere: []Place{{URL: "https://archive.example/k", Standing: "archived\x1b[2J"}}},
 	} {
 		if _, err := o.Hosts(); !errors.Is(err, ErrManifest) {
 			t.Errorf("%s: gave %v, want it refused", name, err)
@@ -255,8 +272,8 @@ func TestOriginHosts(t *testing.T) {
 // The places an origin names are its address and then each elsewhere in
 // order, and every place's host is one a fetch may reach.
 func TestOriginPlaces(t *testing.T) {
-	o := Origin{URL: "https://data.example/k", Elsewhere: []string{"https://Archive.example/k", "https://data.example/old/k"}}
-	if got := o.Places(); len(got) != 3 || got[0] != o.URL || got[1] != o.Elsewhere[0] || got[2] != o.Elsewhere[1] {
+	o := Origin{URL: "https://data.example/k", Elsewhere: []Place{{URL: "https://Archive.example/k", Standing: "archived"}, {URL: "https://data.example/old/k"}}}
+	if got := o.Places(); len(got) != 3 || got[0] != (Place{URL: o.URL}) || got[1] != o.Elsewhere[0] || got[2] != o.Elsewhere[1] {
 		t.Errorf("places %q", got)
 	}
 	hosts, err := o.Hosts()
@@ -268,7 +285,7 @@ func TestOriginPlaces(t *testing.T) {
 // An origin allows an HTTPS address on one of its hosts, in any case and on
 // any port, and no other.
 func TestOriginAllows(t *testing.T) {
-	o := Origin{URL: "https://data.example/k", Elsewhere: []string{"https://archive.example/k"}, RedirectHosts: []string{"cdn.example"}}
+	o := Origin{URL: "https://data.example/k", Elsewhere: []Place{{URL: "https://archive.example/k"}}, RedirectHosts: []string{"cdn.example"}}
 	for address, allowed := range map[string]bool{
 		"https://cdn.example/x":        true,
 		"https://CDN.Example/x":        true,

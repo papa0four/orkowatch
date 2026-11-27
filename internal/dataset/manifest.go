@@ -38,7 +38,7 @@ const (
 var ErrManifest = errors.New("manifest refused")
 
 // Manifest is what is recorded about a dataset when it is fetched: where it
-// came from, when, what its data must hash to, and the license and
+// came from and that place's standing, when, what its data must hash to, and the license and
 // attribution its source asks for. For a dataset that keeps less than its
 // origin serves, OriginSHA256 and OriginSize record the file that was
 // fetched, which is not held, so what was kept can be traced to it.
@@ -46,6 +46,7 @@ type Manifest struct {
 	Format       int       `json:"format"`
 	ID           string    `json:"id"`
 	Source       string    `json:"source"`
+	Standing     string    `json:"standing,omitempty"`
 	Fetched      time.Time `json:"fetched"`
 	SHA256       string    `json:"sha256"`
 	Size         int64     `json:"size"`
@@ -114,7 +115,7 @@ func (m Manifest) Validate(d Dataset, now time.Time) error {
 	if err := validSource(m.Source); err != nil {
 		return err
 	}
-	for name, text := range map[string]string{"license": m.License, "attribution": m.Attribution} {
+	for name, text := range map[string]string{"standing": m.Standing, "license": m.License, "attribution": m.Attribution} {
 		if err := validText(name, text); err != nil {
 			return err
 		}

@@ -92,10 +92,14 @@ network connection, and neither runs elevated.
 The datasets are CISA's Known Exploited Vulnerabilities catalog (kev), FIRST's
 EPSS scores (epss), OSV's data for AlmaLinux, Alpine, Red Hat Enterprise Linux,
 Rocky Linux, and Ubuntu (osv-almalinux and the others), of which a host holds
-its own distribution's, and on FreeBSD the FreeBSD project's VuXML (vuxml), the
-document pkg audit reads, kept as it is fetched. OSV publishes every release of
-a distribution in one file; owatch keeps the records of the host's release
-alone, and status shows which release that is.`,
+its own distribution's; on Fedora the updateinfo of the host's release
+(fedora-updates), the file dnf reads; and on FreeBSD the FreeBSD project's VuXML
+(vuxml), the document pkg audit reads, kept as it is fetched. OSV publishes
+every release of a distribution in one file, and owatch keeps the records of
+the host's release alone; of the updateinfo, owatch keeps the release's
+security updates alone; and status shows which release that is. A Fedora
+release Fedora has archived is fetched from its archive, and status and every
+report say it receives no updates.`,
 		Args: cliargs.None,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if err := cmd.Help(); err != nil {

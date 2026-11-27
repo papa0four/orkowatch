@@ -29,6 +29,7 @@ import (
 type served struct {
 	sizes      map[string]int64
 	addresses  map[string]string
+	standings  map[string]string
 	locateErrs map[string]error
 	fails      map[string]error
 	located    []string
@@ -47,7 +48,7 @@ func (s *served) Locate(_ context.Context, d dataset.Dataset, host *osfingerprin
 		address = origin.URL
 	}
 	size, stated := s.sizes[d.ID()]
-	return fetch.Source{Origin: origin, URL: address, Size: size, Stated: stated}, nil
+	return fetch.Source{Origin: origin, URL: address, Standing: s.standings[d.ID()], Size: size, Stated: stated}, nil
 }
 
 // TimeLimit allows every download ten minutes.
@@ -378,10 +379,12 @@ func TestPlanRefreshWithALocateThatFails(t *testing.T) {
 }
 
 // A dataset found somewhere other than its origin's own address is named by
-// where it was found, and fetched from there without being located again.
+// where it was found, fetched from there without being located again, and
+// held with where it was found and that place's standing.
 func TestPlanRefreshNamesWhereItWasFound(t *testing.T) {
 	d, s, origins := refreshing(t, false, "")
 	origins.addresses = map[string]string{"wanted": "https://mirror.example/repodata/0123-wanted.zst"}
+	origins.standings = map[string]string{"wanted": "the release is archived"}
 	plan, err := d.planRefresh(context.Background(), &osfingerprint.OSInfo{})
 	if err != nil || len(plan.datasets) != 1 {
 		t.Fatalf("plan %+v, %v", plan, err)
@@ -396,7 +399,7 @@ func TestPlanRefreshNamesWhereItWasFound(t *testing.T) {
 		t.Errorf("located %q and fetched from %q", origins.located, origins.from)
 	}
 	view, err := s.Status(d.known, &osfingerprint.OSInfo{}, dataNow)
-	if err != nil || len(view.Datasets) != 1 || view.Datasets[0].Source != "https://mirror.example/repodata/0123-wanted.zst" {
+	if err != nil || len(view.Datasets) != 1 || view.Datasets[0].Source != "https://mirror.example/repodata/0123-wanted.zst" || view.Datasets[0].Standing != "the release is archived" {
 		t.Errorf("the store holds %+v, %v, want the source where it was found", view, err)
 	}
 }

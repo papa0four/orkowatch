@@ -326,6 +326,7 @@ func datasetsTab(v *dataset.View, operator *dataset.Operator) tui.Tab {
 			add("size", dataset.Size(r.Size))
 		}
 		add("source", r.Source)
+		add("standing", r.Standing)
 		add("license", r.License)
 		add("attribution", r.Attribution)
 		add("store", v.Store)

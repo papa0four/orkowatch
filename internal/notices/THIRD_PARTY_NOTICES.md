@@ -374,3 +374,11 @@ EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ```
 
 Every report that reads the document states owatch's own attribution of it: "VuXML, the FreeBSD Ports Collection's vulnerability document, https://vuxml.freebsd.org, copyright Jacques Vidrine and contributors".
+
+## Fedora's updateinfo
+
+What owatch reads: the updateinfo of a Fedora release's updates repository, the file dnf reads, which `owatch data refresh` fetches on a Fedora host. It is found through the repository's index at https://dl.fedoraproject.org/pub/fedora/linux/updates/<release>/Everything/x86_64/repodata/repomd.xml, or for a release Fedora has archived at https://dl.fedoraproject.org/pub/archive/fedora/linux/updates/<release>/Everything/x86_64/repodata/repomd.xml, and checked against the SHA-256 the index states. owatch keeps the release's security updates from it in the dataset store, each update as the file holds it. owatch does not carry the file; its tests carry an excerpt of Fedora 44's updateinfo and that release's index, each with a notice of these terms.
+
+Each update states "Copyright (C) 2026 Red Hat, Inc. and others." and names no license. Fedora's License Approval policy, https://docs.fedoraproject.org/en-US/legal/license-approval/, states that "all software and other content made available by Fedora must be under licenses determined to be allowed in Fedora". The Fedora Project Contributor Agreement, https://docs.fedoraproject.org/en-US/legal/fpca/, defines "Content" to include "non-functional data sets" and licenses content a contributor gives without a license under its default for content, "CC-BY-SA", the Creative Commons Attribution-ShareAlike 4.0 International license, https://creativecommons.org/licenses/by-sa/4.0/legalcode. owatch reads the updateinfo under CC BY-SA 4.0, and the excerpt its tests carry is shared under the same license.
+
+Every report that reads the updateinfo states owatch's own attribution of it: "Fedora's updateinfo, https://fedoraproject.org, copyright Red Hat, Inc. and others".

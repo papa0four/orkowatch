@@ -34,12 +34,12 @@ const (
 )
 
 // Fetch writes the data of d, as its origin serves it, to w, and returns the
-// address it was fetched from, which the manifest records: an origin may name
-// more than one place, or an index of where the data is. The store does not
-// know how data is fetched, and what fetches it does not know how the store
-// keeps it. A failure that says it is Unreachable means no connection could
-// be made at all.
-type Fetch func(ctx context.Context, d dataset.Dataset, w io.Writer) (source string, err error)
+// place it was fetched from, whose address and standing the manifest records:
+// an origin may name more than one place, or an index of where the data is.
+// The store does not know how data is fetched, and what fetches it does not
+// know how the store keeps it. A failure that says it is Unreachable means no
+// connection could be made at all.
+type Fetch func(ctx context.Context, d dataset.Dataset, w io.Writer) (from dataset.Place, err error)
 
 // ErrUnreachable means a refresh stopped because no connection could be made,
 // as on a host with no network, and fetched none of the datasets after the
@@ -48,8 +48,8 @@ var ErrUnreachable = errors.New("the network could not be reached")
 
 // Refresh fetches each of datasets and brings it into the store, one outcome
 // per dataset in name order. What is fetched is staged in the store's own
-// layout, with a manifest recording the address it was fetched from, its
-// origin's terms, the time now, and its checksum, and then enters the store by the path an imported dataset does:
+// layout, with a manifest recording the address it was fetched from and that
+// place's standing, its origin's terms, the time now, and its checksum, and then enters the store by the path an imported dataset does:
 // checked, installed over the copy held only when it passes, and recorded
 // when it does not. A fetch that fails for a reason that passes is tried
 // again; a dataset that cannot be fetched leaves the copy held in place and is
@@ -171,12 +171,13 @@ func stage(ctx context.Context, p Progress, attempt int, fetch Fetch, d dataset.
 
 	download := filepath.Join(dir, downloadName)
 	var (
-		sum, source string
-		size        int64
+		sum  string
+		size int64
+		from dataset.Place
 	)
 	if err := step(p, d.ID(), StepDownload, attempt, func() (err error) {
 		sum, size, err = writeCounted(download, dataset.FetchLimit(d), func(out io.Writer) (err error) {
-			source, err = fetch(ctx, d, &receiving{w: out, p: p, id: d.ID()})
+			from, err = fetch(ctx, d, &receiving{w: out, p: p, id: d.ID()})
 			return err
 		})
 		return err
@@ -188,7 +189,8 @@ func stage(ctx context.Context, p Progress, attempt int, fetch Fetch, d dataset.
 	m := dataset.Manifest{
 		Format:      dataset.ManifestFormat,
 		ID:          d.ID(),
-		Source:      source,
+		Source:      from.URL,
+		Standing:    from.Standing,
 		Fetched:     now,
 		SHA256:      sum,
 		Size:        size,

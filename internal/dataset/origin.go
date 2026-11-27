@@ -17,10 +17,10 @@ type Origin struct {
 	// set.
 	URL string
 
-	// Elsewhere are further addresses of the same thing, tried in order
-	// when the one before answers that it holds nothing there, as a release
-	// moved to an archive does. Any other failure ends the fetch.
-	Elsewhere []string
+	// Elsewhere are further places of the same thing, tried in order when
+	// the one before answers that it holds nothing there, as a release moved
+	// to an archive does. Any other failure ends the fetch.
+	Elsewhere []Place
 
 	// Index is set when the data's address is read from an index at URL,
 	// as a repository names a file by its checksum, and is nil when URL is
@@ -47,6 +47,15 @@ type Index struct {
 	Locate   func(index io.Reader, at *url.URL) (Location, error)
 }
 
+// Place is an address data may be at, and its standing: what holding the data
+// there says of it, as an archive says a release receives no updates, which
+// the manifest of a copy fetched from it records and every report shows. A
+// place with nothing to say has no standing.
+type Place struct {
+	URL      string
+	Standing string
+}
+
 // Location is where an index places the data: its address, the SHA-256 the
 // index states for it in lower-case hexadecimal, and its size.
 type Location struct {
@@ -55,16 +64,16 @@ type Location struct {
 	Size   int64
 }
 
-// Places returns the addresses the origin names, in the order they are
-// tried: URL, then each of Elsewhere.
-func (o Origin) Places() []string {
-	return append([]string{o.URL}, o.Elsewhere...)
+// Places returns the places the origin names, in the order they are tried:
+// URL, which has no standing, then each of Elsewhere.
+func (o Origin) Places() []Place {
+	return append([]Place{{URL: o.URL}}, o.Elsewhere...)
 }
 
 // Hosts returns the hosts a fetch of the data may reach: those of its places
 // and the redirect hosts, in lower case, each once. It refuses an origin with
-// a place that is not an HTTPS address of a host, or that lists an empty
-// redirect host, so a fetch never starts from an origin it could not hold to
+// a place that is not an HTTPS address of a host or whose standing a terminal
+// would act on, or that lists an empty redirect host, so a fetch never starts from an origin it could not hold to
 // its list.
 func (o Origin) Hosts() ([]string, error) {
 	var hosts []string
@@ -74,12 +83,15 @@ func (o Origin) Hosts() ([]string, error) {
 		}
 	}
 	for _, place := range o.Places() {
-		if err := validSource(place); err != nil {
+		if err := validSource(place.URL); err != nil {
 			return nil, err
 		}
-		u, err := url.Parse(place)
+		if err := validText("standing", place.Standing); err != nil {
+			return nil, err
+		}
+		u, err := url.Parse(place.URL)
 		if err != nil {
-			return nil, refuse("the source %q is not an address", place)
+			return nil, refuse("the source %q is not an address", place.URL)
 		}
 		add(u.Hostname())
 	}

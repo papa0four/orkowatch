@@ -235,28 +235,28 @@ func readEntry(f *zip.File, room int64) (record, int64, error) {
 	defer r.Close() //nolint:errcheck // read in full or refused; what Close adds is nothing
 
 	limit := min(room, maxRecord)
-	counted := &counter{r: io.LimitReader(r, limit+1)}
+	counted := dataset.Limited(r, limit)
 	var rec record
 	dec := json.NewDecoder(counted)
 	if err := dec.Decode(&rec); err != nil {
-		if counted.n > limit {
-			return record{}, counted.n, fmt.Errorf("an entry of the dump expands past the %d bytes a record, or the dump, may", limit)
+		if counted.Past() {
+			return record{}, counted.N(), fmt.Errorf("an entry of the dump expands past the %d bytes a record, or the dump, may", limit)
 		}
-		return record{}, counted.n, fmt.Errorf("the dump holds an entry that is not an OSV record: %w", err)
+		return record{}, counted.N(), fmt.Errorf("the dump holds an entry that is not an OSV record: %w", err)
 	}
 	// What follows the record is read to its end, so the zip's own length
 	// and checksum judge the entry, and must be nothing but white space.
 	var rest onlySpace
 	if _, err := io.Copy(&rest, io.MultiReader(dec.Buffered(), counted)); err != nil {
-		return record{}, counted.n, fmt.Errorf("the dump is damaged: %w", err)
+		return record{}, counted.N(), fmt.Errorf("the dump is damaged: %w", err)
 	}
 	switch {
-	case counted.n > limit:
-		return record{}, counted.n, fmt.Errorf("an entry of the dump expands past the %d bytes a record, or the dump, may", limit)
+	case counted.Past():
+		return record{}, counted.N(), fmt.Errorf("an entry of the dump expands past the %d bytes a record, or the dump, may", limit)
 	case rest.other:
-		return record{}, counted.n, errors.New("the dump holds an entry with text after its record")
+		return record{}, counted.N(), errors.New("the dump holds an entry with text after its record")
 	}
-	return rec, counted.n, nil
+	return rec, counted.N(), nil
 }
 
 // Check reads kept records whole and refuses them unless every line is in
@@ -282,7 +282,7 @@ func (d Dump) Records(data io.Reader, host *osfingerprint.OSInfo, each func(vuln
 		return dataset.Facts{}, fmt.Errorf("not kept OSV records: %w", err)
 	}
 	gz.Multistream(false)
-	counted := &counter{r: io.LimitReader(gz, maxKeptExpanded+1)}
+	counted := dataset.Limited(gz, maxKeptExpanded)
 	dec := json.NewDecoder(bufio.NewReader(counted))
 	dec.DisallowUnknownFields()
 
@@ -298,7 +298,7 @@ func (d Dump) Records(data io.Reader, host *osfingerprint.OSInfo, each func(vuln
 	for {
 		var line keptLine
 		if err := dec.Decode(&line); err != nil {
-			if counted.n > maxKeptExpanded {
+			if counted.Past() {
 				return dataset.Facts{}, fmt.Errorf("the records expand past %d bytes", maxKeptExpanded)
 			}
 			return dataset.Facts{}, fmt.Errorf("the records end before their trailer: %w", err)
@@ -319,7 +319,7 @@ func (d Dump) Records(data io.Reader, host *osfingerprint.OSInfo, each func(vuln
 }
 
 // finish judges the trailer and what follows it, and gives the facts.
-func finish(dec *json.Decoder, gz *gzip.Reader, counted *counter, got trailer, line keptLine, rel release) (dataset.Facts, error) {
+func finish(dec *json.Decoder, gz *gzip.Reader, counted *dataset.Counted, got trailer, line keptLine, rel release) (dataset.Facts, error) {
 	var rest onlySpace
 	if _, err := io.Copy(&rest, io.MultiReader(dec.Buffered(), counted)); err != nil {
 		return dataset.Facts{}, fmt.Errorf("the records are damaged: %w", err)
@@ -330,7 +330,7 @@ func finish(dec *json.Decoder, gz *gzip.Reader, counted *counter, got trailer, l
 	switch {
 	case rest.other:
 		return dataset.Facts{}, errors.New("text follows the records' trailer")
-	case counted.n > maxKeptExpanded:
+	case counted.Past():
 		return dataset.Facts{}, fmt.Errorf("the records expand past %d bytes", maxKeptExpanded)
 	case *line.Records != got.Records:
 		return dataset.Facts{}, fmt.Errorf("the trailer counts %d records where %d came before it", *line.Records, got.Records)
@@ -402,16 +402,4 @@ func (o *onlySpace) Write(p []byte) (int, error) {
 		}
 	}
 	return len(p), nil
-}
-
-// counter counts what is read through it.
-type counter struct {
-	r io.Reader
-	n int64
-}
-
-func (c *counter) Read(p []byte) (int, error) {
-	n, err := c.r.Read(p)
-	c.n += int64(n)
-	return n, err
 }

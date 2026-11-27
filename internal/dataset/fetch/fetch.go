@@ -159,15 +159,16 @@ func proxyFromEnvironment(*http.Request) (*url.URL, error) {
 }
 
 // Source is where the data of a dataset is fetched from for one host: the
-// origin it was located through, the data's address, the SHA-256 the origin's
-// index states for it, empty when the origin has no index, and its size when
-// Stated.
+// origin it was located through, the data's address, the standing of the
+// place it was found at, the SHA-256 the origin's index states for it, empty
+// when the origin has no index, and its size when Stated.
 type Source struct {
-	Origin dataset.Origin
-	URL    string
-	SHA256 string
-	Size   int64
-	Stated bool
+	Origin   dataset.Origin
+	URL      string
+	Standing string
+	SHA256   string
+	Size     int64
+	Stated   bool
 }
 
 // sumPattern is a SHA-256 written as an index must state one.
@@ -199,22 +200,29 @@ func (c *Client) Locate(ctx context.Context, d dataset.Dataset, host *osfingerpr
 	return Source{}, lasting("%s names no place to fetch from", d.ID())
 }
 
-// locateAt locates the data of d at place, one of origin's places.
-func (c *Client) locateAt(ctx context.Context, d dataset.Dataset, origin dataset.Origin, place string) (src Source, err error) {
+// locateAt locates the data of d at place, one of origin's places, the
+// source taking the place's standing.
+func (c *Client) locateAt(ctx context.Context, d dataset.Dataset, origin dataset.Origin, place dataset.Place) (src Source, err error) {
 	method := http.MethodHead
 	if origin.Index != nil {
 		method = http.MethodGet
 	}
-	resp, err := c.do(ctx, method, origin, place)
+	resp, err := c.do(ctx, method, origin, place.URL)
 	if err != nil {
 		return Source{}, err
 	}
 	defer func() { err = errors.Join(err, resp.Body.Close()) }()
 	if origin.Index == nil {
-		return Source{Origin: origin, URL: place, Size: resp.ContentLength, Stated: resp.ContentLength >= 0}, nil
+		return Source{Origin: origin, URL: place.URL, Standing: place.Standing, Size: resp.ContentLength, Stated: resp.ContentLength >= 0}, nil
 	}
+	src, err = c.readIndex(ctx, d, origin, place.URL, resp.Body)
+	src.Standing = place.Standing
+	return src, err
+}
 
-	index, err := io.ReadAll(io.LimitReader(resp.Body, origin.Index.MaxBytes+1))
+// readIndex reads the index at place from body for where the data of d is.
+func (c *Client) readIndex(ctx context.Context, d dataset.Dataset, origin dataset.Origin, place string, body io.Reader) (Source, error) {
+	index, err := io.ReadAll(io.LimitReader(body, origin.Index.MaxBytes+1))
 	switch {
 	case err != nil:
 		return Source{}, failure(ctx, fmt.Errorf("read %s: %w", place, err))

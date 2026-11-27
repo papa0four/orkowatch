@@ -18,7 +18,8 @@ func newSoftwareCmd() *cobra.Command {
 
 On ` + coverage + `,
 the packages are then matched against the host's dataset, which owatch data
-refresh fetches: OSV's data of the host's distribution, or on FreeBSD the
+refresh fetches: OSV's data of the host's distribution, on Fedora the
+updateinfo of the host's release, the file dnf reads, or on FreeBSD the
 FreeBSD project's VuXML, the document pkg audit reads. The report gains a
 Vulnerabilities section: each CVE that CISA's Known Exploited Vulnerabilities
 catalog lists, first and whether fixed or not, then each other CVE with a fix

@@ -104,6 +104,7 @@ type Provenance struct {
 	ID          string `json:"id,omitempty" yaml:"id,omitempty"`
 	State       State  `json:"state,omitempty" yaml:"state,omitempty"`
 	Source      string `json:"source,omitempty" yaml:"source,omitempty"`
+	Standing    string `json:"standing,omitempty" yaml:"standing,omitempty"`
 	DataDate    string `json:"data_date,omitempty" yaml:"data_date,omitempty"`
 	Version     string `json:"version,omitempty" yaml:"version,omitempty"`
 	Fetched     string `json:"fetched,omitempty" yaml:"fetched,omitempty"`
@@ -113,9 +114,14 @@ type Provenance struct {
 
 // About names the data on one line as every report names the data a result
 // was read from: the dataset, the version of its data, the date of its data,
-// and its state.
+// its state, and the standing of the place it was fetched from, when that
+// place has one.
 func (p Provenance) About() string {
-	return fmt.Sprintf("%s, %s, data of %s, %s", p.ID, p.Version, p.DataDate, p.State)
+	about := fmt.Sprintf("%s, %s, data of %s, %s", p.ID, p.Version, p.DataDate, p.State)
+	if p.Standing != "" {
+		about += "; " + p.Standing
+	}
+	return about
 }
 
 // ProvenanceOf is the provenance of the dataset id held under m, whose data
@@ -125,6 +131,7 @@ func ProvenanceOf(id string, m Manifest, facts Facts, now time.Time) Provenance 
 		ID:          id,
 		State:       StateAt(m.Fetched, now),
 		Source:      m.Source,
+		Standing:    m.Standing,
 		DataDate:    facts.Date.UTC().Format(time.DateOnly),
 		Version:     facts.Version,
 		Fetched:     m.Fetched.UTC().Format(time.RFC3339),
@@ -202,6 +209,9 @@ func WriteText(w io.Writer, v View) error {
 		ew.Printf("%-*s  %s\n", width, render.HostText(r.ID), rowDetail(r))
 		if r.Source != "" {
 			ew.Printf("%-*s  source %s\n", width, "", render.HostText(r.Source))
+		}
+		if r.Standing != "" {
+			ew.Printf("%-*s  standing %s\n", width, "", render.HostText(r.Standing))
 		}
 		if r.License != "" || r.Attribution != "" {
 			ew.Printf("%-*s  license %s\n", width, "", render.HostText(r.License+"; "+r.Attribution))
