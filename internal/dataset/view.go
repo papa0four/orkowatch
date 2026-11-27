@@ -125,8 +125,12 @@ func (p Provenance) About() string {
 }
 
 // ProvenanceOf is the provenance of the dataset id held under m, whose data
-// its check gave facts of, read at now.
+// its check gave facts of, read at now. Data that states no date of its own,
+// as a tracker's empty set does, is dated by when it was fetched.
 func ProvenanceOf(id string, m Manifest, facts Facts, now time.Time) Provenance {
+	if facts.Date.IsZero() {
+		facts.Date = m.Fetched
+	}
 	return Provenance{
 		ID:          id,
 		State:       StateAt(m.Fetched, now),

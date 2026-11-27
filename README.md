@@ -649,8 +649,11 @@ package built from its component, and shown as an open tracking bug with its num
 Red Hat Product Security files these bugs on a best-effort basis, and whether a
 package is affected is its maintainer's to establish. A CVE an update has fixed at or
 below the installed build is not shown for its tracking bug, and one an update fixes
-above it is shown with that fix. No license states the terms of Bugzilla's bug data;
-owatch keeps facts of each bug alone.
+above it is shown with that fix. A release Bugzilla no longer names an active version, as an
+archived one, keeps no tracking bug, since a `[fedora-all]` bug is filed for the releases
+current when it is filed, and `status` and every report say no tracking bugs are filed
+for it. No license states the terms of Bugzilla's bug data; owatch keeps facts of each
+bug alone.
 
 VuXML is the FreeBSD project's own document of the vulnerabilities of the Ports
 Collection, one file for every FreeBSD release, so `status` shows its version as

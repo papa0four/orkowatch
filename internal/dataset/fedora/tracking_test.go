@@ -29,12 +29,19 @@ func testBug(id int, version, summary string, components ...string) bug {
 		DataCategory: "Public", Changed: fmt.Sprintf("2026-11-%02dT10:00:00Z", 10+id%10)}
 }
 
-// pagesOf is the pages as a fetch writes them, one answer after another.
+// versionsOf is Bugzilla's answer of Fedora's versions, as the gate answers
+// it: 42 inactive, and 43, 44, and rawhide active.
+const versionsOf = `{"products":[{"versions":[{"name":"42","is_active":false,"sort_key":0,"id":1},` +
+	`{"name":"43","is_active":true,"sort_key":0,"id":2},{"name":"44","is_active":true,"sort_key":0,"id":3},` +
+	`{"name":"rawhide","is_active":true,"sort_key":0,"id":4}]}]}`
+
+// pagesOf is the pages as a fetch writes them, the gate's answer and then one
+// answer after another.
 func pagesOf(t *testing.T, pages ...[]bug) []byte {
 	t.Helper()
-	var b bytes.Buffer
+	b := bytes.NewBufferString(versionsOf + "\n")
 	for _, p := range pages {
-		if err := json.NewEncoder(&b).Encode(map[string]any{"limit": "20", "offset": 0, "total_matches": len(p), "bugs": p}); err != nil {
+		if err := json.NewEncoder(b).Encode(map[string]any{"limit": "20", "offset": 0, "total_matches": len(p), "bugs": p}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -217,13 +224,13 @@ func TestKeepRefuses(t *testing.T) {
 		fetched []byte
 		what    string
 	}{
-		"an error":     {[]byte(`{"error":true,"message":"x"}`), "holds an error from Bugzilla"},
-		"not JSON":     {[]byte(`<html>`), "is not Bugzilla's answer"},
+		"an error":     {[]byte(versionsOf + `{"error":true,"message":"x"}`), "holds an error from Bugzilla"},
+		"not JSON":     {[]byte(versionsOf + `<html>`), "is not Bugzilla's answer"},
 		"not public":   {pagesOf(t, []bug{notPublic}), "it is not a public bug"},
 		"a bad time":   {pagesOf(t, []bug{badTime}), `"yesterday" is not a time`},
 		"an escape":    {pagesOf(t, []bug{escaped}), "holds a control character"},
 		"nothing kept": {pagesOf(t, []bug{testBug(204, "43", "CVE-2026-2004 a: b", "a")}), "no open tracking bug of Fedora 44"},
-		"no pages":     {nil, "no open tracking bug of Fedora 44"},
+		"no pages":     {[]byte(versionsOf), "no open tracking bug of Fedora 44"},
 	} {
 		if _, err := keptBugs(tt.fetched); err == nil || !strings.Contains(err.Error(), tt.what) {
 			t.Errorf("%s: gave %v, want it refused: %s", name, err, tt.what)
@@ -258,11 +265,11 @@ func TestTrackingRecordsRefuse(t *testing.T) {
 	}{
 		"the pages as fetched": {sample(t), "44", "not the tracking bugs kept"},
 		"another release":      {kept, "42", "kept for Fedora 44, not Fedora 42"},
-		"fewer than counted":   {gzipped(`{"release":"Fedora 44","bugs":2}`, one), "44", "bug 2 of 2 cannot be read"},
-		"more than counted":    {gzipped(`{"release":"Fedora 44","bugs":1}`, one, one), "44", "text follows the tracking bugs the header counts"},
-		"a field not written":  {gzipped(`{"release":"Fedora 44","bugs":1}`, strings.Replace(one, `"status"`, `"summary":"x","status"`, 1)), "44", "cannot be read"},
-		"no CVE":               {gzipped(`{"release":"Fedora 44","bugs":1}`, strings.Replace(one, `["CVE-2026-1001"]`, `[]`, 1)), "44", "names no CVE"},
-		"none":                 {gzipped(`{"release":"Fedora 44","bugs":0}`), "44", "no open tracking bug of Fedora 44 is kept"},
+		"fewer than counted":   {gzipped(`{"release":"Fedora 44","active":true,"bugs":2}`, one), "44", "bug 2 of 2 cannot be read"},
+		"more than counted":    {gzipped(`{"release":"Fedora 44","active":true,"bugs":1}`, one, one), "44", "text follows the tracking bugs the header counts"},
+		"a field not written":  {gzipped(`{"release":"Fedora 44","active":true,"bugs":1}`, strings.Replace(one, `"status"`, `"summary":"x","status"`, 1)), "44", "cannot be read"},
+		"no CVE":               {gzipped(`{"release":"Fedora 44","active":true,"bugs":1}`, strings.Replace(one, `["CVE-2026-1001"]`, `[]`, 1)), "44", "names no CVE"},
+		"none":                 {gzipped(`{"release":"Fedora 44","active":true,"bugs":0}`), "44", "no open tracking bug of Fedora 44 is kept"},
 		"data after the gzip":  {append(slices.Clone(kept), "trailing"...), "44", "data follows the tracking bugs kept"},
 	} {
 		host := f44
@@ -270,6 +277,87 @@ func TestTrackingRecordsRefuse(t *testing.T) {
 			host = f42
 		}
 		if _, err := (TrackingBugs{}).Check(bytes.NewReader(tt.data), host); err == nil || !strings.Contains(err.Error(), tt.what) {
+			t.Errorf("%s: gave %v, want it refused: %s", name, err, tt.what)
+		}
+	}
+}
+
+// Bugzilla's answer of Fedora's versions says whether a release is one it
+// files tracking bugs for; an answer that is not Bugzilla's, holds an error,
+// or does not name the release is refused. The origin's gate gives an
+// inactive release its standing and an active one none.
+func TestActiveVersion(t *testing.T) {
+	for release, want := range map[string]bool{"44": true, "43": true, "42": false} {
+		if got, err := activeVersion(strings.NewReader(versionsOf), release); err != nil || got != want {
+			t.Errorf("%s: active %v, %v; want %v", release, got, err, want)
+		}
+	}
+	for name, tt := range map[string]struct{ answer, what string }{
+		"unlisted": {versionsOf, "no Fedora version 41 is named in Red Hat Bugzilla"},
+		"an error": {`{"error":true}`, "not Bugzilla's answer of Fedora's versions"},
+		"none":     {`{"products":[]}`, "not Bugzilla's answer of Fedora's versions"},
+		"not JSON": {`<html>`, "not Bugzilla's answer of Fedora's versions"},
+	} {
+		if _, err := activeVersion(strings.NewReader(tt.answer), "41"); err == nil || !strings.Contains(err.Error(), tt.what) {
+			t.Errorf("%s: gave %v, want it refused: %s", name, err, tt.what)
+		}
+	}
+	gate := (TrackingBugs{}).Origin(f42).Pages.Gate
+	if gate == nil || gate.URL != "https://bugzilla.redhat.com/rest/product?names=Fedora&include_fields=versions" {
+		t.Fatalf("gate %+v", gate)
+	}
+	if standing, err := gate.Read(strings.NewReader(versionsOf)); err != nil || standing != "Fedora 42 is not an active version in Red Hat Bugzilla; no tracking bugs are filed for it" {
+		t.Errorf("an inactive release stands %q, %v", standing, err)
+	}
+	if standing, err := (TrackingBugs{}).Origin(f44).Pages.Gate.Read(strings.NewReader(versionsOf)); err != nil || standing != "" {
+		t.Errorf("an active release stands %q, %v", standing, err)
+	}
+}
+
+// A release that is not an active version keeps no bug, which is all that
+// was fetched for it, and what was kept reads as none with no date of its
+// own; pages after the answer that it is not active are refused.
+func TestKeepsNoneOnAnInactiveRelease(t *testing.T) {
+	var kept bytes.Buffer
+	fetched := []byte(versionsOf)
+	if err := (TrackingBugs{}).Keep(bytes.NewReader(fetched), int64(len(fetched)), f42, &kept); err != nil {
+		t.Fatal(err)
+	}
+	given := 0
+	facts, err := TrackingBugs{}.Records(bytes.NewReader(kept.Bytes()), f42, func(vulnrecord.Record) error { given++; return nil })
+	if err != nil || given != 0 || facts.Version != "Fedora 42" || !facts.Date.IsZero() {
+		t.Errorf("an inactive release gave %d records, %+v, %v", given, facts, err)
+	}
+	withPages := pagesOf(t, []bug{testBug(301, "rawhide", "CVE-2026-3001 a: b [fedora-all]", "a")})
+	kept.Reset()
+	if err := (TrackingBugs{}).Keep(bytes.NewReader(withPages), int64(len(withPages)), f42, &kept); err == nil || !strings.Contains(err.Error(), "pages follow the answer that Fedora 42 is not an active version") {
+		t.Errorf("pages after an inactive answer gave %v", err)
+	}
+}
+
+// What was kept is refused when it does not say whether the release is an
+// active version, or keeps bugs for one that is not.
+func TestTrackingRecordsRefuseWhatContradictsActive(t *testing.T) {
+	gzipped := func(lines ...string) []byte {
+		var b bytes.Buffer
+		z := gzip.NewWriter(&b)
+		if _, err := io.WriteString(z, strings.Join(lines, "\n")+"\n"); err != nil {
+			t.Fatal(err)
+		}
+		if err := z.Close(); err != nil {
+			t.Fatal(err)
+		}
+		return b.Bytes()
+	}
+	one := `{"id":1,"component":"a","status":"NEW","changed":"2026-11-27T00:00:00Z","cves":["CVE-2026-1001"]}`
+	for name, tt := range map[string]struct {
+		data []byte
+		what string
+	}{
+		"not saying":          {gzipped(`{"release":"Fedora 42","bugs":0}`), "do not say whether the release is an active version"},
+		"bugs of an inactive": {gzipped(`{"release":"Fedora 42","active":false,"bugs":1}`, one), "1 tracking bugs are kept for Fedora 42, which is not an active version"},
+	} {
+		if _, err := (TrackingBugs{}).Check(bytes.NewReader(tt.data), f42); err == nil || !strings.Contains(err.Error(), tt.what) {
 			t.Errorf("%s: gave %v, want it refused: %s", name, err, tt.what)
 		}
 	}

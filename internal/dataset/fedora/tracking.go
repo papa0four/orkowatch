@@ -24,10 +24,16 @@ import (
 const (
 	trackingID = "fedora-tracking-bugs"
 
-	// bugzilla is Red Hat Bugzilla's REST interface to its bugs, and
-	// bugPage where it shows one.
+	// bugzilla is Red Hat Bugzilla's REST interface to its bugs, bugPage
+	// where it shows one, and versions where it states which of Fedora's
+	// versions are active: those it files tracking bugs for.
 	bugzilla = "https://bugzilla.redhat.com/rest/bug"
 	bugPage  = "https://bugzilla.redhat.com/show_bug.cgi?id="
+	versions = "https://bugzilla.redhat.com/rest/product?names=Fedora&include_fields=versions"
+
+	// maxVersions bounds Bugzilla's answer of Fedora's versions: 2.6 KiB,
+	// 47 versions, on 2026-11-27.
+	maxVersions = 64 << 10
 
 	// pageSize is how many bugs Bugzilla gives an anonymous request, so
 	// how many each page asks for.
@@ -95,11 +101,25 @@ type (
 		Changed      string   `json:"last_change_time"`
 	}
 
-	// trackedHeader opens what is kept: the release it was kept for and
-	// how many bugs follow.
+	// trackedHeader opens what is kept: the release it was kept for,
+	// whether Bugzilla named it an active version, and how many bugs
+	// follow, none for a version that is not.
 	trackedHeader struct {
 		Release string `json:"release"`
+		Active  *bool  `json:"active"`
 		Bugs    int    `json:"bugs"`
+	}
+
+	// product is Bugzilla's answer of a product's versions, each named and
+	// active or not.
+	product struct {
+		Error    bool `json:"error"`
+		Products []struct {
+			Versions []struct {
+				Name   string `json:"name"`
+				Active bool   `json:"is_active"`
+			} `json:"versions"`
+		} `json:"products"`
 	}
 
 	// tracked is a bug as owatch keeps it: its facts, and not its summary.
@@ -159,12 +179,52 @@ func (t TrackingBugs) Origin(host *osfingerprint.OSInfo) dataset.Origin {
 		"version":       {host.PlatformVersion, "rawhide"},
 		"ids_only":      {"1"},
 	}
+	release := host.PlatformVersion
 	return dataset.Origin{
-		URL:         bugzilla + "?" + query.Encode(),
-		Pages:       &dataset.Pages{MaxBytes: maxListing, MaxPages: maxPages, List: list},
+		URL: bugzilla + "?" + query.Encode(),
+		Pages: &dataset.Pages{MaxBytes: maxListing, MaxPages: maxPages, List: list, Gate: &dataset.Gate{
+			URL: versions, MaxBytes: maxVersions,
+			Read: func(answer io.Reader) (string, error) {
+				active, err := activeVersion(answer, release)
+				if err != nil || active {
+					return "", err
+				}
+				return inactiveStanding(release), nil
+			},
+		}},
 		License:     trackingLicense,
 		Attribution: trackingAttribution,
 	}
+}
+
+// inactiveStanding is what a release Bugzilla does not name an active
+// version is held with.
+func inactiveStanding(release string) string {
+	return "Fedora " + release + " is not an active version in Red Hat Bugzilla; no tracking bugs are filed for it"
+}
+
+// activeVersion reads Bugzilla's answer of Fedora's versions for whether
+// release is one it names active.
+func activeVersion(answer io.Reader, release string) (bool, error) {
+	var p product
+	if err := json.NewDecoder(answer).Decode(&p); err != nil {
+		return false, fmt.Errorf("not Bugzilla's answer of Fedora's versions: %w", err)
+	}
+	return p.active(release)
+}
+
+// active reports whether the answer names release an active version,
+// refusing an answer that is not Bugzilla's or does not name release.
+func (p product) active(release string) (bool, error) {
+	if p.Error || len(p.Products) != 1 {
+		return false, errors.New("not Bugzilla's answer of Fedora's versions")
+	}
+	for _, v := range p.Products[0].Versions {
+		if v.Name == release {
+			return v.Active, nil
+		}
+	}
+	return false, fmt.Errorf("no Fedora version %s is named in Red Hat Bugzilla", release)
 }
 
 // list reads the listing for the pages of its bugs, pageSize identifiers a
@@ -192,7 +252,10 @@ func list(r io.Reader, _ *url.URL) ([]string, error) {
 	return pages, nil
 }
 
-// Keep reads the pages as fetched, one answer after another, and writes the
+// Keep reads the pages as fetched, one answer after another, after the
+// gate's answer of Fedora's versions. For a release that is not an active
+// version, which is all that was fetched, it keeps none: a [fedora-all] bug
+// is filed for the releases current when it is filed. Otherwise it writes the
 // open bugs of host's release, and those of rawhide that apply to every
 // release, as owatch keeps them: each bug's number, component, status, last
 // change, and the CVEs its summary names, compressed with gzip. A bug that
@@ -204,34 +267,57 @@ func (t TrackingBugs) Keep(fetched io.ReaderAt, size int64, host *osfingerprint.
 	if err != nil {
 		return err
 	}
-	var keep []tracked
 	dec := json.NewDecoder(io.NewSectionReader(fetched, 0, size))
+	var p product
+	if err := dec.Decode(&p); err != nil {
+		return fmt.Errorf("the pages do not open with Bugzilla's answer of Fedora's versions: %w", err)
+	}
+	active, err := p.active(host.PlatformVersion)
+	if err != nil {
+		return err
+	}
+	if !active {
+		if dec.More() {
+			return fmt.Errorf("pages follow the answer that %s is not an active version", release)
+		}
+		return writeTracked(kept, release, false, nil)
+	}
+	keep, err := keptPages(dec, host.PlatformVersion)
+	if err != nil {
+		return err
+	}
+	if len(keep) == 0 {
+		return fmt.Errorf("the pages hold no open tracking bug of %s", release)
+	}
+	return writeTracked(kept, release, true, keep)
+}
+
+// keptPages reads the pages from dec to their end and gives each bug of
+// them as owatch keeps it for release, refusing a page that holds an error or
+// is not Bugzilla's answer.
+func keptPages(dec *json.Decoder, release string) ([]tracked, error) {
+	var keep []tracked
 	for {
 		var p page
 		err := dec.Decode(&p)
-		if errors.Is(err, io.EOF) {
-			break
-		}
-		if err != nil {
-			return fmt.Errorf("a page is not Bugzilla's answer: %w", err)
-		}
-		if p.Error {
-			return errors.New("a page holds an error from Bugzilla")
+		switch {
+		case errors.Is(err, io.EOF):
+			return keep, nil
+		case err != nil:
+			return nil, fmt.Errorf("a page is not Bugzilla's answer: %w", err)
+		case p.Error:
+			return nil, errors.New("a page holds an error from Bugzilla")
 		}
 		for _, b := range p.Bugs {
-			k, ok, err := b.kept(host.PlatformVersion)
+			k, ok, err := b.kept(release)
 			if err != nil {
-				return fmt.Errorf("bug %d: %w", b.ID, err)
+				return nil, fmt.Errorf("bug %d: %w", b.ID, err)
 			}
 			if ok {
 				keep = append(keep, k...)
 			}
 		}
 	}
-	if len(keep) == 0 {
-		return fmt.Errorf("the pages hold no open tracking bug of %s", release)
-	}
-	return writeTracked(kept, release, keep)
 }
 
 // kept is the bug as owatch keeps it, once for each component it is filed
@@ -287,11 +373,12 @@ func summaryCVEs(summary string) []string {
 }
 
 // writeTracked writes the bugs kept for release, compressed with gzip: the
-// release and how many follow, then each bug, one JSON object a line.
-func writeTracked(w io.Writer, release string, bugs []tracked) error {
+// release, whether it is an active version, and how many follow, then each
+// bug, one JSON object a line.
+func writeTracked(w io.Writer, release string, active bool, bugs []tracked) error {
 	gz := gzip.NewWriter(w)
 	enc := json.NewEncoder(gz)
-	if err := enc.Encode(trackedHeader{Release: release, Bugs: len(bugs)}); err != nil {
+	if err := enc.Encode(trackedHeader{Release: release, Active: &active, Bugs: len(bugs)}); err != nil {
 		return err
 	}
 	for _, b := range bugs {
@@ -331,8 +418,13 @@ func (t TrackingBugs) Records(data io.Reader, host *osfingerprint.OSInfo, each f
 	if err := dec.Decode(&head); err != nil {
 		return dataset.Facts{}, readError(counted, fmt.Errorf("not the tracking bugs kept: %w", err))
 	}
-	if head.Release != release {
+	switch {
+	case head.Release != release:
 		return dataset.Facts{}, fmt.Errorf("the tracking bugs were kept for %s, not %s", dataset.Printable(head.Release), release)
+	case head.Active == nil:
+		return dataset.Facts{}, errors.New("the tracking bugs kept do not say whether the release is an active version")
+	case !*head.Active && head.Bugs != 0:
+		return dataset.Facts{}, fmt.Errorf("%d tracking bugs are kept for %s, which is not an active version", head.Bugs, release)
 	}
 	var newest time.Time
 	for i := range head.Bugs {
@@ -351,7 +443,7 @@ func (t TrackingBugs) Records(data io.Reader, host *osfingerprint.OSInfo, each f
 	if err := trailing(dec, compressed, counted); err != nil {
 		return dataset.Facts{}, err
 	}
-	if head.Bugs == 0 {
+	if *head.Active && head.Bugs == 0 {
 		return dataset.Facts{}, fmt.Errorf("no open tracking bug of %s is kept", release)
 	}
 	return dataset.Facts{Date: newest, Version: release}, nil

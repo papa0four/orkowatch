@@ -58,10 +58,26 @@ type Index struct {
 // from. The pages are fetched in series, in the order List gives them, and
 // kept as one file, so the set is the one the listing named however long the
 // fetch takes.
+//
+// A Gate, when set, is read before the listing. Its answer can stand the
+// listing down, as a tracker says a release is no longer one it files for:
+// the listing is then not read, the gate's answer is the data, and its
+// standing is recorded. Otherwise the gate's answer opens the data, before
+// the pages.
 type Pages struct {
 	MaxBytes int64
 	MaxPages int
 	List     func(listing io.Reader, at *url.URL) ([]string, error)
+	Gate     *Gate
+}
+
+// Gate is an address read before a listing: the most its answer may hold,
+// and how to read from it whether the listing is read. Read gives a standing
+// when it is not, and none when it is.
+type Gate struct {
+	URL      string
+	MaxBytes int64
+	Read     func(answer io.Reader) (standing string, err error)
 }
 
 // Place is an address data may be at, and its standing: what holding the data
