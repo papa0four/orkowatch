@@ -3,6 +3,7 @@
 package vulnmatch
 
 import (
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -522,5 +523,37 @@ func TestSummary(t *testing.T) {
 	}
 	if got, want := (View{Use: dataset.Use{NotDone: "osv-ubuntu is not held"}}).Summary(), "matching was not done: osv-ubuntu is not held"; got != want {
 		t.Errorf("a match not made: %q, want %q", got, want)
+	}
+}
+
+// A pkg package is matched by its package name, which VuXML names, and not
+// by its origin, its versions ordered as pkg orders them: a revision after
+// the port version and an epoch after a comma, and a version of the series a
+// wildcard component names after the wildcard.
+func TestMatchPkgByName(t *testing.T) {
+	entries := []softwarelist.SoftwareEntry{
+		{Name: "curl", Version: "8.9.1_1", Manager: "pkg", Source: "ftp/curl"},
+		{Name: "firefox", Version: "3.5.8,1", Manager: "pkg", Source: "www/firefox"},
+		{Name: "p5-CGI-PSGI", Version: "0.16", Manager: "pkg", Source: "www/p5-CGI-PSGI"},
+	}
+	v := matched(t, "pkg", entries,
+		record("a1", []string{"CVE-2026-10"}, "curl", events("introduced", "0", "fixed", "8.9.1_2")),
+		record("a2", []string{"CVE-2026-11"}, "ftp/curl", events("introduced", "0")),
+		record("a3", []string{"CVE-2026-12"}, "firefox", events("after", "3.5.*,1", "fixed", "3.5.9,1")),
+		record("a4", []string{"CVE-2026-13"}, "p5-CGI-PSGI", events("introduced", "0", "fixed", "0.16")),
+	)
+	want := []match{
+		{ID: "CVE-2026-10", Package: "curl", Installed: "8.9.1_1", Status: StatusFixAvailable, Fixed: "8.9.1_2", Binaries: []string{"curl"}, Records: []string{"a1"}},
+		{ID: "CVE-2026-12", Package: "firefox", Installed: "3.5.8,1", Status: StatusFixAvailable, Fixed: "3.5.9,1", Binaries: []string{"firefox"}, Records: []string{"a3"}},
+	}
+	got := flatten(v)
+	for i := range got {
+		got[i].Severity = nil
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("matched\n%+v\nwant\n%+v", got, want)
+	}
+	if name, version := Named(entries[0]); name != "curl" || version != "8.9.1_1" {
+		t.Errorf("a pkg entry is named %q %q", name, version)
 	}
 }

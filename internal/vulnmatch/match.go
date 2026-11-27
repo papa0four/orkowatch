@@ -24,12 +24,13 @@ import (
 // streams name one package, and do not say which stream each fix is for.
 var moduleMarks = []string{".module_el", ".module+el"}
 
-// versionOrders are the version orders of the managers whose packages
-// distributions' records name.
+// versionOrders are the version orders of the managers whose packages the
+// records of distributions, and FreeBSD's VuXML, name.
 var versionOrders = map[string]pkgversion.Compare{
 	softwarelist.ManagerDpkg: pkgversion.Dpkg,
 	softwarelist.ManagerRPM:  pkgversion.RPM,
 	softwarelist.ManagerAPK:  pkgversion.APK,
+	softwarelist.ManagerPkg:  pkgversion.Pkg,
 }
 
 // Matcher matches one manager's installed packages against records given one
@@ -97,9 +98,10 @@ func New(manager string, entries []softwarelist.SoftwareEntry) (*Matcher, error)
 // Named is the name and version of entry as its manager's records name it:
 // the source package and its version where the manager states them, the
 // entry's own otherwise. rpm's records name binary packages, and its entries
-// state no source version.
+// state no source version; VuXML names pkg's packages by their package name,
+// where pkg's entries state their port's origin as the source.
 func Named(e softwarelist.SoftwareEntry) (string, string) {
-	if e.Manager == softwarelist.ManagerRPM {
+	if e.Manager == softwarelist.ManagerRPM || e.Manager == softwarelist.ManagerPkg {
 		return e.Name, e.Version
 	}
 	name, version := e.Name, e.Version
