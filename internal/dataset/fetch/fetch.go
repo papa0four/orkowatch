@@ -197,6 +197,8 @@ func (c *Client) Locate(ctx context.Context, d dataset.Dataset, host *osfingerpr
 		return Source{}, lasting("%s states an index without its limit and reader", d.ID())
 	case origin.Pages != nil && (origin.Pages.MaxBytes <= 0 || origin.Pages.MaxPages <= 0 || origin.Pages.List == nil):
 		return Source{}, lasting("%s states pages without their limits and reader", d.ID())
+	case origin.Pages != nil && origin.Pages.Gate != nil && (origin.Pages.Gate.URL == "" || origin.Pages.Gate.MaxBytes <= 0 || origin.Pages.Gate.Read == nil):
+		return Source{}, lasting("%s states a gate without its address, limit, and reader", d.ID())
 	}
 	ctx, cancel := context.WithTimeout(ctx, sizeTimeout)
 	defer cancel()
@@ -217,6 +219,12 @@ func (c *Client) locateAt(ctx context.Context, d dataset.Dataset, origin dataset
 	method := http.MethodHead
 	if origin.Index != nil || origin.Pages != nil {
 		method = http.MethodGet
+	}
+	if origin.Pages != nil && origin.Pages.Gate != nil {
+		standing, err := c.readGate(ctx, origin)
+		if err != nil || standing != "" {
+			return Source{Origin: origin, URL: place.URL, Standing: standing, Size: dataset.FetchLimit(d), Pages: []string{origin.Pages.Gate.URL}}, err
+		}
 	}
 	resp, err := c.do(ctx, method, origin, place.URL)
 	if err != nil {
@@ -250,6 +258,25 @@ func readLimited(ctx context.Context, body io.Reader, limit int64, place, what s
 		return nil, nil, &Error{err: err}
 	}
 	return data, at, nil
+}
+
+// readGate reads origin's gate, held to origin and its limit, and gives the
+// standing its reader gives when the listing is not to be read.
+func (c *Client) readGate(ctx context.Context, origin dataset.Origin) (string, error) {
+	gate := origin.Pages.Gate
+	resp, err := c.do(ctx, http.MethodGet, origin, gate.URL)
+	if err != nil {
+		return "", err
+	}
+	answer, _, err := readLimited(ctx, resp.Body, gate.MaxBytes, gate.URL, "gate")
+	if err = errors.Join(err, resp.Body.Close()); err != nil {
+		return "", err
+	}
+	standing, err := gate.Read(bytes.NewReader(answer))
+	if err != nil {
+		return "", lasting("the gate at %s: %w", gate.URL, err)
+	}
+	return standing, nil
 }
 
 // readIndex reads the index at place from body for where the data of d is.
@@ -289,6 +316,9 @@ func (c *Client) readListing(ctx context.Context, d dataset.Dataset, origin data
 		if err := origin.Allows(u); err != nil {
 			return Source{}, lasting("the listing at %s names a page that is refused: %w", place, err)
 		}
+	}
+	if origin.Pages.Gate != nil {
+		pages = append([]string{origin.Pages.Gate.URL}, pages...)
 	}
 	return Source{Origin: origin, URL: place, Size: dataset.FetchLimit(d), Pages: pages}, nil
 }

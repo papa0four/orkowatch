@@ -451,6 +451,97 @@ func TestPagesRefuses(t *testing.T) {
 	}
 }
 
+// gated is the test dataset paged from the listing at /list of o, read after
+// the gate at gate, whose answer "inactive" stands the listing down.
+func (o *origin) gated(gate string) datasettest.Dataset {
+	d := o.paged("/list", 10)
+	d.From.Pages.Gate = &dataset.Gate{URL: gate, MaxBytes: 64, Read: func(answer io.Reader) (string, error) {
+		text, err := io.ReadAll(answer)
+		switch {
+		case err != nil:
+			return "", err
+		case string(text) == "inactive":
+			return "the release is not one the tracker files for", nil
+		case string(text) == "active":
+			return "", nil
+		}
+		return "", fmt.Errorf("%q is not the gate's answer", text)
+	}}
+	return d
+}
+
+// A gate is read before the listing. One that stands the listing down leaves
+// it unread: the source is the gate alone, one request, with the gate's
+// standing, and the gate's answer is what is fetched. One that does not opens
+// the pages, its answer first.
+func TestGateBeforeTheListing(t *testing.T) {
+	o := serve(t, map[string]http.HandlerFunc{
+		"/inactive": send(t, "inactive", true),
+		"/active":   send(t, "active", true),
+		"/list":     send(t, "p/1 p/2", true),
+		"/p/1":      send(t, " one", true),
+		"/p/2":      send(t, " two", true),
+	})
+	down := o.gated(o.URL + "/inactive")
+	src, err := o.client.Locate(context.Background(), down, nil)
+	if err != nil || src.Requests() != 1 || src.Standing != "the release is not one the tracker files for" || !slices.Equal(src.Pages, []string{o.URL + "/inactive"}) {
+		t.Fatalf("a gate that stands the listing down located %+v, %v", src, err)
+	}
+	for _, r := range o.received() {
+		if r.URL.Path == "/list" {
+			t.Error("the listing was read past a gate that stood it down")
+		}
+	}
+	var got bytes.Buffer
+	if err := o.client.Fetch(context.Background(), down, src, &got); err != nil || got.String() != "inactive" {
+		t.Errorf("fetched %q, %v", got.String(), err)
+	}
+
+	up := o.gated(o.URL + "/active")
+	src, err = o.client.Locate(context.Background(), up, nil)
+	if err != nil || src.Standing != "" || !slices.Equal(src.Pages, []string{o.URL + "/active", o.URL + "/p/1", o.URL + "/p/2"}) {
+		t.Fatalf("an open gate located %+v, %v", src, err)
+	}
+	got.Reset()
+	if err := o.client.Fetch(context.Background(), up, src, &got); err != nil || got.String() != "active one two" {
+		t.Errorf("fetched %q, %v", got.String(), err)
+	}
+}
+
+// A gate off the origin's hosts, past its limit, refused by its reader, or
+// stated without its address, limit, or reader is refused for good, and the
+// listing is not read.
+func TestGateRefuses(t *testing.T) {
+	o := serve(t, map[string]http.HandlerFunc{
+		"/big":   send(t, strings.Repeat("x", 65), true),
+		"/other": send(t, "neither", true),
+		"/list":  send(t, "p/1", true),
+	})
+	for name, tt := range map[string]struct {
+		gate, what string
+	}{
+		"off the hosts":       {"https://elsewhere.example/gate", "elsewhere.example is not a host this dataset is fetched from"},
+		"past its limit":      {o.URL + "/big", "the gate at " + o.URL + "/big is more than the 64 bytes it may hold"},
+		"refused by its read": {o.URL + "/other", `"neither" is not the gate's answer`},
+	} {
+		_, err := o.client.Locate(context.Background(), o.gated(tt.gate), nil)
+		var fe *Error
+		if err == nil || !strings.Contains(err.Error(), tt.what) || !errors.As(err, &fe) || fe.Passing() {
+			t.Errorf("%s: gave %v, want it refused for good: %s", name, err, tt.what)
+		}
+	}
+	for _, r := range o.received() {
+		if r.URL.Path == "/list" {
+			t.Error("the listing was read past a gate that was refused")
+		}
+	}
+	d := o.gated(o.URL + "/other")
+	d.From.Pages.Gate.Read = nil
+	if _, err := o.client.Locate(context.Background(), d, nil); !refused(err, "states a gate without its address, limit, and reader") {
+		t.Errorf("a gate with no reader gave %v", err)
+	}
+}
+
 // A redirect on the same host is followed, and the address it came from is
 // not sent on. One to a host the dataset does not list, one to plain HTTP,
 // and one too many are each refused, and none is tried again.
