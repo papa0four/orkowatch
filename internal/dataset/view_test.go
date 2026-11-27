@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -133,5 +134,18 @@ func TestSize(t *testing.T) {
 		if got := Size(n); got != want {
 			t.Errorf("Size(%d) = %q, want %q", n, got, want)
 		}
+	}
+}
+
+// Data that states no date of its own is dated by when it was fetched, and
+// data that states one keeps it.
+func TestProvenanceOfUndatedData(t *testing.T) {
+	m := Manifest{Fetched: time.Date(2026, 11, 27, 20, 0, 0, 0, time.UTC)}
+	if got := ProvenanceOf("fedora-tracking-bugs", m, Facts{Version: "Fedora 42"}, m.Fetched); got.DataDate != "2026-11-27" {
+		t.Errorf("undated data is dated %q", got.DataDate)
+	}
+	dated := Facts{Date: time.Date(2026, 5, 27, 0, 0, 0, 0, time.UTC)}
+	if got := ProvenanceOf("fedora-updates", m, dated, m.Fetched); got.DataDate != "2026-05-27" {
+		t.Errorf("dated data is dated %q", got.DataDate)
 	}
 }
