@@ -160,7 +160,7 @@ func sumOf(text string) string {
 func (o *origin) indexed(places ...string) datasettest.Dataset {
 	from := dataset.Origin{URL: o.URL + places[0], Index: &dataset.Index{MaxBytes: 1 << 10, Locate: lineIndex}}
 	for _, p := range places[1:] {
-		from.Elsewhere = append(from.Elsewhere, o.URL+p)
+		from.Elsewhere = append(from.Elsewhere, dataset.Place{URL: o.URL + p, Standing: "found at " + p})
 	}
 	return datasettest.Dataset{Name: "wanted", Applies: true, From: from}
 }
@@ -219,7 +219,8 @@ func TestLocatedChecksum(t *testing.T) {
 }
 
 // A place that answers it holds nothing there, 404 or 410, moves the search
-// to the next place, with or without an index; any other answer ends it
+// to the next place, with or without an index, and the source found takes
+// the standing of the place it was found at, the origin's own having none; any other answer ends it
 // there, and the last place's answer is the search's.
 func TestLocateMovesOnFromMissing(t *testing.T) {
 	index := send(t, fmt.Sprintf("file %s %d", sumOf(datasettest.Content), len(datasettest.Content)), true)
@@ -232,12 +233,16 @@ func TestLocateMovesOnFromMissing(t *testing.T) {
 		"/data":        send(t, datasettest.Content, true),
 	})
 
-	if src, err := o.client.Locate(context.Background(), o.indexed("/gone", "/removed", "/archive/idx"), nil); err != nil || src.URL != o.URL+"/archive/file" {
+	if src, err := o.client.Locate(context.Background(), o.indexed("/gone", "/removed", "/archive/idx"), nil); err != nil || src.URL != o.URL+"/archive/file" || src.Standing != "found at /archive/idx" {
 		t.Errorf("an index past two missing places: %+v, %v", src, err)
 	}
-	plain := datasettest.Dataset{Name: "wanted", Applies: true, From: dataset.Origin{URL: o.URL + "/gone", Elsewhere: []string{o.URL + "/data"}}}
-	if src, err := o.client.Locate(context.Background(), plain, nil); err != nil || src.URL != o.URL+"/data" || !src.Stated {
+	plain := datasettest.Dataset{Name: "wanted", Applies: true, From: dataset.Origin{URL: o.URL + "/gone", Elsewhere: []dataset.Place{{URL: o.URL + "/data", Standing: "found at /data"}}}}
+	if src, err := o.client.Locate(context.Background(), plain, nil); err != nil || src.URL != o.URL+"/data" || !src.Stated || src.Standing != "found at /data" {
 		t.Errorf("data past a missing place: %+v, %v", src, err)
+	}
+	plain.From.URL = o.URL + "/data"
+	if src, err := o.client.Locate(context.Background(), plain, nil); err != nil || src.URL != o.URL+"/data" || src.Standing != "" {
+		t.Errorf("data at the origin's own address: %+v, %v, want no standing", src, err)
 	}
 	for _, first := range []string{"/down", "/forbidden"} {
 		before := len(o.received())
