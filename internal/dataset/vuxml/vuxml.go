@@ -20,6 +20,7 @@ import (
 
 	"github.com/papa0four/orkowatch/internal/dataset"
 	"github.com/papa0four/orkowatch/internal/osfingerprint"
+	"github.com/papa0four/orkowatch/internal/pkgversion"
 	"github.com/papa0four/orkowatch/internal/softwarelist"
 	"github.com/papa0four/orkowatch/internal/vulnrecord"
 )
@@ -375,7 +376,13 @@ func (p packages) affected() ([]vulnrecord.Affected, error) {
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", dataset.Printable(p.Names[0]), err)
 		}
+		if holdsNone(converted) {
+			continue
+		}
 		ranges = append(ranges, converted)
+	}
+	if len(ranges) == 0 {
+		return nil, nil
 	}
 	var out []vulnrecord.Affected
 	var seen []string
@@ -421,6 +428,34 @@ func (r bounds) bounds() ([]vulnrecord.Bound, error) {
 		out = append([]vulnrecord.Bound{{Kind: vulnrecord.From, Version: vulnrecord.First}}, out...)
 	}
 	return out, nil
+}
+
+// holdsNone reports whether a range holds no version: its lower bound is
+// above its upper bound in pkg's order, or at it where either bound leaves
+// that version out. pkg audit reads a range as both its bounds holding, so
+// such a range, a slip in the document such as from 16.0.0 before 15.1.0, or
+// an upper bound written without the epoch its lower bound has, matches
+// nothing; the walk that judges ranges in their versions' order would read
+// it as open above its lower bound. A range whose versions pkg cannot order
+// is kept, for the matcher to report.
+func holdsNone(bounds []vulnrecord.Bound) bool {
+	var lower, upper *vulnrecord.Bound
+	for i := range bounds {
+		switch bounds[i].Kind {
+		case vulnrecord.From, vulnrecord.After:
+			lower = &bounds[i]
+		case vulnrecord.Before, vulnrecord.UpTo:
+			upper = &bounds[i]
+		}
+	}
+	if lower == nil || upper == nil {
+		return false
+	}
+	at, err := pkgversion.Pkg(lower.Version, upper.Version)
+	if err != nil {
+		return false
+	}
+	return at > 0 || at == 0 && (lower.Kind == vulnrecord.After || upper.Kind == vulnrecord.Before)
 }
 
 // later is the later of two times.

@@ -26,12 +26,12 @@ import (
 // it on 2026-11-26: its declaration, DOCTYPE, and copyright notice as the
 // document gives them, its 30 newest entries, and entries of each shape a
 // range takes, a cancelled entry, and entries naming no CVE or an old CAN-
-// name, and the entries that name CVE-2023-26112 for py39-configobj and the
-// one that names ja-openoffice in two places, 42 in all, compressed with
-// bzip2.
+// name, the entries that name CVE-2023-26112 for py39-configobj, the one
+// that names ja-openoffice in two places, and two whose ranges are
+// contradictory, 44 in all, compressed with bzip2.
 const (
 	excerpt    = "testdata/vuln-2026-11-26-excerpt.xml.bz2"
-	excerptSum = "00eaac3b0b5139675d8ae606c64b3c6a933e3db928ce09a72253129f1e344a87"
+	excerptSum = "26e85f3744dcdd6f173aa83fb9876d6fdb7d60b81cda2c63fcb94cb2ded2afe4"
 )
 
 var freebsd = &osfingerprint.OSInfo{OS: "freebsd", Platform: "freebsd", PlatformVersion: "15.1-RELEASE"}
@@ -94,8 +94,9 @@ func TestDocumentStatesItself(t *testing.T) {
 // page pkg audit names for it, and each name of each package with its
 // ranges, a range with no lower bound from the first version and a bare *
 // the first version, as pkg reads it. A cancelled entry is not given, a CAN-
-// name is left out, a name a package gives twice is given once, and the
-// document's date is its newest.
+// name is left out, a name a package gives twice is given once, a package
+// whose only range holds no version, as before a bare * does, is left out,
+// and the document's date is its newest.
 func TestRecordsOfTheExcerpt(t *testing.T) {
 	data := recorded(t)
 	facts, err := Document{}.Check(bytes.NewReader(data), freebsd)
@@ -103,7 +104,7 @@ func TestRecordsOfTheExcerpt(t *testing.T) {
 		t.Fatalf("facts %+v, %v", facts, err)
 	}
 	got, err := records(t, data)
-	if err != nil || len(got) != 41 {
+	if err != nil || len(got) != 43 {
 		t.Fatalf("%d records, %v", len(got), err)
 	}
 	from := func(v string) vulnrecord.Bound { return vulnrecord.Bound{Kind: vulnrecord.From, Version: v} }
@@ -130,8 +131,8 @@ func TestRecordsOfTheExcerpt(t *testing.T) {
 		vid, pkg string
 		want     [][]vulnrecord.Bound
 	}{
-		"exactly":                 {"b51a4121-9607-11f0-becf-00a098b42aeb", "pcre2", [][]vulnrecord.Bound{{exactly("10.45")}}},
-		"before a bare *":         {"ec49f6b5-ee39-11e8-b2f4-74d435b63d51", "php70-imap", [][]vulnrecord.Bound{{from("0"), before("0")}}},
+		"exactly": {"b51a4121-9607-11f0-becf-00a098b42aeb", "pcre2", [][]vulnrecord.Bound{{exactly("10.45")}}},
+		"before a bare *, which holds no version": {"ec49f6b5-ee39-11e8-b2f4-74d435b63d51", "php70-imap", nil},
 		"from a bare *":           {"d8382a69-4728-11e8-ba83-0011d823eebd", "polarssl13", [][]vulnrecord.Bound{{from("0")}}},
 		"after a wildcard series": {"1e7f0c11-673a-11e5-98c8-60a44c524f57", "otrs", [][]vulnrecord.Bound{{after("3.2.*"), before("3.2.18")}, {after("3.3.*"), before("3.3.15")}, {after("4.0.*"), before("4.0.13")}}},
 		"from the first version":  {"8cfb6f42-d2b0-11da-a672-000e0c2e438a", "p5-DBI-137", [][]vulnrecord.Bound{{from("0")}}},
@@ -271,5 +272,47 @@ func TestRecordsEndAtAnError(t *testing.T) {
 	}
 	if _, err := read(io.MultiReader(strings.NewReader(document(vuln(vid, sound)))), maxExpanded, func(vulnrecord.Record) error { return stop }); !errors.Is(err, stop) {
 		t.Errorf("a plain document: %v", err)
+	}
+}
+
+// A range whose lower bound is above its upper bound in pkg's order holds no
+// version, as pkg audit judges VuXML, which reads a range as both its bounds
+// holding: cinder's entry f767d615 has a range from 16.0.0 before 15.1.0, and
+// firefox's 0a9e2b72 one from 3.6.*,1 before 3.6.26, whose missing epoch puts
+// it below 3.6,1. pkg audit 2.6.2 named neither entry's CVEs for cinder
+// 21.1.0 and firefox 3.6,1 in a FreeBSD 15.1 guest on 2026-11-26; their other
+// ranges still hold what they cover.
+func TestContradictoryRangesHoldNothing(t *testing.T) {
+	got, err := records(t, recorded(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		name, version, cve string
+		affected           bool
+	}{
+		{"py311-cinder", "21.1.0", "CVE-2020-10755", false},
+		{"py311-cinder", "14.0.0", "CVE-2020-10755", true},
+		{"firefox", "3.6,1", "CVE-2012-0442", false},
+		{"firefox", "5.0,1", "CVE-2012-0442", true},
+	} {
+		m, err := vulnmatch.New(softwarelist.ManagerPkg, Document{}.Combining(), []softwarelist.SoftwareEntry{{Name: c.name, Version: c.version, Manager: softwarelist.ManagerPkg}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, r := range got {
+			if err := m.Add(r); err != nil {
+				t.Fatal(err)
+			}
+		}
+		affected := false
+		for _, p := range m.Result().Packages {
+			for _, v := range p.Vulnerabilities {
+				affected = affected || v.ID == c.cve
+			}
+		}
+		if affected != c.affected {
+			t.Errorf("%s %s has %s: %v, pkg audit said %v", c.name, c.version, c.cve, affected, c.affected)
+		}
 	}
 }
