@@ -20,8 +20,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"slices"
-	"strings"
 	"time"
 
 	"github.com/papa0four/orkowatch/internal/dataset"
@@ -229,8 +227,7 @@ func (w *watched) Read(p []byte) (int, error) {
 // headers and no other that owatch chooses.
 func (c *Client) do(ctx context.Context, method string, d dataset.Dataset) (*http.Response, error) {
 	origin := d.Origin()
-	hosts, err := origin.Hosts()
-	if err != nil {
+	if _, err := origin.Hosts(); err != nil {
 		return nil, &Error{err: err}
 	}
 	req, err := http.NewRequestWithContext(ctx, method, origin.URL, nil)
@@ -240,7 +237,7 @@ func (c *Client) do(ctx context.Context, method string, d dataset.Dataset) (*htt
 	req.Header.Set("User-Agent", userAgent)
 	req.Header.Set("Accept-Encoding", "identity")
 
-	client := &http.Client{Transport: c.transport, CheckRedirect: redirectWithin(hosts)}
+	client := &http.Client{Transport: c.transport, CheckRedirect: redirectWithin(origin)}
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, failure(ctx, err)
@@ -262,19 +259,17 @@ var (
 	errProxy    = errors.New("proxy unusable")
 )
 
-// redirectWithin returns the rule for following a redirect: only to an HTTPS
-// address on one of hosts, and only so many times. The address a request was
+// redirectWithin returns the rule for following a redirect: only to an
+// address origin allows, and only so many times. The address a request was
 // redirected from is not sent on.
-func redirectWithin(hosts []string) func(*http.Request, []*http.Request) error {
+func redirectWithin(origin dataset.Origin) func(*http.Request, []*http.Request) error {
 	return func(req *http.Request, via []*http.Request) error {
 		req.Header.Del("Referer")
-		switch {
-		case len(via) >= maxRedirects:
+		if len(via) >= maxRedirects {
 			return fmt.Errorf("%w: more than %d redirects", errRedirect, maxRedirects)
-		case req.URL.Scheme != "https":
-			return fmt.Errorf("%w: %s is not an HTTPS address", errRedirect, req.URL.Redacted())
-		case !slices.Contains(hosts, strings.ToLower(req.URL.Hostname())):
-			return fmt.Errorf("%w: %s is not a host this dataset is fetched from", errRedirect, req.URL.Hostname())
+		}
+		if err := origin.Allows(req.URL); err != nil {
+			return fmt.Errorf("%w: %w", errRedirect, err)
 		}
 		return nil
 	}

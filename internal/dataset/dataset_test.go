@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"errors"
 	"io"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -242,9 +243,55 @@ func TestOriginHosts(t *testing.T) {
 		"a redirect with path": {URL: "https://data.example/k", RedirectHosts: []string{"cdn.example/x"}},
 		"a redirect with port": {URL: "https://data.example/k", RedirectHosts: []string{"cdn.example:8443"}},
 		"an empty redirect":    {URL: "https://data.example/k", RedirectHosts: []string{""}},
+		"elsewhere over HTTP":  {URL: "https://data.example/k", Elsewhere: []string{"http://archive.example/k"}},
+		"elsewhere empty":      {URL: "https://data.example/k", Elsewhere: []string{""}},
 	} {
 		if _, err := o.Hosts(); !errors.Is(err, ErrManifest) {
 			t.Errorf("%s: gave %v, want it refused", name, err)
 		}
+	}
+}
+
+// The places an origin names are its address and then each elsewhere in
+// order, and every place's host is one a fetch may reach.
+func TestOriginPlaces(t *testing.T) {
+	o := Origin{URL: "https://data.example/k", Elsewhere: []string{"https://Archive.example/k", "https://data.example/old/k"}}
+	if got := o.Places(); len(got) != 3 || got[0] != o.URL || got[1] != o.Elsewhere[0] || got[2] != o.Elsewhere[1] {
+		t.Errorf("places %q", got)
+	}
+	hosts, err := o.Hosts()
+	if err != nil || len(hosts) != 2 || hosts[0] != "data.example" || hosts[1] != "archive.example" {
+		t.Errorf("hosts %q, %v", hosts, err)
+	}
+}
+
+// An origin allows an HTTPS address on one of its hosts, in any case and on
+// any port, and no other.
+func TestOriginAllows(t *testing.T) {
+	o := Origin{URL: "https://data.example/k", Elsewhere: []string{"https://archive.example/k"}, RedirectHosts: []string{"cdn.example"}}
+	for address, allowed := range map[string]bool{
+		"https://cdn.example/x":        true,
+		"https://CDN.Example/x":        true,
+		"https://cdn.example:8443/x":   true,
+		"https://archive.example/y":    true,
+		"https://evil.example/x":       false,
+		"https://cdn.example.evil/x":   false,
+		"http://cdn.example/x":         false,
+		"https://user@cdn.example/x":   false,
+		"https:///no-host":             false,
+		"ftp://data.example/k":         false,
+		"https://data.example/k#frag":  true,
+		"https://data.example/k?query": true,
+	} {
+		u, err := url.Parse(address)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := o.Allows(u); (err == nil) != allowed {
+			t.Errorf("%s: %v, want allowed %v", address, err, allowed)
+		}
+	}
+	if err := (Origin{}).Allows(&url.URL{Scheme: "https", Host: "data.example"}); err == nil {
+		t.Error("an origin with no address allowed an address")
 	}
 }

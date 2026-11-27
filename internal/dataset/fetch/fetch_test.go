@@ -167,7 +167,7 @@ func TestRedirects(t *testing.T) {
 // A host a dataset lists is one a redirect may lead to, in any case, and no
 // other is.
 func TestRedirectWithin(t *testing.T) {
-	rule := redirectWithin([]string{"data.example", "cdn.example"})
+	rule := redirectWithin(dataset.Origin{URL: "https://data.example/k", RedirectHosts: []string{"cdn.example"}})
 	for address, allowed := range map[string]bool{
 		"https://cdn.example/x":      true,
 		"https://CDN.Example/x":      true,
