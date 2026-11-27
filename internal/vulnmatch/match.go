@@ -13,9 +13,9 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/papa0four/orkowatch/internal/dataset/osv"
 	"github.com/papa0four/orkowatch/internal/pkgversion"
 	"github.com/papa0four/orkowatch/internal/softwarelist"
+	"github.com/papa0four/orkowatch/internal/vulnrecord"
 )
 
 // moduleMarks are what the release of a package built for a module stream
@@ -24,12 +24,13 @@ import (
 // streams name one package, and do not say which stream each fix is for.
 var moduleMarks = []string{".module_el", ".module+el"}
 
-// versionOrders are the version orders of the managers whose packages
-// distributions' records name.
+// versionOrders are the version orders of the managers whose packages the
+// records of distributions, and FreeBSD's VuXML, name.
 var versionOrders = map[string]pkgversion.Compare{
 	softwarelist.ManagerDpkg: pkgversion.Dpkg,
 	softwarelist.ManagerRPM:  pkgversion.RPM,
 	softwarelist.ManagerAPK:  pkgversion.APK,
+	softwarelist.ManagerPkg:  pkgversion.Pkg,
 }
 
 // Matcher matches one manager's installed packages against records given one
@@ -37,6 +38,7 @@ var versionOrders = map[string]pkgversion.Compare{
 type Matcher struct {
 	manager   string
 	compare   pkgversion.Compare
+	combining vulnrecord.Combining
 	installed map[string][]*unit
 	pairs     map[pairKey]*pair
 }
@@ -63,19 +65,20 @@ type pair struct {
 	judgments []judgment
 	fixes     []string
 	records   []string
-	severity  []osv.Severity
+	severity  []vulnrecord.Score
 	ratings   []string
 	err       string
 }
 
-// New returns a matcher of the packages in entries that manager installed. A
-// manager whose version order is not known cannot be matched.
-func New(manager string, entries []softwarelist.SoftwareEntry) (*Matcher, error) {
+// New returns a matcher of the packages in entries that manager installed,
+// whose records of one vulnerability combine as combining states. A manager
+// whose version order is not known cannot be matched.
+func New(manager string, combining vulnrecord.Combining, entries []softwarelist.SoftwareEntry) (*Matcher, error) {
 	compare, ok := versionOrders[manager]
 	if !ok {
 		return nil, fmt.Errorf("no version order is known for packages of %q", manager)
 	}
-	m := &Matcher{manager: manager, compare: compare, installed: map[string][]*unit{}, pairs: map[pairKey]*pair{}}
+	m := &Matcher{manager: manager, compare: compare, combining: combining, installed: map[string][]*unit{}, pairs: map[pairKey]*pair{}}
 	for _, e := range entries {
 		if e.Manager != manager {
 			continue
@@ -97,9 +100,10 @@ func New(manager string, entries []softwarelist.SoftwareEntry) (*Matcher, error)
 // Named is the name and version of entry as its manager's records name it:
 // the source package and its version where the manager states them, the
 // entry's own otherwise. rpm's records name binary packages, and its entries
-// state no source version.
+// state no source version; VuXML names pkg's packages by their package name,
+// where pkg's entries state their port's origin as the source.
 func Named(e softwarelist.SoftwareEntry) (string, string) {
-	if e.Manager == softwarelist.ManagerRPM {
+	if e.Manager == softwarelist.ManagerRPM || e.Manager == softwarelist.ManagerPkg {
 		return e.Name, e.Version
 	}
 	name, version := e.Name, e.Version
@@ -113,7 +117,7 @@ func Named(e softwarelist.SoftwareEntry) (string, string) {
 }
 
 // Add judges one record against the installed packages it names.
-func (m *Matcher) Add(r osv.Record) error {
+func (m *Matcher) Add(r vulnrecord.Record) error {
 	ids := r.CVEs
 	if len(ids) == 0 {
 		ids = []string{r.ID}
@@ -133,7 +137,7 @@ func (m *Matcher) Add(r osv.Record) error {
 // note records what r said of the pair through its package a: the record,
 // and its judgment, fixed versions, and scores, or that the versions could
 // not be compared.
-func (p *pair) note(r osv.Record, a osv.Affected, j judgment, err error) {
+func (p *pair) note(r vulnrecord.Record, a vulnrecord.Affected, j judgment, err error) {
 	if !slices.Contains(p.records, r.ID) {
 		p.records = append(p.records, r.ID)
 	}
@@ -146,7 +150,7 @@ func (p *pair) note(r osv.Record, a osv.Affected, j judgment, err error) {
 	if r.Rating != "" {
 		p.ratings = appendNew(p.ratings, r.Rating)
 	}
-	for _, s := range r.Severity {
+	for _, s := range r.Scores {
 		if !slices.Contains(p.severity, s) {
 			p.severity = append(p.severity, s)
 		}
@@ -265,14 +269,18 @@ func (m *Matcher) packageOf(affected map[unitKey]*PackageMatches, key pairKey) *
 }
 
 // decide is the vulnerability the judgments of one pair make, if they make
-// one. Fixed versions that cannot be ordered among themselves are an error.
+// one, combined as the matcher's source states: under FixClears a record that
+// cleared the version settles it, and under AnyRange a record that holds it
+// does. Fixed versions that cannot be ordered among themselves are an error.
 func (m *Matcher) decide(key pairKey, p *pair) (Vulnerability, bool, error) {
 	var above []string
 	in := false
 	for _, j := range p.judgments {
 		switch j.verdict {
 		case cleared:
-			return Vulnerability{}, false, nil
+			if m.combining == vulnrecord.FixClears {
+				return Vulnerability{}, false, nil
+			}
 		case inside:
 			in = true
 			above = append(above, j.above...)
@@ -323,13 +331,14 @@ func isModuleBuild(version string) bool {
 	return slices.ContainsFunc(moduleMarks, func(mark string) bool { return strings.Contains(version, mark) })
 }
 
-// fixedIn lists the fixed versions ranges give.
-func fixedIn(ranges [][]osv.Event) []string {
+// fixedIn lists the fixed versions ranges give: the version of each Before
+// bound, which is the version that leaves the range.
+func fixedIn(ranges [][]vulnrecord.Bound) []string {
 	var fixes []string
-	for _, events := range ranges {
-		for _, e := range events {
-			if v, ok := e[eventFixed]; ok {
-				fixes = appendNew(fixes, v)
+	for _, bounds := range ranges {
+		for _, b := range bounds {
+			if b.Kind == vulnrecord.Before {
+				fixes = appendNew(fixes, b.Version)
 			}
 		}
 	}

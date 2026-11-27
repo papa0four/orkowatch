@@ -3,6 +3,7 @@
 package vulnmatch
 
 import (
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -10,16 +11,23 @@ import (
 	"github.com/papa0four/orkowatch/internal/dataset"
 	"github.com/papa0four/orkowatch/internal/dataset/epss"
 	"github.com/papa0four/orkowatch/internal/dataset/kev"
-	"github.com/papa0four/orkowatch/internal/dataset/osv"
 	"github.com/papa0four/orkowatch/internal/pkgversion"
 	"github.com/papa0four/orkowatch/internal/softwarelist"
+	"github.com/papa0four/orkowatch/internal/vulnrecord"
 )
 
-// events is a range of the events given, kind and version in turn.
-func events(pairs ...string) []osv.Event {
-	var out []osv.Event
+// kinds are the bounds the tests name by the words of the OSV events they
+// stand for, and by the words of the two bounds OSV has no event for.
+var kinds = map[string]vulnrecord.Kind{
+	"introduced": vulnrecord.From, "fixed": vulnrecord.Before, "last_affected": vulnrecord.UpTo, "limit": vulnrecord.Limit,
+	"after": vulnrecord.After, "exactly": vulnrecord.Exactly,
+}
+
+// events is a range of the bounds given, kind and version in turn.
+func events(pairs ...string) []vulnrecord.Bound {
+	var out []vulnrecord.Bound
 	for i := 0; i+1 < len(pairs); i += 2 {
-		out = append(out, osv.Event{pairs[i]: pairs[i+1]})
+		out = append(out, vulnrecord.Bound{Kind: kinds[pairs[i]], Version: pairs[i+1]})
 	}
 	return out
 }
@@ -29,49 +37,69 @@ func events(pairs ...string) []osv.Event {
 // a last affected event it passes; a range applies below its limits; events
 // are taken in version order whatever order they are given in. A version that
 // entered and left a range has the fix installed; one that never entered it
-// is outside the record.
+// is outside the record. The bounds OSV has no event for are judged by the
+// same walk: an after bound enters past its version, and an exact version is
+// inside at that version alone and cleared past it.
 func TestJudge(t *testing.T) {
 	for _, tt := range []struct {
 		name      string
 		installed string
-		ranges    [][]osv.Event
+		ranges    [][]vulnrecord.Bound
 		want      verdict
 		above     []string
 	}{
-		{"below the fix", "1.0-1", [][]osv.Event{events("introduced", "0", "fixed", "2.0-1")}, inside, []string{"2.0-1"}},
-		{"at the fix", "2.0-1", [][]osv.Event{events("introduced", "0", "fixed", "2.0-1")}, cleared, nil},
-		{"above the fix", "3.0-1", [][]osv.Event{events("introduced", "0", "fixed", "2.0-1")}, cleared, nil},
-		{"no fix", "9.0-1", [][]osv.Event{events("introduced", "0")}, inside, nil},
-		{"several fixes, below all", "1.0-1", [][]osv.Event{events("introduced", "0", "fixed", "2.0-1", "fixed", "3.0-1")}, inside, []string{"2.0-1", "3.0-1"}},
-		{"several fixes, between", "2.5-1", [][]osv.Event{events("introduced", "0", "fixed", "2.0-1", "fixed", "3.0-1")}, cleared, nil},
-		{"between two ranges", "2.0-1", [][]osv.Event{events("introduced", "1.0-1", "fixed", "1.2-1", "introduced", "3.0-1", "fixed", "3.5-1")}, cleared, nil},
-		{"in the second range", "3.1-1", [][]osv.Event{events("introduced", "1.0-1", "fixed", "1.2-1", "introduced", "3.0-1", "fixed", "3.5-1")}, inside, []string{"3.5-1"}},
-		{"before any range", "0.5-1", [][]osv.Event{events("introduced", "1.0-1", "fixed", "1.2-1")}, outside, nil},
-		{"at the last affected", "2.0-1", [][]osv.Event{events("introduced", "0", "last_affected", "2.0-1")}, inside, nil},
-		{"past the last affected", "2.1-1", [][]osv.Event{events("introduced", "0", "last_affected", "2.0-1")}, cleared, nil},
-		{"past a limit", "3.0-1", [][]osv.Event{events("introduced", "0", "limit", "2.0-1")}, outside, nil},
-		{"below a limit", "1.0-1", [][]osv.Event{events("introduced", "0", "limit", "2.0-1")}, inside, nil},
-		{"an infinite limit", "9.0-1", [][]osv.Event{events("introduced", "0", "limit", "*")}, inside, nil},
-		{"events out of order", "1.0-1", [][]osv.Event{events("fixed", "2.0-1", "introduced", "0")}, inside, []string{"2.0-1"}},
-		{"events out of order, above the fix", "3.0-1", [][]osv.Event{events("fixed", "2.0-1", "introduced", "0")}, cleared, nil},
-		{"one range of two", "1.0-1", [][]osv.Event{events("introduced", "5.0-1", "fixed", "6.0-1"), events("introduced", "0", "fixed", "2.0-1")}, inside, []string{"2.0-1"}},
-		{"an epoch orders first", "1:1.0-1", [][]osv.Event{events("introduced", "0", "fixed", "9.0-1")}, cleared, nil},
+		{"below the fix", "1.0-1", [][]vulnrecord.Bound{events("introduced", "0", "fixed", "2.0-1")}, inside, []string{"2.0-1"}},
+		{"at the fix", "2.0-1", [][]vulnrecord.Bound{events("introduced", "0", "fixed", "2.0-1")}, cleared, nil},
+		{"above the fix", "3.0-1", [][]vulnrecord.Bound{events("introduced", "0", "fixed", "2.0-1")}, cleared, nil},
+		{"no fix", "9.0-1", [][]vulnrecord.Bound{events("introduced", "0")}, inside, nil},
+		{"several fixes, below all", "1.0-1", [][]vulnrecord.Bound{events("introduced", "0", "fixed", "2.0-1", "fixed", "3.0-1")}, inside, []string{"2.0-1", "3.0-1"}},
+		{"several fixes, between", "2.5-1", [][]vulnrecord.Bound{events("introduced", "0", "fixed", "2.0-1", "fixed", "3.0-1")}, cleared, nil},
+		{"between two ranges", "2.0-1", [][]vulnrecord.Bound{events("introduced", "1.0-1", "fixed", "1.2-1", "introduced", "3.0-1", "fixed", "3.5-1")}, cleared, nil},
+		{"in the second range", "3.1-1", [][]vulnrecord.Bound{events("introduced", "1.0-1", "fixed", "1.2-1", "introduced", "3.0-1", "fixed", "3.5-1")}, inside, []string{"3.5-1"}},
+		{"before any range", "0.5-1", [][]vulnrecord.Bound{events("introduced", "1.0-1", "fixed", "1.2-1")}, outside, nil},
+		{"at the last affected", "2.0-1", [][]vulnrecord.Bound{events("introduced", "0", "last_affected", "2.0-1")}, inside, nil},
+		{"past the last affected", "2.1-1", [][]vulnrecord.Bound{events("introduced", "0", "last_affected", "2.0-1")}, cleared, nil},
+		{"past a limit", "3.0-1", [][]vulnrecord.Bound{events("introduced", "0", "limit", "2.0-1")}, outside, nil},
+		{"below a limit", "1.0-1", [][]vulnrecord.Bound{events("introduced", "0", "limit", "2.0-1")}, inside, nil},
+		{"an infinite limit", "9.0-1", [][]vulnrecord.Bound{events("introduced", "0", "limit", "*")}, inside, nil},
+		{"events out of order", "1.0-1", [][]vulnrecord.Bound{events("fixed", "2.0-1", "introduced", "0")}, inside, []string{"2.0-1"}},
+		{"events out of order, above the fix", "3.0-1", [][]vulnrecord.Bound{events("fixed", "2.0-1", "introduced", "0")}, cleared, nil},
+		{"one range of two", "1.0-1", [][]vulnrecord.Bound{events("introduced", "5.0-1", "fixed", "6.0-1"), events("introduced", "0", "fixed", "2.0-1")}, inside, []string{"2.0-1"}},
+		{"an epoch orders first", "1:1.0-1", [][]vulnrecord.Bound{events("introduced", "0", "fixed", "9.0-1")}, cleared, nil},
+
+		// The bounds OSV has no event for, which VuXML states: strictly
+		// after a version, and that version alone.
+		{"at an after bound", "1.0-1", [][]vulnrecord.Bound{events("after", "1.0-1")}, outside, nil},
+		{"below an after bound", "0.9-1", [][]vulnrecord.Bound{events("after", "1.0-1")}, outside, nil},
+		{"past an after bound", "1.1-1", [][]vulnrecord.Bound{events("after", "1.0-1")}, inside, nil},
+		{"below an exact version", "1.1-1", [][]vulnrecord.Bound{events("exactly", "1.2-1")}, outside, nil},
+		{"at an exact version", "1.2-1", [][]vulnrecord.Bound{events("exactly", "1.2-1")}, inside, nil},
+		{"past an exact version", "1.3-1", [][]vulnrecord.Bound{events("exactly", "1.2-1")}, cleared, nil},
+
+		// Ranges as VuXML gives them: a lower and an upper bound, and an
+		// upper bound alone, given from the first version.
+		{"below a lower and an upper bound", "0.9-1", [][]vulnrecord.Bound{events("introduced", "1.0-1", "fixed", "1.5-1")}, outside, nil},
+		{"between a lower and an upper bound", "1.2-1", [][]vulnrecord.Bound{events("introduced", "1.0-1", "fixed", "1.5-1")}, inside, []string{"1.5-1"}},
+		{"at an upper bound", "1.5-1", [][]vulnrecord.Bound{events("introduced", "1.0-1", "fixed", "1.5-1")}, cleared, nil},
+		{"after a version, up to another", "2.0-1", [][]vulnrecord.Bound{events("after", "1.0-1", "last_affected", "2.0-1")}, inside, nil},
+		{"past after a version, up to another", "2.1-1", [][]vulnrecord.Bound{events("after", "1.0-1", "last_affected", "2.0-1")}, cleared, nil},
+		{"an upper bound alone, from the first version", "0.1-1", [][]vulnrecord.Bound{events("introduced", "0", "fixed", "1.5-1")}, inside, []string{"1.5-1"}},
 	} {
 		got, err := judge(tt.installed, tt.ranges, pkgversion.Dpkg)
 		if err != nil || got.verdict != tt.want || !slices.Equal(got.above, tt.above) {
 			t.Errorf("%s: %+v, %v; want verdict %d above %q", tt.name, got, err, tt.want, tt.above)
 		}
 	}
-	if _, err := judge("1:", [][]osv.Event{events("introduced", "0", "fixed", "2.0-1")}, pkgversion.Dpkg); err == nil {
+	if _, err := judge("1:", [][]vulnrecord.Bound{events("introduced", "0", "fixed", "2.0-1")}, pkgversion.Dpkg); err == nil {
 		t.Error("a version that cannot be ordered was judged")
 	}
 }
 
-// record is an OSV record naming cves, affecting package with ranges.
-func record(id string, cves []string, pkg string, ranges ...[]osv.Event) osv.Record {
-	return osv.Record{ID: id, CVEs: cves, Modified: "2026-11-23T10:00:00Z",
-		Severity: []osv.Severity{{Type: "CVSS_V3", Score: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"}},
-		Affected: []osv.Affected{{Package: pkg, Ecosystem: "Test:1", Ranges: ranges}}}
+// record is a record naming cves, affecting package with ranges.
+func record(id string, cves []string, pkg string, ranges ...[]vulnrecord.Bound) vulnrecord.Record {
+	return vulnrecord.Record{ID: id, CVEs: cves, Modified: "2026-11-23T10:00:00Z",
+		Scores:   []vulnrecord.Score{{Type: "CVSS_V3", Score: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"}},
+		Affected: []vulnrecord.Affected{{Package: pkg, Ecosystem: "Test:1", Ranges: ranges}}}
 }
 
 // match is one vulnerability with the package it is under, as the tests read
@@ -79,7 +107,7 @@ func record(id string, cves []string, pkg string, ranges ...[]osv.Event) osv.Rec
 type match struct {
 	ID, Package, Installed, Status, Fixed string
 	Binaries, Records                     []string
-	Severity                              []osv.Severity
+	Severity                              []vulnrecord.Score
 }
 
 // flatten lists the vulnerabilities of v, each with its package, in the order
@@ -96,9 +124,9 @@ func flatten(v View) []match {
 }
 
 // matched runs a matcher of manager's entries over records.
-func matched(t *testing.T, manager string, entries []softwarelist.SoftwareEntry, records ...osv.Record) View {
+func matched(t *testing.T, manager string, entries []softwarelist.SoftwareEntry, records ...vulnrecord.Record) View {
 	t.Helper()
-	m, err := New(manager, entries)
+	m, err := New(manager, vulnrecord.FixClears, entries)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -156,7 +184,7 @@ func TestMatchDpkgBySource(t *testing.T) {
 // fix is higher, and one below both is affected with the lower fix. An
 // advisory whose range the package never entered does not clear it.
 func TestMatchAcrossAdvisories(t *testing.T) {
-	advisories := []osv.Record{
+	advisories := []vulnrecord.Record{
 		record("RHSA-2023:1", []string{"CVE-2023-45803"}, "fence-agents", events("introduced", "0", "fixed", "0:4.10.0-55.el9_3.3")),
 		record("RHSA-2024:2", []string{"CVE-2023-45803"}, "fence-agents", events("introduced", "0", "fixed", "0:4.10.0-62.el9")),
 	}
@@ -187,7 +215,7 @@ func TestMatchAcrossAdvisories(t *testing.T) {
 // fix is for; with one fixed version it is judged as any package is.
 func TestMatchModuleBuild(t *testing.T) {
 	nodejs := softwarelist.SoftwareEntry{Name: "nodejs", Version: "1:20.20.2-1.module_el9.7.0+226+88d36870", Manager: "rpm"}
-	streams := []osv.Record{
+	streams := []vulnrecord.Record{
 		record("ALSA-2025:1", []string{"CVE-2025-1"}, "nodejs", events("introduced", "0", "fixed", "1:18.20.9-1.module_el9.6.0+1+aaaa")),
 		record("ALSA-2025:2", []string{"CVE-2025-1"}, "nodejs", events("introduced", "0", "fixed", "1:20.20.9-1.module_el9.6.0+1+aaaa")),
 	}
@@ -209,7 +237,7 @@ func TestMatchCannotCompare(t *testing.T) {
 	if len(flatten(v)) != 0 || len(v.NotMatched) != 1 || !strings.Contains(v.NotMatched[0].Reason, "cannot be compared") {
 		t.Errorf("an empty version: %+v, %+v", flatten(v), v.NotMatched)
 	}
-	if _, err := New("pacman", nil); err == nil {
+	if _, err := New("pacman", vulnrecord.FixClears, nil); err == nil {
 		t.Error("a manager with no known order was matched")
 	}
 }
@@ -495,5 +523,75 @@ func TestSummary(t *testing.T) {
 	}
 	if got, want := (View{Use: dataset.Use{NotDone: "osv-ubuntu is not held"}}).Summary(), "matching was not done: osv-ubuntu is not held"; got != want {
 		t.Errorf("a match not made: %q, want %q", got, want)
+	}
+}
+
+// A pkg package is matched by its package name, which VuXML names, and not
+// by its origin, its versions ordered as pkg orders them: a revision after
+// the port version and an epoch after a comma, and a version of the series a
+// wildcard component names after the wildcard.
+func TestMatchPkgByName(t *testing.T) {
+	entries := []softwarelist.SoftwareEntry{
+		{Name: "curl", Version: "8.9.1_1", Manager: "pkg", Source: "ftp/curl"},
+		{Name: "firefox", Version: "3.5.8,1", Manager: "pkg", Source: "www/firefox"},
+		{Name: "p5-CGI-PSGI", Version: "0.16", Manager: "pkg", Source: "www/p5-CGI-PSGI"},
+	}
+	v := matched(t, "pkg", entries,
+		record("a1", []string{"CVE-2026-10"}, "curl", events("introduced", "0", "fixed", "8.9.1_2")),
+		record("a2", []string{"CVE-2026-11"}, "ftp/curl", events("introduced", "0")),
+		record("a3", []string{"CVE-2026-12"}, "firefox", events("after", "3.5.*,1", "fixed", "3.5.9,1")),
+		record("a4", []string{"CVE-2026-13"}, "p5-CGI-PSGI", events("introduced", "0", "fixed", "0.16")),
+	)
+	want := []match{
+		{ID: "CVE-2026-10", Package: "curl", Installed: "8.9.1_1", Status: StatusFixAvailable, Fixed: "8.9.1_2", Binaries: []string{"curl"}, Records: []string{"a1"}},
+		{ID: "CVE-2026-12", Package: "firefox", Installed: "3.5.8,1", Status: StatusFixAvailable, Fixed: "3.5.9,1", Binaries: []string{"firefox"}, Records: []string{"a3"}},
+	}
+	got := flatten(v)
+	for i := range got {
+		got[i].Severity = nil
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("matched\n%+v\nwant\n%+v", got, want)
+	}
+	if name, version := Named(entries[0]); name != "curl" || version != "8.9.1_1" {
+		t.Errorf("a pkg entry is named %q %q", name, version)
+	}
+}
+
+// Two records naming one CVE, one up to 5.0.6_1 and a later one up to 5.0.8,
+// as VuXML's entries for py39-configobj are: at 5.0.8, a source whose
+// records combine as a fix clearing the CVE settles it not affected, and one
+// whose records combine as any range holding the version, as pkg audit
+// judges VuXML, settles it affected. Below both, both settle it affected;
+// past both, neither does.
+func TestCombining(t *testing.T) {
+	records := []vulnrecord.Record{
+		record("de970aef", []string{"CVE-2023-26112"}, "py39-configobj", events("introduced", "0", "last_affected", "5.0.6_1")),
+		record("46419e8c", []string{"CVE-2023-26112"}, "py39-configobj", events("introduced", "0", "last_affected", "5.0.8")),
+	}
+	for _, c := range []struct {
+		version   string
+		combining vulnrecord.Combining
+		affected  bool
+	}{
+		{"5.0.8", vulnrecord.FixClears, false},
+		{"5.0.8", vulnrecord.AnyRange, true},
+		{"5.0.6", vulnrecord.FixClears, true},
+		{"5.0.6", vulnrecord.AnyRange, true},
+		{"5.0.9", vulnrecord.FixClears, false},
+		{"5.0.9", vulnrecord.AnyRange, false},
+	} {
+		m, err := New("pkg", c.combining, []softwarelist.SoftwareEntry{{Name: "py39-configobj", Version: c.version, Manager: "pkg"}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, r := range records {
+			if err := m.Add(r); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if affected := len(m.Result().Packages) > 0; affected != c.affected {
+			t.Errorf("%s under %d: affected %v, want %v", c.version, c.combining, affected, c.affected)
+		}
 	}
 }

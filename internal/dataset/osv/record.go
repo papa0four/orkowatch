@@ -9,10 +9,44 @@ import (
 	"slices"
 	"strings"
 	"time"
-	"unicode"
 
 	"github.com/papa0four/orkowatch/internal/dataset"
+	"github.com/papa0four/orkowatch/internal/vulnrecord"
 )
+
+// boundOf is the bound of a matching range each event of a kept range
+// names: introduced is from its version, fixed before it, last affected up to
+// it, and a limit ends the range there.
+var boundOf = map[string]vulnrecord.Kind{
+	eventIntroduced:   vulnrecord.From,
+	eventFixed:        vulnrecord.Before,
+	eventLastAffected: vulnrecord.UpTo,
+	eventLimit:        vulnrecord.Limit,
+}
+
+// matching is r as the matcher reads it, each event of its ranges the bound
+// it names. A kept record's ranges hold those four events alone, each naming
+// one version, as validRange holds them.
+func (r Record) matching() vulnrecord.Record {
+	m := vulnrecord.Record{ID: r.ID, CVEs: r.CVEs, Published: r.Published, Modified: r.Modified, Advisory: r.Advisory, Rating: r.Rating}
+	for _, s := range r.Severity {
+		m.Scores = append(m.Scores, vulnrecord.Score{Type: s.Type, Score: s.Score})
+	}
+	for _, a := range r.Affected {
+		affected := vulnrecord.Affected{Package: a.Package, Ecosystem: a.Ecosystem}
+		for _, events := range a.Ranges {
+			var bounds []vulnrecord.Bound
+			for _, e := range events {
+				for kind, version := range e {
+					bounds = append(bounds, vulnrecord.Bound{Kind: boundOf[kind], Version: version})
+				}
+			}
+			affected.Ranges = append(affected.Ranges, bounds)
+		}
+		m.Affected = append(m.Affected, affected)
+	}
+	return m
+}
 
 // maxEcosystemsSeen bounds how many of a dump's ecosystems are remembered to
 // name in a refusal. Red Hat's dump of 2026-11-24 named 1,041.
@@ -123,7 +157,7 @@ func (r record) affectedIn(rel release, seen map[string]bool) ([]Affected, error
 		ka := Affected{Package: a.Package.Name, Ecosystem: eco}
 		for _, rg := range a.Ranges {
 			if rg.Type != rangeEcosystem {
-				return nil, fmt.Errorf("a range of %s is of type %q, not %s", printable(a.Package.Name), printable(rg.Type), rangeEcosystem)
+				return nil, fmt.Errorf("a range of %s is of type %q, not %s", dataset.Printable(a.Package.Name), dataset.Printable(rg.Type), rangeEcosystem)
 			}
 			ka.Ranges = append(ka.Ranges, rg.Events)
 		}
@@ -182,11 +216,11 @@ func (r record) advisory() string {
 func (k Record) valid(rel release) error {
 	switch {
 	case !identifier.MatchString(k.ID):
-		return fmt.Errorf("%q is not a record's identifier", printable(k.ID))
+		return fmt.Errorf("%q is not a record's identifier", dataset.Printable(k.ID))
 	case !validTime(k.Modified):
-		return fmt.Errorf("the time it was modified, %q, is not an RFC 3339 time", printable(k.Modified))
+		return fmt.Errorf("the time it was modified, %q, is not an RFC 3339 time", dataset.Printable(k.Modified))
 	case k.Published != "" && !validTime(k.Published):
-		return fmt.Errorf("the time it was published, %q, is not an RFC 3339 time", printable(k.Published))
+		return fmt.Errorf("the time it was published, %q, is not an RFC 3339 time", dataset.Printable(k.Published))
 	case k.CVEs == nil || !slices.IsSorted(k.CVEs) || len(slices.Compact(slices.Clone(k.CVEs))) != len(k.CVEs):
 		return errors.New("its CVEs are not listed once each, in order")
 	case len(k.Affected) == 0:
@@ -194,20 +228,20 @@ func (k Record) valid(rel release) error {
 	}
 	for _, cve := range k.CVEs {
 		if !dataset.ValidCVE(cve) {
-			return fmt.Errorf("%q is not a CVE identifier", printable(cve))
+			return fmt.Errorf("%q is not a CVE identifier", dataset.Printable(cve))
 		}
 	}
 	if err := validAdvisory(k.Advisory); err != nil {
 		return err
 	}
 	if k.Rating != "" && !slices.Contains(ratings, k.Rating) {
-		return fmt.Errorf("%q is not an advisory's rating", printable(k.Rating))
+		return fmt.Errorf("%q is not an advisory's rating", dataset.Printable(k.Rating))
 	}
 	for _, s := range k.Severity {
-		if err := text("a score's type", s.Type); err != nil {
+		if err := dataset.CheckText("a score's type", s.Type); err != nil {
 			return err
 		}
-		if err := text("a score", s.Score); err != nil {
+		if err := dataset.CheckText("a score", s.Score); err != nil {
 			return err
 		}
 	}
@@ -222,18 +256,18 @@ func (k Record) valid(rel release) error {
 // valid refuses a package that is not named, is not of rel, or has a range
 // that is not in the schema's form.
 func (a Affected) valid(rel release) error {
-	if err := text("a package's name", a.Package); err != nil {
+	if err := dataset.CheckText("a package's name", a.Package); err != nil {
 		return err
 	}
 	if !rel.accepts(a.Ecosystem) {
-		return fmt.Errorf("%s is in %s, not %s", printable(a.Package), printable(a.Ecosystem), rel.name)
+		return fmt.Errorf("%s is in %s, not %s", dataset.Printable(a.Package), dataset.Printable(a.Ecosystem), rel.name)
 	}
 	if len(a.Ranges) == 0 {
-		return fmt.Errorf("%s has no range of versions", printable(a.Package))
+		return fmt.Errorf("%s has no range of versions", dataset.Printable(a.Package))
 	}
 	for _, events := range a.Ranges {
 		if err := validRange(events); err != nil {
-			return fmt.Errorf("%s: %w", printable(a.Package), err)
+			return fmt.Errorf("%s: %w", dataset.Printable(a.Package), err)
 		}
 	}
 	return nil
@@ -252,9 +286,9 @@ func validRange(events []Event) error {
 			switch kind {
 			case eventIntroduced, eventFixed, eventLastAffected, eventLimit:
 			default:
-				return fmt.Errorf("%q is not an event of a range", printable(kind))
+				return fmt.Errorf("%q is not an event of a range", dataset.Printable(kind))
 			}
-			if err := text("a version", version); err != nil {
+			if err := dataset.CheckText("a version", version); err != nil {
 				return err
 			}
 			count[kind]++
@@ -275,12 +309,12 @@ func validAdvisory(address string) error {
 	if address == "" {
 		return nil
 	}
-	if err := text("an advisory's address", address); err != nil {
+	if err := dataset.CheckText("an advisory's address", address); err != nil {
 		return err
 	}
 	u, err := url.Parse(address)
 	if err != nil || u.Scheme != "https" || u.Hostname() == "" || u.User != nil {
-		return fmt.Errorf("the advisory %q is not an HTTPS address of a host", printable(address))
+		return fmt.Errorf("the advisory %q is not an HTTPS address of a host", dataset.Printable(address))
 	}
 	return nil
 }
@@ -289,18 +323,4 @@ func validAdvisory(address string) error {
 func validTime(value string) bool {
 	_, err := time.Parse(time.RFC3339Nano, value)
 	return err == nil
-}
-
-// text refuses text kept from a record that is empty, too long, or holds a
-// character a terminal would act on.
-func text(what, value string) error {
-	switch {
-	case value == "":
-		return fmt.Errorf("%s is empty", what)
-	case len(value) > maxText:
-		return fmt.Errorf("%s is longer than %d bytes", what, maxText)
-	case strings.IndexFunc(value, unicode.IsControl) >= 0:
-		return fmt.Errorf("%s holds a control character", what)
-	}
-	return nil
 }

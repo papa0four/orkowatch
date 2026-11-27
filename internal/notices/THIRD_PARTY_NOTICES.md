@@ -1,6 +1,6 @@
 # Third-party notices
 
-owatch carries content from MITRE: MITRE ATT&CK® data inside the binary, references to the Common Weakness Enumeration (CWE™), and identifiers from the Common Attack Pattern Enumeration and Classification (CAPEC™). MITRE's terms of use for each grant a royalty-free license to use it for research, development and commercial purposes, on the condition that any copy reproduces MITRE's copyright designation and the license. It also names the Center for Threat-Informed Defense's mapping of NIST controls to ATT&CK and carries NIST SP 800-53 control titles; their notices follow. It reads FIRST's EPSS scores and CISA's Known Exploited Vulnerabilities catalog, which it does not carry: `owatch data refresh` fetches them into the operator's dataset store, and their terms follow too. This file is that reproduction. It is embedded in the owatch binary, so every copy carries it, and `owatch notices` prints it.
+owatch carries content from MITRE: MITRE ATT&CK® data inside the binary, references to the Common Weakness Enumeration (CWE™), and identifiers from the Common Attack Pattern Enumeration and Classification (CAPEC™). MITRE's terms of use for each grant a royalty-free license to use it for research, development and commercial purposes, on the condition that any copy reproduces MITRE's copyright designation and the license. It also names the Center for Threat-Informed Defense's mapping of NIST controls to ATT&CK and carries NIST SP 800-53 control titles; their notices follow. It reads FIRST's EPSS scores, CISA's Known Exploited Vulnerabilities catalog, and the FreeBSD project's VuXML, which it does not carry: `owatch data refresh` fetches them into the operator's dataset store, and their terms follow too. This file is that reproduction. It is embedded in the owatch binary, so every copy carries it, and `owatch notices` prints it.
 
 The text inside each fenced block below is the publisher's, reproduced as published.
 
@@ -339,3 +339,38 @@ The KEV database is distributed under the Creative Commons 0 1.0 License. You ma
 ```
 
 Every report that reads the catalog states owatch's own attribution of it: "CISA Known Exploited Vulnerabilities Catalog. Use of this information does not authorize use of the CISA Logo or DHS Seal, and is not an endorsement by CISA or DHS."
+
+## VuXML
+
+What owatch reads: the VuXML document of the FreeBSD Ports Collection that vuxml.freebsd.org publishes at https://vuxml.freebsd.org/freebsd/vuln.xml.bz2, the document `pkg audit` reads, which `owatch data refresh` fetches into the dataset store on a FreeBSD host and keeps as it was fetched. owatch does not carry the document; its tests carry an excerpt of it, which keeps the notice below where the document has it, unmodified. The document opens with the license below, and owatch's reports show matches drawn from it, so the license is reproduced here in full.
+
+```text
+Copyright 2003-2026 Jacques Vidrine and contributors
+
+Redistribution and use in source (VuXML) and 'compiled' forms (SGML,
+HTML, PDF, PostScript, RTF and so forth) with or without modification,
+are permitted provided that the following conditions are met:
+1. Redistributions of source code (VuXML) must retain the above
+   copyright notice, this list of conditions and the following
+   disclaimer as the first lines of this file unmodified.
+2. Redistributions in compiled form (transformed to other DTDs,
+   published online in any format, converted to PDF, PostScript,
+   RTF and other formats) must reproduce the above copyright
+   notice, this list of conditions and the following disclaimer
+   in the documentation and/or other materials provided with the
+   distribution.
+
+THIS DOCUMENTATION IS PROVIDED BY THE AUTHOR AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
+THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
+PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS
+BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY,
+OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT
+OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR
+BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE
+OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS DOCUMENTATION,
+EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+```
+
+Every report that reads the document states owatch's own attribution of it: "VuXML, the FreeBSD Ports Collection's vulnerability document, https://vuxml.freebsd.org, copyright Jacques Vidrine and contributors".

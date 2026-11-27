@@ -16,14 +16,15 @@ func newSoftwareCmd() *cobra.Command {
 		short: "List installed software on the host",
 		long: `The software command gathers and lists the installed software packages from the host operating system, including version details where available.
 
-On AlmaLinux, Alpine, Red Hat Enterprise Linux, Rocky Linux, and Ubuntu, the
-packages are then matched against the host's OSV dataset, which owatch data
-refresh fetches, and the report gains a Vulnerabilities section: each CVE that
-CISA's Known Exploited Vulnerabilities catalog lists, first and whether fixed or
-not, then each other CVE with a fix available, the unfixed counted by package,
-and what could not be matched. With no dataset held, the section says matching
-was not done and what to run, and with no catalog held, that known exploitation
-was not read.
+On ` + coverage + `,
+the packages are then matched against the host's dataset, which owatch data
+refresh fetches: OSV's data of the host's distribution, or on FreeBSD the
+FreeBSD project's VuXML, the document pkg audit reads. The report gains a
+Vulnerabilities section: each CVE that CISA's Known Exploited Vulnerabilities
+catalog lists, first and whether fixed or not, then each other CVE with a fix
+available, the unfixed counted by package, and what could not be matched. With
+no dataset held, the section says matching was not done and what to run, and
+with no catalog held, that known exploitation was not read.
 
 ` + held.AskHelp + `
 

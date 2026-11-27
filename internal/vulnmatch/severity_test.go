@@ -6,8 +6,8 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/papa0four/orkowatch/internal/dataset/osv"
 	"github.com/papa0four/orkowatch/internal/softwarelist"
+	"github.com/papa0four/orkowatch/internal/vulnrecord"
 )
 
 // The vectors are ones OSV's records carried on 2026-11-24, with the base
@@ -26,32 +26,32 @@ const (
 // it is none stated.
 func TestSeverityOf(t *testing.T) {
 	for name, tt := range map[string]struct {
-		scores  []osv.Severity
+		scores  []vulnrecord.Score
 		ratings []string
 		want    Severity
 	}{
-		"an Ubuntu priority beside a vector": {[]osv.Severity{{Type: "CVSS_V3", Score: vector90}, {Type: "Ubuntu", Score: "medium"}}, nil,
+		"an Ubuntu priority beside a vector": {[]vulnrecord.Score{{Type: "CVSS_V3", Score: vector90}, {Type: "Ubuntu", Score: "medium"}}, nil,
 			Severity{Label: "medium", Level: LevelMedium, Basis: "Ubuntu priority"}},
-		"an Ubuntu priority of negligible": {[]osv.Severity{{Type: "Ubuntu", Score: "negligible"}}, nil,
+		"an Ubuntu priority of negligible": {[]vulnrecord.Score{{Type: "Ubuntu", Score: "negligible"}}, nil,
 			Severity{Label: "negligible", Level: LevelNegligible, Basis: "Ubuntu priority"}},
 		"a rating": {nil, []string{"Important"},
 			Severity{Label: "Important", Level: LevelHigh, Basis: "advisory rating"}},
-		"a rating beside a vector": {[]osv.Severity{{Type: "CVSS_V3", Score: vector90}}, []string{"Moderate"},
+		"a rating beside a vector": {[]vulnrecord.Score{{Type: "CVSS_V3", Score: vector90}}, []string{"Moderate"},
 			Severity{Label: "Moderate", Level: LevelMedium, Basis: "advisory rating"}},
 		"two advisories' ratings": {nil, []string{"Low", "Critical", "Moderate"},
 			Severity{Label: "Critical", Level: LevelCritical, Basis: "advisory rating"}},
-		"a v3.1 vector alone": {[]osv.Severity{{Type: "CVSS_V3", Score: vector71}}, nil,
+		"a v3.1 vector alone": {[]vulnrecord.Score{{Type: "CVSS_V3", Score: vector71}}, nil,
 			Severity{Label: "high", Level: LevelHigh, Basis: "CVSS v3.1 base 7.1"}},
-		"a v3.0 vector alone": {[]osv.Severity{{Type: "CVSS_V3", Score: "CVSS:3.0/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N"}}, nil,
+		"a v3.0 vector alone": {[]vulnrecord.Score{{Type: "CVSS_V3", Score: "CVSS:3.0/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N"}}, nil,
 			Severity{Label: "medium", Level: LevelMedium, Basis: "CVSS v3.0 base 6.1"}},
-		"two vectors, the higher": {[]osv.Severity{{Type: "CVSS_V3", Score: vector61}, {Type: "CVSS_V3", Score: vector90}}, nil,
+		"two vectors, the higher": {[]vulnrecord.Score{{Type: "CVSS_V3", Score: vector61}, {Type: "CVSS_V3", Score: vector90}}, nil,
 			Severity{Label: "critical", Level: LevelCritical, Basis: "CVSS v3.1 base 9.0"}},
-		"a base score of zero": {[]osv.Severity{{Type: "CVSS_V3", Score: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:N"}}, nil,
+		"a base score of zero": {[]vulnrecord.Score{{Type: "CVSS_V3", Score: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:N"}}, nil,
 			Severity{Label: "none", Level: LevelNegligible, Basis: "CVSS v3.1 base 0.0"}},
-		"a vector that is not scored": {[]osv.Severity{{Type: "CVSS_V2", Score: "AV:N/AC:L/Au:N/C:P/I:P/A:P"}}, nil,
+		"a vector that is not scored": {[]vulnrecord.Score{{Type: "CVSS_V2", Score: "AV:N/AC:L/Au:N/C:P/I:P/A:P"}}, nil,
 			Severity{Level: LevelNone}},
-		"a damaged vector":           {[]osv.Severity{{Type: "CVSS_V3", Score: "CVSS:3.1/AV:N"}}, nil, Severity{Level: LevelNone}},
-		"a word that is no priority": {[]osv.Severity{{Type: "Ubuntu", Score: "untriaged"}}, nil, Severity{Level: LevelNone}},
+		"a damaged vector":           {[]vulnrecord.Score{{Type: "CVSS_V3", Score: "CVSS:3.1/AV:N"}}, nil, Severity{Level: LevelNone}},
+		"a word that is no priority": {[]vulnrecord.Score{{Type: "Ubuntu", Score: "untriaged"}}, nil, Severity{Level: LevelNone}},
 		"a rating that is none":      {nil, []string{"Severe"}, Severity{Level: LevelNone}},
 		"nothing":                    {nil, nil, Severity{Level: LevelNone}},
 	} {
@@ -65,7 +65,7 @@ func TestSeverityOf(t *testing.T) {
 // every impact high, reached from the network with nothing required, is
 // critical.
 func TestSeverityOfV4(t *testing.T) {
-	got := severityOf([]osv.Severity{{Type: "CVSS_V4", Score: "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:H/SC:H/SI:H/SA:H"}}, nil)
+	got := severityOf([]vulnrecord.Score{{Type: "CVSS_V4", Score: "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:H/SC:H/SI:H/SA:H"}}, nil)
 	if got.Level != LevelCritical || got.Basis != "CVSS v4.0 base 10.0" {
 		t.Errorf("a v4.0 vector gave %+v", got)
 	}
@@ -79,11 +79,11 @@ func TestMatchCarriesSeverity(t *testing.T) {
 	if want := []string{"critical", "high", "medium", "low", "negligible", "none stated"}; !slices.Equal(Levels(), want) {
 		t.Fatalf("levels %q", Levels())
 	}
-	rated := func(id, cve, rating, vector string) osv.Record {
+	rated := func(id, cve, rating, vector string) vulnrecord.Record {
 		r := record(id, []string{cve}, "kernel", events("introduced", "0"))
-		r.Rating, r.Severity = rating, nil
+		r.Rating, r.Scores = rating, nil
 		if vector != "" {
-			r.Severity = []osv.Severity{{Type: "CVSS_V3", Score: vector}}
+			r.Scores = []vulnrecord.Score{{Type: "CVSS_V3", Score: vector}}
 		}
 		return r
 	}

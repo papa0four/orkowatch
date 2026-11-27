@@ -12,20 +12,23 @@ import (
 	"github.com/papa0four/orkowatch/internal/dataset"
 	"github.com/papa0four/orkowatch/internal/dataset/epss"
 	"github.com/papa0four/orkowatch/internal/dataset/osv"
+	"github.com/papa0four/orkowatch/internal/dataset/vuxml"
 	"github.com/papa0four/orkowatch/internal/osfingerprint"
 	"github.com/papa0four/orkowatch/internal/softwarelist"
 	"github.com/papa0four/orkowatch/internal/vulnmatch"
+	"github.com/papa0four/orkowatch/internal/vulnrecord"
 )
 
 // recordSource is a dataset of a distribution's security records that the
 // installed packages are matched against: the manager whose packages it
-// names, its records given one at a time as they are checked, and the release
-// whose records a match of a host reads, which a match carries as its
-// Version.
+// names, how its records of one vulnerability combine, its records given one
+// at a time as they are checked, and the release whose records a match of a
+// host reads, which a match carries as its Version.
 type recordSource interface {
 	dataset.Dataset
 	Manager() string
-	Records(data io.Reader, host *osfingerprint.OSInfo, each func(osv.Record) error) (dataset.Facts, error)
+	Combining() vulnrecord.Combining
+	Records(data io.Reader, host *osfingerprint.OSInfo, each func(vulnrecord.Record) error) (dataset.Facts, error)
 	Release(host *osfingerprint.OSInfo) (string, error)
 }
 
@@ -39,12 +42,17 @@ type inventoryMatching struct {
 	coverage string
 }
 
+// coverage names the systems whose packages matching covers, as a match not
+// made and the help of owatch software name them: OSV's distributions, and
+// FreeBSD, whose packages VuXML covers.
+const coverage = "AlmaLinux, Alpine, FreeBSD, Red Hat Enterprise Linux, Rocky Linux, and Ubuntu"
+
 // hostMatching is inventoryMatching that reads this host.
 func hostMatching() inventoryMatching {
 	return inventoryMatching{
 		host:     osfingerprint.GetOSFingerprint,
-		matched:  osv.Datasets(),
-		coverage: "AlmaLinux, Alpine, Red Hat Enterprise Linux, Rocky Linux, and Ubuntu",
+		matched:  append(osv.Datasets(), vuxml.Document{}),
+		coverage: coverage,
 	}
 }
 
@@ -69,7 +77,7 @@ func (m inventoryMatching) run(ctx context.Context, data *held.Run, host *osfing
 		return notDone(chosen.ID(), "the dataset holds no records to match against")
 	}
 
-	matcher, err := vulnmatch.New(source.Manager(), entries)
+	matcher, err := vulnmatch.New(source.Manager(), source.Combining(), entries)
 	if err != nil {
 		return notDone(source.ID(), err.Error())
 	}

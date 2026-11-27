@@ -10,6 +10,7 @@ import (
 	"io"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -20,7 +21,6 @@ import (
 	"github.com/papa0four/orkowatch/internal/dataset"
 	"github.com/papa0four/orkowatch/internal/dataset/datasettest"
 	"github.com/papa0four/orkowatch/internal/dataset/epss"
-	"github.com/papa0four/orkowatch/internal/dataset/osv"
 	"github.com/papa0four/orkowatch/internal/dataset/store"
 	"github.com/papa0four/orkowatch/internal/osfingerprint"
 	"github.com/papa0four/orkowatch/internal/security/finding"
@@ -28,6 +28,7 @@ import (
 	"github.com/papa0four/orkowatch/internal/softwarelist"
 	"github.com/papa0four/orkowatch/internal/tui"
 	"github.com/papa0four/orkowatch/internal/vulnmatch"
+	"github.com/papa0four/orkowatch/internal/vulnrecord"
 )
 
 // testRecords is the test dataset as a source of records for Debian hosts:
@@ -37,18 +38,21 @@ type testRecords struct{ datasettest.Dataset }
 func (testRecords) AppliesTo(host *osfingerprint.OSInfo) bool { return host.Platform == "debian" }
 func (testRecords) Manager() string                           { return softwarelist.ManagerDpkg }
 
+// Combining is how the test records combine, as a distribution's do.
+func (testRecords) Combining() vulnrecord.Combining { return vulnrecord.FixClears }
+
 // Release is the release the test records are of, the Version a match of
 // them carries.
 func (testRecords) Release(*osfingerprint.OSInfo) (string, error) { return "Debian:12", nil }
 
-func (r testRecords) Records(data io.Reader, host *osfingerprint.OSInfo, each func(osv.Record) error) (dataset.Facts, error) {
+func (r testRecords) Records(data io.Reader, host *osfingerprint.OSInfo, each func(vulnrecord.Record) error) (dataset.Facts, error) {
 	facts, err := r.Check(data, host)
 	if err != nil {
 		return facts, err
 	}
 	facts.Version = "Debian:12"
-	return facts, each(osv.Record{ID: "DSA-1", CVEs: []string{"CVE-2026-0001"}, Modified: "2026-11-20T00:00:00Z",
-		Affected: []osv.Affected{{Package: "openssl", Ecosystem: "Debian:12", Ranges: [][]osv.Event{{{"introduced": "0"}, {"fixed": "3.0.15-1"}}}}}})
+	return facts, each(vulnrecord.Record{ID: "DSA-1", CVEs: []string{"CVE-2026-0001"}, Modified: "2026-11-20T00:00:00Z",
+		Affected: []vulnrecord.Affected{{Package: "openssl", Ecosystem: "Debian:12", Ranges: [][]vulnrecord.Bound{{{Kind: vulnrecord.From, Version: vulnrecord.First}, {Kind: vulnrecord.Before, Version: "3.0.15-1"}}}}}})
 }
 
 var debian = &osfingerprint.OSInfo{OS: "linux", Platform: "debian", PlatformVersion: "12"}
@@ -267,5 +271,25 @@ func TestSoftwareModuleStatesTheMatch(t *testing.T) {
 	}
 	if !strings.HasPrefix(matched.Summary(), "matched against records: ") {
 		t.Errorf("the match states itself as %q", matched.Summary())
+	}
+}
+
+// A FreeBSD host's packages are matched against VuXML, which owatch knows, a
+// match of it carries VuXML's one release, and the coverage a match not made
+// names FreeBSD among the systems matching covers.
+func TestMatchingCoversFreeBSD(t *testing.T) {
+	host := &osfingerprint.OSInfo{OS: "freebsd", Platform: "freebsd", PlatformVersion: "15.1-RELEASE"}
+	m := hostMatching()
+	if source := m.source(host); source == nil || source.ID() != "vuxml" {
+		t.Fatalf("a FreeBSD host is matched against %v", source)
+	}
+	if id, release, err := m.release(host); err != nil || id != "vuxml" || release != "FreeBSD ports" {
+		t.Errorf("release %q %q, %v", id, release, err)
+	}
+	if !strings.Contains(m.coverage, "FreeBSD") {
+		t.Errorf("the coverage %q leaves FreeBSD out", m.coverage)
+	}
+	if !slices.ContainsFunc(held.Known(), func(d dataset.Dataset) bool { return d.ID() == "vuxml" }) {
+		t.Error("owatch does not know VuXML")
 	}
 }
