@@ -38,6 +38,7 @@ var versionOrders = map[string]pkgversion.Compare{
 type Matcher struct {
 	manager   string
 	compare   pkgversion.Compare
+	combining vulnrecord.Combining
 	installed map[string][]*unit
 	pairs     map[pairKey]*pair
 }
@@ -69,14 +70,15 @@ type pair struct {
 	err       string
 }
 
-// New returns a matcher of the packages in entries that manager installed. A
-// manager whose version order is not known cannot be matched.
-func New(manager string, entries []softwarelist.SoftwareEntry) (*Matcher, error) {
+// New returns a matcher of the packages in entries that manager installed,
+// whose records of one vulnerability combine as combining states. A manager
+// whose version order is not known cannot be matched.
+func New(manager string, combining vulnrecord.Combining, entries []softwarelist.SoftwareEntry) (*Matcher, error) {
 	compare, ok := versionOrders[manager]
 	if !ok {
 		return nil, fmt.Errorf("no version order is known for packages of %q", manager)
 	}
-	m := &Matcher{manager: manager, compare: compare, installed: map[string][]*unit{}, pairs: map[pairKey]*pair{}}
+	m := &Matcher{manager: manager, compare: compare, combining: combining, installed: map[string][]*unit{}, pairs: map[pairKey]*pair{}}
 	for _, e := range entries {
 		if e.Manager != manager {
 			continue
@@ -267,14 +269,18 @@ func (m *Matcher) packageOf(affected map[unitKey]*PackageMatches, key pairKey) *
 }
 
 // decide is the vulnerability the judgments of one pair make, if they make
-// one. Fixed versions that cannot be ordered among themselves are an error.
+// one, combined as the matcher's source states: under FixClears a record that
+// cleared the version settles it, and under AnyRange a record that holds it
+// does. Fixed versions that cannot be ordered among themselves are an error.
 func (m *Matcher) decide(key pairKey, p *pair) (Vulnerability, bool, error) {
 	var above []string
 	in := false
 	for _, j := range p.judgments {
 		switch j.verdict {
 		case cleared:
-			return Vulnerability{}, false, nil
+			if m.combining == vulnrecord.FixClears {
+				return Vulnerability{}, false, nil
+			}
 		case inside:
 			in = true
 			above = append(above, j.above...)

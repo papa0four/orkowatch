@@ -38,6 +38,9 @@ type testRecords struct{ datasettest.Dataset }
 func (testRecords) AppliesTo(host *osfingerprint.OSInfo) bool { return host.Platform == "debian" }
 func (testRecords) Manager() string                           { return softwarelist.ManagerDpkg }
 
+// Combining is how the test records combine, as a distribution's do.
+func (testRecords) Combining() vulnrecord.Combining { return vulnrecord.FixClears }
+
 // Release is the release the test records are of, the Version a match of
 // them carries.
 func (testRecords) Release(*osfingerprint.OSInfo) (string, error) { return "Debian:12", nil }

@@ -26,10 +26,12 @@ import (
 // it on 2026-11-26: its declaration, DOCTYPE, and copyright notice as the
 // document gives them, its 30 newest entries, and entries of each shape a
 // range takes, a cancelled entry, and entries naming no CVE or an old CAN-
-// name, 39 in all, compressed with bzip2.
+// name, and the entries that name CVE-2023-26112 for py39-configobj and the
+// one that names ja-openoffice in two places, 42 in all, compressed with
+// bzip2.
 const (
 	excerpt    = "testdata/vuln-2026-11-26-excerpt.xml.bz2"
-	excerptSum = "ab5396d3f47eba6351fb4b4a98fce6171026c1cebe9398416dc734429502ec13"
+	excerptSum = "00eaac3b0b5139675d8ae606c64b3c6a933e3db928ce09a72253129f1e344a87"
 )
 
 var freebsd = &osfingerprint.OSInfo{OS: "freebsd", Platform: "freebsd", PlatformVersion: "15.1-RELEASE"}
@@ -101,7 +103,7 @@ func TestRecordsOfTheExcerpt(t *testing.T) {
 		t.Fatalf("facts %+v, %v", facts, err)
 	}
 	got, err := records(t, data)
-	if err != nil || len(got) != 38 {
+	if err != nil || len(got) != 41 {
 		t.Fatalf("%d records, %v", len(got), err)
 	}
 	from := func(v string) vulnrecord.Bound { return vulnrecord.Bound{Kind: vulnrecord.From, Version: v} }
@@ -157,7 +159,10 @@ func TestRecordsOfTheExcerpt(t *testing.T) {
 // what pkg audit 2.6.2 said of it in a FreeBSD 15.1 guest on 2026-11-26, for
 // the same document: p5-CGI-PSGI 0.15 is affected and 0.16, its fix, is
 // not; php70-imap, whose range is before a bare *, is not; and polarssl13,
-// whose range is from a bare *, is.
+// whose range is from a bare *, is; py39-configobj 5.0.8, which an older
+// entry covers up to 5.0.6_1 and a later one up to 5.0.8, is; and
+// ja-openoffice 6.0.a638 and 2.0.20050406, which one entry names in two
+// places, the first of which they are past, are.
 func TestMatchesAsPkgAuditDid(t *testing.T) {
 	got, err := records(t, recorded(t))
 	if err != nil {
@@ -171,8 +176,11 @@ func TestMatchesAsPkgAuditDid(t *testing.T) {
 		{"p5-CGI-PSGI", "0.16", false},
 		{"php70-imap", "7.0.0", false},
 		{"polarssl13", "1.3.0", true},
+		{"py39-configobj", "5.0.8", true},
+		{"ja-openoffice", "6.0.a638", true},
+		{"ja-openoffice", "2.0.20050406", true},
 	} {
-		m, err := vulnmatch.New(softwarelist.ManagerPkg, []softwarelist.SoftwareEntry{{Name: c.name, Version: c.version, Manager: softwarelist.ManagerPkg, Source: "x/" + c.name}})
+		m, err := vulnmatch.New(softwarelist.ManagerPkg, Document{}.Combining(), []softwarelist.SoftwareEntry{{Name: c.name, Version: c.version, Manager: softwarelist.ManagerPkg, Source: "x/" + c.name}})
 		if err != nil {
 			t.Fatal(err)
 		}

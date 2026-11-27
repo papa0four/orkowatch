@@ -137,6 +137,12 @@ func (Document) Origin() dataset.Origin {
 // whose version order its ranges are in.
 func (Document) Manager() string { return softwarelist.ManagerPkg }
 
+// Combining is how the document's entries of one vulnerability combine: a
+// version any entry's range holds is affected, as pkg audit judges it, since
+// a later entry widens what an earlier one covered and one entry can name a
+// package in two places.
+func (Document) Combining() vulnrecord.Combining { return vulnrecord.AnyRange }
+
 // Release is the name of what a match of host reads, the Version that match
 // carries: the one document of every FreeBSD release.
 func (d Document) Release(host *osfingerprint.OSInfo) (string, error) {

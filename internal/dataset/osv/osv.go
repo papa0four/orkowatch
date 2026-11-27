@@ -117,6 +117,11 @@ func (d Dump) ID() string { return d.id }
 // records' ranges are in.
 func (d Dump) Manager() string { return d.manager }
 
+// Combining is how a distribution's records of one vulnerability combine: a
+// record whose fix is installed settles it, since the data OSV converts can
+// hold a stale record stating no fix beside the one that states it.
+func (Dump) Combining() vulnrecord.Combining { return vulnrecord.FixClears }
+
 // AppliesTo reports whether host runs the distribution, as its fingerprint
 // names it.
 func (d Dump) AppliesTo(host *osfingerprint.OSInfo) bool {

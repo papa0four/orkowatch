@@ -126,7 +126,7 @@ func flatten(v View) []match {
 // matched runs a matcher of manager's entries over records.
 func matched(t *testing.T, manager string, entries []softwarelist.SoftwareEntry, records ...vulnrecord.Record) View {
 	t.Helper()
-	m, err := New(manager, entries)
+	m, err := New(manager, vulnrecord.FixClears, entries)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -237,7 +237,7 @@ func TestMatchCannotCompare(t *testing.T) {
 	if len(flatten(v)) != 0 || len(v.NotMatched) != 1 || !strings.Contains(v.NotMatched[0].Reason, "cannot be compared") {
 		t.Errorf("an empty version: %+v, %+v", flatten(v), v.NotMatched)
 	}
-	if _, err := New("pacman", nil); err == nil {
+	if _, err := New("pacman", vulnrecord.FixClears, nil); err == nil {
 		t.Error("a manager with no known order was matched")
 	}
 }
@@ -555,5 +555,43 @@ func TestMatchPkgByName(t *testing.T) {
 	}
 	if name, version := Named(entries[0]); name != "curl" || version != "8.9.1_1" {
 		t.Errorf("a pkg entry is named %q %q", name, version)
+	}
+}
+
+// Two records naming one CVE, one up to 5.0.6_1 and a later one up to 5.0.8,
+// as VuXML's entries for py39-configobj are: at 5.0.8, a source whose
+// records combine as a fix clearing the CVE settles it not affected, and one
+// whose records combine as any range holding the version, as pkg audit
+// judges VuXML, settles it affected. Below both, both settle it affected;
+// past both, neither does.
+func TestCombining(t *testing.T) {
+	records := []vulnrecord.Record{
+		record("de970aef", []string{"CVE-2023-26112"}, "py39-configobj", events("introduced", "0", "last_affected", "5.0.6_1")),
+		record("46419e8c", []string{"CVE-2023-26112"}, "py39-configobj", events("introduced", "0", "last_affected", "5.0.8")),
+	}
+	for _, c := range []struct {
+		version   string
+		combining vulnrecord.Combining
+		affected  bool
+	}{
+		{"5.0.8", vulnrecord.FixClears, false},
+		{"5.0.8", vulnrecord.AnyRange, true},
+		{"5.0.6", vulnrecord.FixClears, true},
+		{"5.0.6", vulnrecord.AnyRange, true},
+		{"5.0.9", vulnrecord.FixClears, false},
+		{"5.0.9", vulnrecord.AnyRange, false},
+	} {
+		m, err := New("pkg", c.combining, []softwarelist.SoftwareEntry{{Name: "py39-configobj", Version: c.version, Manager: "pkg"}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, r := range records {
+			if err := m.Add(r); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if affected := len(m.Result().Packages) > 0; affected != c.affected {
+			t.Errorf("%s under %d: affected %v, want %v", c.version, c.combining, affected, c.affected)
+		}
 	}
 }

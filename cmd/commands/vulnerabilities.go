@@ -21,12 +21,13 @@ import (
 
 // recordSource is a dataset of a distribution's security records that the
 // installed packages are matched against: the manager whose packages it
-// names, its records given one at a time as they are checked, and the release
-// whose records a match of a host reads, which a match carries as its
-// Version.
+// names, how its records of one vulnerability combine, its records given one
+// at a time as they are checked, and the release whose records a match of a
+// host reads, which a match carries as its Version.
 type recordSource interface {
 	dataset.Dataset
 	Manager() string
+	Combining() vulnrecord.Combining
 	Records(data io.Reader, host *osfingerprint.OSInfo, each func(vulnrecord.Record) error) (dataset.Facts, error)
 	Release(host *osfingerprint.OSInfo) (string, error)
 }
@@ -76,7 +77,7 @@ func (m inventoryMatching) run(ctx context.Context, data *held.Run, host *osfing
 		return notDone(chosen.ID(), "the dataset holds no records to match against")
 	}
 
-	matcher, err := vulnmatch.New(source.Manager(), entries)
+	matcher, err := vulnmatch.New(source.Manager(), source.Combining(), entries)
 	if err != nil {
 		return notDone(source.ID(), err.Error())
 	}
