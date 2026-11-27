@@ -81,6 +81,24 @@ const (
 	Limit Kind = "limit"
 )
 
+// Combining is how the records of one source that name one vulnerability
+// combine for an installed version: a source's records may overlap, and
+// sources overlap differently, so each states its own.
+type Combining int
+
+const (
+	// FixClears settles a version a record's range has passed as not
+	// affected, whatever another record says: a distribution's data can
+	// hold one record with the fix beside a stale one that still states
+	// none, and the fix is what holds.
+	FixClears Combining = iota
+
+	// AnyRange settles a version any record's range holds as affected, as
+	// pkg audit judges VuXML: a later entry widens what an earlier one
+	// covered rather than being cleared by it.
+	AnyRange
+)
+
 // The two versions a bound gives a meaning of its own, as OSV gives them: the
 // version that sorts before any other, and the one that sorts after any
 // other.

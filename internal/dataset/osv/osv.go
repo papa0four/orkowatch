@@ -26,7 +26,6 @@ import (
 	"slices"
 	"strings"
 	"time"
-	"unicode"
 
 	"github.com/papa0four/orkowatch/internal/dataset"
 	"github.com/papa0four/orkowatch/internal/osfingerprint"
@@ -56,10 +55,6 @@ const (
 	// maxKeptExpanded bounds what kept data may expand to. Ubuntu 22.04's
 	// records expanded to 110 MB on 2026-11-24.
 	maxKeptExpanded = 2 << 30
-
-	// maxText bounds a string kept from a record: an identifier, a package
-	// name, a version, a score, or an address.
-	maxText = 1 << 10
 
 	// maxEcosystemsNamed bounds how many releases a refusal names.
 	maxEcosystemsNamed = 10
@@ -121,6 +116,11 @@ func (d Dump) ID() string { return d.id }
 // name, as the software inventory names it, and so whose version order the
 // records' ranges are in.
 func (d Dump) Manager() string { return d.manager }
+
+// Combining is how a distribution's records of one vulnerability combine: a
+// record whose fix is installed settles it, since the data OSV converts can
+// hold a stale record stating no fix beside the one that states it.
+func (Dump) Combining() vulnrecord.Combining { return vulnrecord.FixClears }
 
 // AppliesTo reports whether host runs the distribution, as its fingerprint
 // names it.
@@ -201,7 +201,7 @@ func (d Dump) Keep(fetched io.ReaderAt, size int64, host *osfingerprint.OSInfo, 
 		}
 		keep, err := rec.keptFor(rel, seen)
 		if err != nil {
-			return fmt.Errorf("record %s: %w", printable(rec.ID), err)
+			return fmt.Errorf("record %s: %w", dataset.Printable(rec.ID), err)
 		}
 		if keep == nil {
 			continue
@@ -290,7 +290,7 @@ func (d Dump) Records(data io.Reader, host *osfingerprint.OSInfo, each func(vuln
 		return dataset.Facts{}, fmt.Errorf("not kept OSV records of format %d: %v", keptFormat, err)
 	}
 	if head.Release != rel.name {
-		return dataset.Facts{}, fmt.Errorf("the records are for %s, not this host's release, %s", printable(head.Release), rel.name)
+		return dataset.Facts{}, fmt.Errorf("the records are for %s, not this host's release, %s", dataset.Printable(head.Release), rel.name)
 	}
 
 	got := trailer{}
@@ -306,7 +306,7 @@ func (d Dump) Records(data io.Reader, host *osfingerprint.OSInfo, each func(vuln
 			return finish(dec, gz, counted, got, line, rel)
 		}
 		if err := line.valid(rel); err != nil {
-			return dataset.Facts{}, fmt.Errorf("record %s: %w", printable(line.ID), err)
+			return dataset.Facts{}, fmt.Errorf("record %s: %w", dataset.Printable(line.ID), err)
 		}
 		got.add(line.Record)
 		if each != nil {
@@ -334,7 +334,7 @@ func finish(dec *json.Decoder, gz *gzip.Reader, counted *counter, got trailer, l
 	case *line.Records != got.Records:
 		return dataset.Facts{}, fmt.Errorf("the trailer counts %d records where %d came before it", *line.Records, got.Records)
 	case line.Modified != got.Modified:
-		return dataset.Facts{}, fmt.Errorf("the trailer gives the newest change as %s where the records give %s", printable(line.Modified), got.Modified)
+		return dataset.Facts{}, fmt.Errorf("the trailer gives the newest change as %s where the records give %s", dataset.Printable(line.Modified), got.Modified)
 	case got.Records == 0:
 		return dataset.Facts{}, fmt.Errorf("no record of %s is kept", rel.name)
 	}
@@ -381,28 +381,13 @@ func named(seen map[string]bool) string {
 	}
 	all := make([]string, 0, len(seen))
 	for eco := range seen {
-		all = append(all, printable(eco))
+		all = append(all, dataset.Printable(eco))
 	}
 	slices.Sort(all)
 	if len(all) <= maxEcosystemsNamed {
 		return strings.Join(all, ", ")
 	}
 	return fmt.Sprintf("%s, and %d more", strings.Join(all[:maxEcosystemsNamed], ", "), len(all)-maxEcosystemsNamed)
-}
-
-// printable is text from a record as an error may show it: nothing a
-// terminal would act on, and no longer than a record's text may be.
-func printable(text string) string {
-	text = strings.Map(func(r rune) rune {
-		if unicode.IsControl(r) {
-			return '?'
-		}
-		return r
-	}, text)
-	if len(text) > maxText {
-		text = text[:maxText] + "..."
-	}
-	return text
 }
 
 // onlySpace takes what is written to it and notes anything but JSON's white

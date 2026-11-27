@@ -3,6 +3,7 @@
 package vulnmatch
 
 import (
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -125,7 +126,7 @@ func flatten(v View) []match {
 // matched runs a matcher of manager's entries over records.
 func matched(t *testing.T, manager string, entries []softwarelist.SoftwareEntry, records ...vulnrecord.Record) View {
 	t.Helper()
-	m, err := New(manager, entries)
+	m, err := New(manager, vulnrecord.FixClears, entries)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -236,7 +237,7 @@ func TestMatchCannotCompare(t *testing.T) {
 	if len(flatten(v)) != 0 || len(v.NotMatched) != 1 || !strings.Contains(v.NotMatched[0].Reason, "cannot be compared") {
 		t.Errorf("an empty version: %+v, %+v", flatten(v), v.NotMatched)
 	}
-	if _, err := New("pacman", nil); err == nil {
+	if _, err := New("pacman", vulnrecord.FixClears, nil); err == nil {
 		t.Error("a manager with no known order was matched")
 	}
 }
@@ -522,5 +523,75 @@ func TestSummary(t *testing.T) {
 	}
 	if got, want := (View{Use: dataset.Use{NotDone: "osv-ubuntu is not held"}}).Summary(), "matching was not done: osv-ubuntu is not held"; got != want {
 		t.Errorf("a match not made: %q, want %q", got, want)
+	}
+}
+
+// A pkg package is matched by its package name, which VuXML names, and not
+// by its origin, its versions ordered as pkg orders them: a revision after
+// the port version and an epoch after a comma, and a version of the series a
+// wildcard component names after the wildcard.
+func TestMatchPkgByName(t *testing.T) {
+	entries := []softwarelist.SoftwareEntry{
+		{Name: "curl", Version: "8.9.1_1", Manager: "pkg", Source: "ftp/curl"},
+		{Name: "firefox", Version: "3.5.8,1", Manager: "pkg", Source: "www/firefox"},
+		{Name: "p5-CGI-PSGI", Version: "0.16", Manager: "pkg", Source: "www/p5-CGI-PSGI"},
+	}
+	v := matched(t, "pkg", entries,
+		record("a1", []string{"CVE-2026-10"}, "curl", events("introduced", "0", "fixed", "8.9.1_2")),
+		record("a2", []string{"CVE-2026-11"}, "ftp/curl", events("introduced", "0")),
+		record("a3", []string{"CVE-2026-12"}, "firefox", events("after", "3.5.*,1", "fixed", "3.5.9,1")),
+		record("a4", []string{"CVE-2026-13"}, "p5-CGI-PSGI", events("introduced", "0", "fixed", "0.16")),
+	)
+	want := []match{
+		{ID: "CVE-2026-10", Package: "curl", Installed: "8.9.1_1", Status: StatusFixAvailable, Fixed: "8.9.1_2", Binaries: []string{"curl"}, Records: []string{"a1"}},
+		{ID: "CVE-2026-12", Package: "firefox", Installed: "3.5.8,1", Status: StatusFixAvailable, Fixed: "3.5.9,1", Binaries: []string{"firefox"}, Records: []string{"a3"}},
+	}
+	got := flatten(v)
+	for i := range got {
+		got[i].Severity = nil
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("matched\n%+v\nwant\n%+v", got, want)
+	}
+	if name, version := Named(entries[0]); name != "curl" || version != "8.9.1_1" {
+		t.Errorf("a pkg entry is named %q %q", name, version)
+	}
+}
+
+// Two records naming one CVE, one up to 5.0.6_1 and a later one up to 5.0.8,
+// as VuXML's entries for py39-configobj are: at 5.0.8, a source whose
+// records combine as a fix clearing the CVE settles it not affected, and one
+// whose records combine as any range holding the version, as pkg audit
+// judges VuXML, settles it affected. Below both, both settle it affected;
+// past both, neither does.
+func TestCombining(t *testing.T) {
+	records := []vulnrecord.Record{
+		record("de970aef", []string{"CVE-2023-26112"}, "py39-configobj", events("introduced", "0", "last_affected", "5.0.6_1")),
+		record("46419e8c", []string{"CVE-2023-26112"}, "py39-configobj", events("introduced", "0", "last_affected", "5.0.8")),
+	}
+	for _, c := range []struct {
+		version   string
+		combining vulnrecord.Combining
+		affected  bool
+	}{
+		{"5.0.8", vulnrecord.FixClears, false},
+		{"5.0.8", vulnrecord.AnyRange, true},
+		{"5.0.6", vulnrecord.FixClears, true},
+		{"5.0.6", vulnrecord.AnyRange, true},
+		{"5.0.9", vulnrecord.FixClears, false},
+		{"5.0.9", vulnrecord.AnyRange, false},
+	} {
+		m, err := New("pkg", c.combining, []softwarelist.SoftwareEntry{{Name: "py39-configobj", Version: c.version, Manager: "pkg"}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, r := range records {
+			if err := m.Add(r); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if affected := len(m.Result().Packages) > 0; affected != c.affected {
+			t.Errorf("%s under %d: affected %v, want %v", c.version, c.combining, affected, c.affected)
+		}
 	}
 }
