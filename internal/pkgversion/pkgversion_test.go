@@ -16,6 +16,7 @@ var schemes = []struct {
 	{"apk", APK, true},
 	{"pacman", Pacman, false},
 	{"pkg", Pkg, true},
+	{"windows", Windows, true},
 }
 
 // Every recorded pair orders as the package manager's own tool ordered it,
@@ -144,12 +145,25 @@ func TestDocumentedEqualities(t *testing.T) {
 	}
 }
 
+// Windows refuses what System.Version reads and Windows never writes, and
+// reads a DWORD System.Version cannot hold.
+func TestWindowsReadsOnlyWhatWindowsWrites(t *testing.T) {
+	for _, build := range []string{"10.0.26100", "10.0", " 10.0.26100.9974", "10.0.26100.9974 ", "+10.0.26100.9974", "10.0.26100.4294967296"} {
+		if order, err := Windows(build, "10.0.26100.9974"); err == nil {
+			t.Errorf("%q was ordered %d", build, order)
+		}
+	}
+	if order, err := Windows("10.0.26100.4294967295", "10.0.26100.2147483647"); err != nil || order <= 0 {
+		t.Errorf("the largest DWORD is ordered %d, %v; want above", order, err)
+	}
+}
+
 // No pair of strings makes a comparison panic, and whatever two strings a
 // comparison orders it orders the other way round when they are swapped.
 func FuzzCompare(f *testing.F) {
 	for i, scheme := range schemes {
 		for _, pair := range corpus(f, scheme.name)[:fuzzSeeds] {
-			f.Add(uint8(i), pair.a, pair.b) // #nosec G115 -- five schemes
+			f.Add(uint8(i), pair.a, pair.b) // #nosec G115 -- six schemes
 		}
 	}
 	f.Fuzz(func(t *testing.T, which uint8, a, b string) {

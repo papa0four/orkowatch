@@ -1,7 +1,8 @@
 // internal/pkgversion/pkgversion.go
 
 // Package pkgversion orders the versions of installed packages as each
-// package manager orders its own. Whether a package is affected by a
+// package manager orders its own, and Windows builds as Microsoft orders
+// them. Whether a package is affected by a
 // vulnerability comes down to whether its version is older than the one that
 // fixed it, and every manager has its own rules for that: epochs, release
 // suffixes, and marks that sort a version before or after the one it is
