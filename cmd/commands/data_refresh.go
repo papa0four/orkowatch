@@ -99,8 +99,8 @@ step gets a line as it begins and as it ends.
 
 --to writes the datasets to a directory to carry to another host, where owatch
 data import installs them. --for names that host by the Target line owatch
-osinfo prints there, os/platform/version, copied as it is printed. Quote it
-when it holds a space, as Windows does.
+osinfo prints there, os/platform/version/architecture, copied as it is
+printed. Quote it when it holds a space, as Windows does.
 
 refresh never runs as root or from an elevated terminal, and no flag changes
 that. An elevated owatch data status installs what an ordinary account
@@ -112,7 +112,10 @@ refreshed.`,
   owatch data refresh --to /media/usb/owatch-datasets
 
   # Fetch the datasets another host needs
-  owatch data refresh --to /media/usb/owatch-datasets --for linux/ubuntu/22.04
+  owatch data refresh --to /media/usb/owatch-datasets --for linux/ubuntu/22.04/amd64
+
+  # Fetch them for a Windows host, quoting its target since it holds spaces
+  owatch data refresh --to D:\owatch-datasets --for "windows/Microsoft Windows 11 Home/10.0.26300.10075/amd64"
 
   # Fetch through a proxy, and without questions
   HTTPS_PROXY=http://proxy.example:3128 owatch data refresh --yes`,

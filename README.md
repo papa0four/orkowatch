@@ -686,7 +686,10 @@ owatch data refresh
 # Fetch them into a directory to carry to a host with no network,
 # for this host or for another one
 owatch data refresh --to /media/usb/owatch-datasets
-owatch data refresh --to /media/usb/owatch-datasets --for linux/ubuntu/22.04
+owatch data refresh --to /media/usb/owatch-datasets --for linux/ubuntu/22.04/amd64
+
+# Fetch them for a Windows host, quoting its target since it holds spaces
+owatch data refresh --to D:\owatch-datasets --for "windows/Microsoft Windows 11 Home/10.0.26300.10075/amd64"
 
 # Install the datasets in a directory, such as one carried from another host
 owatch data import /media/usb/owatch-datasets
@@ -723,8 +726,9 @@ the host needs, the check, and the install are each named as they run; on a
 terminal the line is rewritten in place, and anywhere else each step gets a line
 as it begins and as it ends. `import` names its check and install the same way.
 `--for` names another
-host by the `Target` line `owatch osinfo` prints there, `os/platform/version`,
-copied as printed and quoted when it holds a space, as on Windows. It needs
+host by the `Target` line `owatch osinfo` prints there, `os/platform/version/architecture`,
+copied as printed and quoted when it holds a space, as on Windows. A target an
+earlier owatch printed, without the architecture, still reads. It needs
 `--to`. `refresh` never runs as root or from an elevated terminal, and no flag
 changes that: a host whose only account is root imports datasets fetched
 elsewhere.
