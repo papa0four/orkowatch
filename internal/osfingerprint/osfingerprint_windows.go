@@ -26,12 +26,12 @@ const currentVersionKey = `SOFTWARE\Microsoft\Windows NT\CurrentVersion`
 var shownValues = []string{"DisplayVersion", "EditionID", "InstallationType"}
 
 // nativeMachines names the machines IsWow64Process2 reports as Go names
-// their architectures.
+// their architectures. It names no 32-bit ARM machine: Go has no windows/arm
+// port, and no other owatch build runs on 32-bit ARM Windows.
 var nativeMachines = map[uint16]string{
 	pe.IMAGE_FILE_MACHINE_AMD64: "amd64",
 	pe.IMAGE_FILE_MACHINE_ARM64: "arm64",
 	pe.IMAGE_FILE_MACHINE_I386:  "386",
-	pe.IMAGE_FILE_MACHINE_ARMNT: "arm",
 }
 
 // isWow64Process2 is IsWow64Process2, which only some Windows releases have.

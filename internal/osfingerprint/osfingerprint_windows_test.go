@@ -126,21 +126,26 @@ func TestReadWindowsShownValues(t *testing.T) {
 	}
 }
 
-// Each machine Windows reports is named as Go names its architecture, and one
-// owatch does not name is refused with its number.
+// Each machine an owatch build runs on is named as Go names its architecture,
+// and one no build runs on, as 32-bit ARM and Itanium Windows, is refused
+// with its number.
 func TestMachineArchitecture(t *testing.T) {
 	for machine, want := range map[uint16]string{
 		pe.IMAGE_FILE_MACHINE_AMD64: "amd64",
 		pe.IMAGE_FILE_MACHINE_ARM64: "arm64",
 		pe.IMAGE_FILE_MACHINE_I386:  "386",
-		pe.IMAGE_FILE_MACHINE_ARMNT: "arm",
 	} {
 		if got, err := machineArchitecture(machine); err != nil || got != want {
 			t.Errorf("machineArchitecture(%#04x) = %q, %v, want %q", machine, got, err, want)
 		}
 	}
-	if got, err := machineArchitecture(pe.IMAGE_FILE_MACHINE_IA64); err == nil || !strings.Contains(err.Error(), "0x0200") {
-		t.Errorf("machineArchitecture(IA64) = %q, %v, want a refusal naming 0x0200", got, err)
+	for machine, number := range map[uint16]string{
+		pe.IMAGE_FILE_MACHINE_ARMNT: "0x01c4",
+		pe.IMAGE_FILE_MACHINE_IA64:  "0x0200",
+	} {
+		if got, err := machineArchitecture(machine); err == nil || !strings.Contains(err.Error(), number) {
+			t.Errorf("machineArchitecture(%s) = %q, %v, want a refusal naming it", number, got, err)
+		}
 	}
 }
 
