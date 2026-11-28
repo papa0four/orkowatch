@@ -6,6 +6,7 @@ package osfingerprint
 
 import (
 	"os/exec"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -50,5 +51,15 @@ func TestGetOSFingerprintArchitecture(t *testing.T) {
 	}
 	if o.Architecture != want {
 		t.Errorf("architecture %q, want the host's %q", o.Architecture, want)
+	}
+}
+
+// Every architecture the machine table gives is one a target names, so a
+// host read here is named as every other system reads it.
+func TestMachineTableNamesTargets(t *testing.T) {
+	for machine, arch := range unameMachines {
+		if !slices.Contains(supportedArch, arch) {
+			t.Errorf("machine %v gives %q, which no target names", machine, arch)
+		}
 	}
 }
