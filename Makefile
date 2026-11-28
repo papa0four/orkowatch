@@ -95,6 +95,7 @@ SUPPORTED_TARGETS := \
 	freebsd/arm \
 	openbsd/amd64 \
 	openbsd/386 \
+	openbsd/arm \
 	netbsd/amd64 \
 	netbsd/386 \
 	netbsd/arm
