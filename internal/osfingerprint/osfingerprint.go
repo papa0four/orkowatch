@@ -117,7 +117,9 @@ func ParseTarget(value string) (*OSInfo, error) {
 	return &OSInfo{OS: parts[0], Platform: parts[1], PlatformVersion: parts[2]}, nil
 }
 
-// GetOSFingerprint retrieves OS-Specific fingerprinting information
+// GetOSFingerprint reads the running host's identity. What gopsutil cannot
+// read exactly is read by platformDetails, which each build of owatch
+// defines for the systems it runs on.
 func GetOSFingerprint() (*OSInfo, error) {
 	info, err := host.Info()
 	if err != nil {
@@ -133,23 +135,9 @@ func GetOSFingerprint() (*OSInfo, error) {
 		Architecture:    runtime.GOARCH,
 		AdditionalInfo:  make(map[string]string),
 	}
-
-	// Check the platform (Windows, Unix, MacOS, etc.)
-	switch runtime.GOOS {
-	case "windows":
-		osInfo.AdditionalInfo["ProductName"] = "Windows"
-		osInfo.AdditionalInfo["EditionID"] = info.PlatformFamily // Windows-specific details
-	case "darwin":
-		osInfo.AdditionalInfo["ProductName"] = "MacOS"
-		osInfo.AdditionalInfo["HardwareModel"] = runtime.GOARCH // Specific to MacOS
-	case "linux":
-		osInfo.AdditionalInfo["DistroFamily"] = info.PlatformFamily // Linux/Unix distribution
-	case "freebsd":
-		osInfo.AdditionalInfo["ProductName"] = "FreeBSD"
-	default:
-		osInfo.AdditionalInfo["ProductName"] = "Unknown"
+	if err := platformDetails(osInfo, info); err != nil {
+		return nil, err
 	}
-
 	return osInfo, nil
 }
 
