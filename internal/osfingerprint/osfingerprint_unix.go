@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"runtime"
 
-	"github.com/shirou/gopsutil/host"
 	"golang.org/x/sys/unix"
 )
 
@@ -28,7 +27,7 @@ var unameMachines = map[string]string{
 
 // platformDetails reads the host's machine and adds what each system's
 // identity holds beyond gopsutil's fields.
-func platformDetails(o *OSInfo, info *host.InfoStat) error {
+func platformDetails(o *OSInfo, family string) error {
 	arch, err := nativeArchitecture()
 	if err != nil {
 		return err
@@ -39,7 +38,7 @@ func platformDetails(o *OSInfo, info *host.InfoStat) error {
 	case "darwin":
 		o.AdditionalInfo["ProductName"] = "MacOS"
 	case "linux":
-		o.AdditionalInfo["DistroFamily"] = info.PlatformFamily
+		o.AdditionalInfo["DistroFamily"] = family
 	case "freebsd":
 		o.AdditionalInfo["ProductName"] = "FreeBSD"
 	default:

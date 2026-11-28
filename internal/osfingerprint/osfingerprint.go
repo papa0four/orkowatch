@@ -9,11 +9,13 @@ package osfingerprint
 import (
 	"fmt"
 	"io"
+	"os"
+	"runtime"
 	"slices"
 	"sort"
 	"strings"
 
-	"github.com/shirou/gopsutil/host"
+	"github.com/shirou/gopsutil/v4/host"
 )
 
 // targetParts is the number of parts a target holds: an operating system, a
@@ -124,24 +126,35 @@ func ParseTarget(value string) (*OSInfo, error) {
 	return &OSInfo{OS: system, Platform: parts[1], PlatformVersion: parts[2], Architecture: arch}, nil
 }
 
-// GetOSFingerprint reads the running host's identity. What gopsutil cannot
-// read exactly is read by platformDetails, which each build of owatch
-// defines for the systems it runs on.
+// GetOSFingerprint reads the running host's identity. It reads only the
+// fields owatch reports, rather than gopsutil's whole host record, whose boot
+// time, process count, and other reads would each fail the fingerprint on a
+// host where they cannot be read. What gopsutil cannot read exactly is read by
+// platformDetails, which each build of owatch defines for the systems it runs
+// on.
 func GetOSFingerprint() (*OSInfo, error) {
-	info, err := host.Info()
+	hostname, err := os.Hostname()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("osfingerprint: hostname: %w", err)
+	}
+	platform, family, version, err := host.PlatformInformation()
+	if err != nil {
+		return nil, fmt.Errorf("osfingerprint: platform: %w", err)
+	}
+	kernel, err := host.KernelVersion()
+	if err != nil {
+		return nil, fmt.Errorf("osfingerprint: kernel version: %w", err)
 	}
 
 	osInfo := &OSInfo{
-		OS:              info.OS,
-		Platform:        info.Platform,
-		PlatformVersion: info.PlatformVersion,
-		KernelVersion:   info.KernelVersion,
-		Hostname:        info.Hostname,
+		OS:              runtime.GOOS,
+		Platform:        platform,
+		PlatformVersion: version,
+		KernelVersion:   kernel,
+		Hostname:        hostname,
 		AdditionalInfo:  make(map[string]string),
 	}
-	if err := platformDetails(osInfo, info); err != nil {
+	if err := platformDetails(osInfo, family); err != nil {
 		return nil, err
 	}
 	return osInfo, nil
