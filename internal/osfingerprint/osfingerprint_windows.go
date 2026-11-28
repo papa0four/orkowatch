@@ -11,7 +11,6 @@ import (
 	"runtime"
 	"strconv"
 
-	"github.com/shirou/gopsutil/host"
 	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/registry"
 )
@@ -47,7 +46,7 @@ type values interface {
 // platformDetails reads the host's machine, the Windows version to its update
 // revision, which Microsoft's fixed builds are ordered by, and the release,
 // edition, and installation type, which gopsutil does not read.
-func platformDetails(o *OSInfo, _ *host.InfoStat) error {
+func platformDetails(o *OSInfo, _ string) error {
 	arch, err := nativeArchitecture()
 	if err != nil {
 		return err
