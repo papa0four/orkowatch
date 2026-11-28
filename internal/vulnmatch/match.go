@@ -25,12 +25,14 @@ import (
 var moduleMarks = []string{".module_el", ".module+el"}
 
 // versionOrders are the version orders of the managers whose packages the
-// records of distributions, and FreeBSD's VuXML, name.
+// records of distributions, and FreeBSD's VuXML, name, and of the Windows
+// builds Microsoft's records name.
 var versionOrders = map[string]pkgversion.Compare{
-	softwarelist.ManagerDpkg: pkgversion.Dpkg,
-	softwarelist.ManagerRPM:  pkgversion.RPM,
-	softwarelist.ManagerAPK:  pkgversion.APK,
-	softwarelist.ManagerPkg:  pkgversion.Pkg,
+	softwarelist.ManagerDpkg:    pkgversion.Dpkg,
+	softwarelist.ManagerRPM:     pkgversion.RPM,
+	softwarelist.ManagerAPK:     pkgversion.APK,
+	softwarelist.ManagerPkg:     pkgversion.Pkg,
+	softwarelist.ManagerWindows: pkgversion.Windows,
 }
 
 // Matcher matches one manager's installed packages against records given one
@@ -46,12 +48,14 @@ type Matcher struct {
 
 // unit is a package as the records name it, at one installed version: the
 // source package on dpkg and apk, whose records name sources, and the binary
-// package on rpm, whose records name binaries.
+// package on rpm, whose records name binaries. A unit of the host's system is
+// held apart from a package of the same name and version.
 type unit struct {
 	name     string
 	version  string
 	binaries []string
 	covered  bool
+	system   bool
 }
 
 // pairKey is one vulnerability and one installed unit.
@@ -59,6 +63,7 @@ type pairKey struct {
 	id      string
 	name    string
 	version string
+	system  bool
 }
 
 // pair is what every record naming one vulnerability and one unit said.
@@ -72,33 +77,48 @@ type pair struct {
 }
 
 // New returns a matcher of the packages in entries that manager installed,
-// whose records of one vulnerability combine as combining states. A manager
-// whose version order is not known cannot be matched.
-func New(manager string, combining vulnrecord.Combining, entries []softwarelist.SoftwareEntry) (*Matcher, error) {
+// and of the units of the host's system in systems, whose records of one
+// vulnerability combine as combining states. A system unit is judged as a
+// package is and kept apart from the packages, so the system is never counted
+// as one of them. A manager whose version order is not known cannot be
+// matched, and a system unit of another manager is refused, since its version
+// cannot be ordered.
+func New(manager string, combining vulnrecord.Combining, entries, systems []softwarelist.SoftwareEntry) (*Matcher, error) {
 	compare, ok := versionOrders[manager]
 	if !ok {
 		return nil, fmt.Errorf("no version order is known for packages of %q", manager)
 	}
 	m := &Matcher{manager: manager, compare: compare, combining: combining, installed: map[string][]*unit{}, bySource: map[string][]*unit{}, pairs: map[pairKey]*pair{}}
 	for _, e := range entries {
-		if e.Manager != manager {
-			continue
-		}
-		name, version := Named(e)
-		at := slices.IndexFunc(m.installed[name], func(u *unit) bool { return u.version == version })
-		if at < 0 {
-			m.installed[name] = append(m.installed[name], &unit{name: name, version: version})
-			at = len(m.installed[name]) - 1
-		}
-		u := m.installed[name][at]
-		if !slices.Contains(u.binaries, e.Name) {
-			u.binaries = append(u.binaries, e.Name)
-		}
-		if e.Source != "" && !slices.Contains(m.bySource[e.Source], u) {
-			m.bySource[e.Source] = append(m.bySource[e.Source], u)
+		if e.Manager == manager {
+			m.include(e, false)
 		}
 	}
+	for _, e := range systems {
+		if e.Manager != manager {
+			return nil, fmt.Errorf("the system unit %q is of %q, not %q", e.Name, e.Manager, manager)
+		}
+		m.include(e, true)
+	}
 	return m, nil
+}
+
+// include adds e to the unit it is named as: a unit of the host's system when
+// system is set, an installed package otherwise.
+func (m *Matcher) include(e softwarelist.SoftwareEntry, system bool) {
+	name, version := Named(e)
+	at := slices.IndexFunc(m.installed[name], func(u *unit) bool { return u.version == version && u.system == system })
+	if at < 0 {
+		m.installed[name] = append(m.installed[name], &unit{name: name, version: version, system: system})
+		at = len(m.installed[name]) - 1
+	}
+	u := m.installed[name][at]
+	if !slices.Contains(u.binaries, e.Name) {
+		u.binaries = append(u.binaries, e.Name)
+	}
+	if e.Source != "" && !slices.Contains(m.bySource[e.Source], u) {
+		m.bySource[e.Source] = append(m.bySource[e.Source], u)
+	}
 }
 
 // Named is the name and version of entry as its manager's records name it:
@@ -138,7 +158,7 @@ func (m *Matcher) Add(r vulnrecord.Record) error {
 			j, err := judge(u.version, a.Ranges, m.compare)
 			j.open = r.Open
 			for _, id := range ids {
-				m.pair(pairKey{id: id, name: u.name, version: u.version}).note(r, a, j, err)
+				m.pair(pairKey{id: id, name: u.name, version: u.version, system: u.system}).note(r, a, j, err)
 			}
 		}
 	}
@@ -184,11 +204,15 @@ func (m *Matcher) pair(key pairKey) *pair {
 // affected. Otherwise one in a range of a record is affected, with the lowest
 // fixed version above it, or unfixed when no record gives one. A version that
 // cannot be ordered, and a module build whose records give more than one
-// fixed version, are not matched, with the reason.
+// fixed version, are not matched, with the reason. The host's system is listed
+// ahead of the packages and is not counted as one.
 func (m *Matcher) Result() View {
 	v := View{Order: m.manager, Packages: []PackageMatches{}}
 	for _, units := range m.installed {
 		for _, u := range units {
+			if u.system {
+				continue
+			}
 			v.Installed++
 			if !u.covered {
 				v.NotCovered++
@@ -199,15 +223,15 @@ func (m *Matcher) Result() View {
 	for key, p := range m.pairs {
 		switch {
 		case p.err != "":
-			v.NotMatched = append(v.NotMatched, NotMatched{ID: key.id, Package: key.name, Installed: key.version, Reason: "the versions cannot be compared: " + p.err})
+			v.NotMatched = append(v.NotMatched, NotMatched{ID: key.id, Package: key.name, Installed: key.version, System: key.system, Reason: "the versions cannot be compared: " + p.err})
 		case isModuleBuild(key.version) && len(p.fixes) > 1:
-			v.NotMatched = append(v.NotMatched, NotMatched{ID: key.id, Package: key.name, Installed: key.version,
+			v.NotMatched = append(v.NotMatched, NotMatched{ID: key.id, Package: key.name, Installed: key.version, System: key.system,
 				Reason: fmt.Sprintf("a module build, and the records give %d fixed versions without saying which module stream each is for", len(p.fixes))})
 		default:
 			found, ok, err := m.decide(key, p)
 			switch {
 			case err != nil:
-				v.NotMatched = append(v.NotMatched, NotMatched{ID: key.id, Package: key.name, Installed: key.version, Reason: "the versions cannot be compared: " + err.Error()})
+				v.NotMatched = append(v.NotMatched, NotMatched{ID: key.id, Package: key.name, Installed: key.version, System: key.system, Reason: "the versions cannot be compared: " + err.Error()})
 			case ok:
 				m.packageOf(affected, key).Vulnerabilities = append(m.packageOf(affected, key).Vulnerabilities, found)
 			}
@@ -218,10 +242,10 @@ func (m *Matcher) Result() View {
 		v.Packages = append(v.Packages, *pkg)
 	}
 	slices.SortFunc(v.Packages, func(a, b PackageMatches) int {
-		return cmp.Or(strings.Compare(a.Package, b.Package), strings.Compare(a.Installed, b.Installed))
+		return cmp.Or(systemFirst(a.System, b.System), strings.Compare(a.Package, b.Package), strings.Compare(a.Installed, b.Installed))
 	})
 	slices.SortFunc(v.NotMatched, func(a, b NotMatched) int {
-		return cmp.Or(strings.Compare(a.Package, b.Package), strings.Compare(a.Installed, b.Installed), strings.Compare(a.ID, b.ID))
+		return cmp.Or(systemFirst(a.System, b.System), strings.Compare(a.Package, b.Package), strings.Compare(a.Installed, b.Installed), strings.Compare(a.ID, b.ID))
 	})
 	v.count()
 	return v
@@ -258,19 +282,21 @@ func vulnerabilityOrder(a, b Vulnerability) int {
 		strings.Compare(a.ID, b.ID))
 }
 
-// unitKey is an installed package as the records name it, at one version.
+// unitKey is an installed package as the records name it, at one version, or
+// a unit of the host's system.
 type unitKey struct {
 	name    string
 	version string
+	system  bool
 }
 
 // packageOf returns the affected package of key in affected, made with the
 // binaries built from it when it is new.
 func (m *Matcher) packageOf(affected map[unitKey]*PackageMatches, key pairKey) *PackageMatches {
-	k := unitKey{name: key.name, version: key.version}
+	k := unitKey{name: key.name, version: key.version, system: key.system}
 	pkg, ok := affected[k]
 	if !ok {
-		pkg = &PackageMatches{Package: key.name, Installed: key.version}
+		pkg = &PackageMatches{Package: key.name, Installed: key.version, System: key.system}
 		if u := m.unit(key); u != nil {
 			pkg.Binaries = u.binaries
 		}
@@ -336,11 +362,22 @@ func (m *Matcher) lowest(versions []string) (string, error) {
 // unit returns the installed unit of key.
 func (m *Matcher) unit(key pairKey) *unit {
 	for _, u := range m.installed[key.name] {
-		if u.version == key.version {
+		if u.version == key.version && u.system == key.system {
 			return u
 		}
 	}
 	return nil
+}
+
+// systemFirst orders a unit of the host's system ahead of the packages.
+func systemFirst(a, b bool) int {
+	switch {
+	case a == b:
+		return 0
+	case a:
+		return -1
+	}
+	return 1
 }
 
 // isModuleBuild reports whether version is a package built for a module

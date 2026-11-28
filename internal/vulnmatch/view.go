@@ -88,10 +88,12 @@ type Counts struct {
 // PackageMatches is one affected package: the package as the records name it,
 // its installed version, and the installed packages built from it, given
 // once, with each of its vulnerabilities under it in the order every view
-// lists them.
+// lists them. System is set for a unit of the host's system, such as Windows
+// at its build, which is not an installed package.
 type PackageMatches struct {
 	Package         string          `json:"package" yaml:"package"`
 	Installed       string          `json:"installed" yaml:"installed"`
+	System          bool            `json:"system,omitempty" yaml:"system,omitempty"`
 	Binaries        []string        `json:"binaries,omitempty" yaml:"binaries,omitempty"`
 	Vulnerabilities []Vulnerability `json:"vulnerabilities" yaml:"vulnerabilities"`
 }
@@ -167,15 +169,18 @@ func (v *View) arrange() {
 }
 
 // NotMatched is a vulnerability of an installed package that could not be
-// judged, and why.
+// judged, and why. System is set for a unit of the host's system, such as
+// Windows at its build, which is not an installed package.
 type NotMatched struct {
 	ID        string `json:"id" yaml:"id"`
 	Package   string `json:"package" yaml:"package"`
 	Installed string `json:"installed" yaml:"installed"`
+	System    bool   `json:"system,omitempty" yaml:"system,omitempty"`
 	Reason    string `json:"reason" yaml:"reason"`
 }
 
-// count fills the counts from what the view holds.
+// count fills the counts from what the view holds. The vulnerability totals
+// count the host's system's; the package counts do not.
 func (v *View) count() {
 	v.Counts = Counts{Packages: v.Installed, NotCovered: v.NotCovered, NotMatched: len(v.NotMatched)}
 	for _, pkg := range v.Packages {
@@ -184,6 +189,9 @@ func (v *View) count() {
 		v.Counts.Unfixed += c.unfixed
 		v.Counts.Tracked += c.tracked
 		v.Counts.KnownExploited += c.known
+		if pkg.System {
+			continue
+		}
 		if c.fixable > 0 {
 			v.Counts.PackagesWithFix++
 		}

@@ -75,7 +75,7 @@ func (m inventoryMatching) run(ctx context.Context, data *held.Run, host *osfing
 		return failed
 	}
 	first := sources[0]
-	matcher, err := vulnmatch.New(first.Manager(), first.Combining(), entries)
+	matcher, err := vulnmatch.New(first.Manager(), first.Combining(), entries, nil)
 	if err != nil {
 		return notDone(first.ID(), err.Error())
 	}

@@ -197,7 +197,7 @@ func TestTrackingBugsMatchBySource(t *testing.T) {
 	m, err := vulnmatch.New(softwarelist.ManagerRPM, TrackingBugs{}.Combining(), []softwarelist.SoftwareEntry{
 		{Name: "libzstd", Version: "1.5.7-1.fc44", Manager: softwarelist.ManagerRPM, Source: "zstd"},
 		{Name: "zstd-extra", Version: "1.0-1.fc44", Manager: softwarelist.ManagerRPM, Source: "zstd-extra"},
-	})
+	}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

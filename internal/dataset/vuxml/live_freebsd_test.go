@@ -85,7 +85,7 @@ func liveDocument(t *testing.T) live {
 // CVE or the identifier of an entry that names none, by package and version.
 func (l live) owatch(t *testing.T, entries []softwarelist.SoftwareEntry) map[string][]string {
 	t.Helper()
-	m, err := vulnmatch.New(softwarelist.ManagerPkg, Document{}.Combining(), entries)
+	m, err := vulnmatch.New(softwarelist.ManagerPkg, Document{}.Combining(), entries, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

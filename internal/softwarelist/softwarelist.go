@@ -11,16 +11,18 @@ import (
 	"io"
 )
 
-// The package managers an entry can come from, as an entry names its own.
+// The package managers an entry can come from, as an entry names its own, and
+// Windows, whose own servicing updates the system its builds name.
 // Vulnerability data is published per manager and compared by each manager's
 // own version order, so the matching of installed software to CVEs selects
 // the data and the comparison by this value.
 const (
-	ManagerDpkg   = "dpkg"
-	ManagerRPM    = "rpm"
-	ManagerAPK    = "apk"
-	ManagerPacman = "pacman"
-	ManagerPkg    = "pkg"
+	ManagerDpkg    = "dpkg"
+	ManagerRPM     = "rpm"
+	ManagerAPK     = "apk"
+	ManagerPacman  = "pacman"
+	ManagerPkg     = "pkg"
+	ManagerWindows = "windows"
 )
 
 // SoftwareEntry is one installed package as its package manager states it.

@@ -300,7 +300,7 @@ func TestMatchesAsDnfDoes(t *testing.T) {
 	data := mustKeep(t, testdata(t, excerpt, excerptSum), f44)
 	match := func(name, version string) []string {
 		t.Helper()
-		m, err := vulnmatch.New(softwarelist.ManagerRPM, Updates{}.Combining(), []softwarelist.SoftwareEntry{{Name: name, Version: version, Manager: softwarelist.ManagerRPM, Architecture: "x86_64"}})
+		m, err := vulnmatch.New(softwarelist.ManagerRPM, Updates{}.Combining(), []softwarelist.SoftwareEntry{{Name: name, Version: version, Manager: softwarelist.ManagerRPM, Architecture: "x86_64"}}, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -528,7 +528,7 @@ func TestALaterUpdateOfTheSameCVE(t *testing.T) {
 		securityUpdate("FEDORA-2026-000000000a", "2026-01-02 03:04:05", "2026-01-03 03:04:05", "CVE-2026-1001", "1.0") +
 		securityUpdate("FEDORA-2026-000000000b", "2026-06-01 00:00:00", "2026-06-02 00:00:00", "CVE-2026-1001", "2.0") +
 		`</updates>`
-	m, err := vulnmatch.New(softwarelist.ManagerRPM, Updates{}.Combining(), []softwarelist.SoftwareEntry{{Name: "speex", Version: "1.5-4.fc44", Manager: softwarelist.ManagerRPM}})
+	m, err := vulnmatch.New(softwarelist.ManagerRPM, Updates{}.Combining(), []softwarelist.SoftwareEntry{{Name: "speex", Version: "1.5-4.fc44", Manager: softwarelist.ManagerRPM}}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -181,7 +181,7 @@ func TestMatchesAsPkgAuditDid(t *testing.T) {
 		{"ja-openoffice", "6.0.a638", true},
 		{"ja-openoffice", "2.0.20050406", true},
 	} {
-		m, err := vulnmatch.New(softwarelist.ManagerPkg, Document{}.Combining(), []softwarelist.SoftwareEntry{{Name: c.name, Version: c.version, Manager: softwarelist.ManagerPkg, Source: "x/" + c.name}})
+		m, err := vulnmatch.New(softwarelist.ManagerPkg, Document{}.Combining(), []softwarelist.SoftwareEntry{{Name: c.name, Version: c.version, Manager: softwarelist.ManagerPkg, Source: "x/" + c.name}}, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -296,7 +296,7 @@ func TestContradictoryRangesHoldNothing(t *testing.T) {
 		{"firefox", "3.6,1", "CVE-2012-0442", false},
 		{"firefox", "5.0,1", "CVE-2012-0442", true},
 	} {
-		m, err := vulnmatch.New(softwarelist.ManagerPkg, Document{}.Combining(), []softwarelist.SoftwareEntry{{Name: c.name, Version: c.version, Manager: softwarelist.ManagerPkg}})
+		m, err := vulnmatch.New(softwarelist.ManagerPkg, Document{}.Combining(), []softwarelist.SoftwareEntry{{Name: c.name, Version: c.version, Manager: softwarelist.ManagerPkg}}, nil)
 		if err != nil {
 			t.Fatal(err)
 		}

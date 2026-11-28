@@ -126,7 +126,14 @@ func flatten(v View) []match {
 // matched runs a matcher of manager's entries over records.
 func matched(t *testing.T, manager string, entries []softwarelist.SoftwareEntry, records ...vulnrecord.Record) View {
 	t.Helper()
-	m, err := New(manager, vulnrecord.FixClears, entries)
+	return matchedWith(t, manager, entries, nil, records...)
+}
+
+// matchedWith runs a matcher of manager's entries and the host's system units
+// in systems over records.
+func matchedWith(t *testing.T, manager string, entries, systems []softwarelist.SoftwareEntry, records ...vulnrecord.Record) View {
+	t.Helper()
+	m, err := New(manager, vulnrecord.FixClears, entries, systems)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -136,6 +143,37 @@ func matched(t *testing.T, manager string, entries []softwarelist.SoftwareEntry,
 		}
 	}
 	return m.Result()
+}
+
+// The host's system is judged in its own manager's order, as Windows orders
+// its builds, ahead of the packages and apart from them: it is not counted as
+// a package, a system unit and a package of one name and version stay two,
+// and a system unit of another manager is refused.
+func TestMatchSystem(t *testing.T) {
+	const windows = "Microsoft Windows 11 Home"
+	system := []softwarelist.SoftwareEntry{{Name: windows, Version: "10.0.26300.9711", Manager: softwarelist.ManagerWindows}}
+	apps := []softwarelist.SoftwareEntry{{Name: "An Application", Version: "1.0"}}
+	v := matchedWith(t, softwarelist.ManagerWindows, apps, system,
+		record("CVE-2026-1", []string{"CVE-2026-1"}, windows, events("introduced", vulnrecord.First, "fixed", "10.0.26300.9974")),
+		record("CVE-2026-2", []string{"CVE-2026-2"}, windows, events("introduced", vulnrecord.First, "fixed", "10.0.26300.10075")),
+		record("CVE-2026-3", []string{"CVE-2026-3"}, windows, events("introduced", vulnrecord.First, "fixed", "10.0.26300.9000")))
+	if len(v.Packages) != 1 || !v.Packages[0].System || v.Counts.Packages != 0 || v.Counts.NotCovered != 0 || v.Counts.PackagesWithFix != 0 || v.Counts.FixAvailable != 2 {
+		t.Fatalf("got %+v; want the system alone, with two fixes available and no package counted", v)
+	}
+	if got := statuses(v); got[windows+" CVE-2026-1"] != "fix available 10.0.26300.9974 CVE-2026-1" || got[windows+" CVE-2026-2"] != "fix available 10.0.26300.10075 CVE-2026-2" || len(got) != 2 {
+		t.Errorf("got %v; want the fixes at 9974 and 10075 above 9711, and 9000 cleared", got)
+	}
+
+	kernel := softwarelist.SoftwareEntry{Name: "linux-image-6.8.0-1-generic", Version: "6.8.0-1.1", Manager: softwarelist.ManagerDpkg, Source: "linux", SourceVersion: "6.8.0-1.1"}
+	v = matchedWith(t, softwarelist.ManagerDpkg, []softwarelist.SoftwareEntry{kernel}, []softwarelist.SoftwareEntry{kernel},
+		record("CVE-2026-4", []string{"CVE-2026-4"}, "linux", events("introduced", vulnrecord.First, "fixed", "6.8.0-2.1")))
+	if len(v.Packages) != 2 || !v.Packages[0].System || v.Packages[1].System || v.Counts.Packages != 1 || v.Counts.PackagesWithFix != 1 || v.Counts.FixAvailable != 2 {
+		t.Errorf("got %+v; want the system and the package apart, the package alone counted", v)
+	}
+
+	if _, err := New(softwarelist.ManagerDpkg, vulnrecord.FixClears, nil, system); err == nil {
+		t.Error("a system unit of another manager was taken")
+	}
 }
 
 // A dpkg package is matched by its source and the source's version, and the
@@ -237,7 +275,7 @@ func TestMatchCannotCompare(t *testing.T) {
 	if len(flatten(v)) != 0 || len(v.NotMatched) != 1 || !strings.Contains(v.NotMatched[0].Reason, "cannot be compared") {
 		t.Errorf("an empty version: %+v, %+v", flatten(v), v.NotMatched)
 	}
-	if _, err := New("pacman", vulnrecord.FixClears, nil); err == nil {
+	if _, err := New("pacman", vulnrecord.FixClears, nil, nil); err == nil {
 		t.Error("a manager with no known order was matched")
 	}
 }
@@ -581,7 +619,7 @@ func TestCombining(t *testing.T) {
 		{"5.0.9", vulnrecord.FixClears, false},
 		{"5.0.9", vulnrecord.AnyRange, false},
 	} {
-		m, err := New("pkg", c.combining, []softwarelist.SoftwareEntry{{Name: "py39-configobj", Version: c.version, Manager: "pkg"}})
+		m, err := New("pkg", c.combining, []softwarelist.SoftwareEntry{{Name: "py39-configobj", Version: c.version, Manager: "pkg"}}, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -608,7 +646,7 @@ func trackingBug(id, cve, source string) vulnrecord.Record {
 // combining states.
 func combined(t *testing.T, combining vulnrecord.Combining, entries []softwarelist.SoftwareEntry, records ...vulnrecord.Record) View {
 	t.Helper()
-	m, err := New("rpm", combining, entries)
+	m, err := New("rpm", combining, entries, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

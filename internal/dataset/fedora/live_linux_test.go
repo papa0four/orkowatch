@@ -104,7 +104,7 @@ func owatchAdvisories(t *testing.T, entries []softwarelist.SoftwareEntry, record
 	t.Helper()
 	pairs := map[string]bool{}
 	for _, r := range records {
-		m, err := vulnmatch.New(softwarelist.ManagerRPM, Updates{}.Combining(), entries)
+		m, err := vulnmatch.New(softwarelist.ManagerRPM, Updates{}.Combining(), entries, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -181,7 +181,7 @@ func TestFedoraLiveByCVE(t *testing.T) {
 			dnf[cve+" "+name] = true
 		}
 	}
-	m, err := vulnmatch.New(softwarelist.ManagerRPM, Updates{}.Combining(), entries)
+	m, err := vulnmatch.New(softwarelist.ManagerRPM, Updates{}.Combining(), entries, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
