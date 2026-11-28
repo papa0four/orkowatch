@@ -59,6 +59,11 @@ type View struct {
 	// why it was not, for a match that was made.
 	ExploitPrediction *dataset.Use `json:"exploit_prediction_data,omitempty" yaml:"exploit_prediction_data,omitempty"`
 
+	// Systems are the units of the host's system the match judged, whether
+	// or not any vulnerability was found in them, so a report says the
+	// system was judged when nothing was found in it.
+	Systems []System `json:"systems,omitempty" yaml:"systems,omitempty"`
+
 	Counts     Counts           `json:"counts" yaml:"counts"`
 	Packages   []PackageMatches `json:"packages" yaml:"packages"`
 	NotMatched []NotMatched     `json:"not_matched,omitempty" yaml:"not_matched,omitempty"`
@@ -96,6 +101,13 @@ type PackageMatches struct {
 	System          bool            `json:"system,omitempty" yaml:"system,omitempty"`
 	Binaries        []string        `json:"binaries,omitempty" yaml:"binaries,omitempty"`
 	Vulnerabilities []Vulnerability `json:"vulnerabilities" yaml:"vulnerabilities"`
+}
+
+// System is a unit of the host's system a match judged, such as Windows at
+// its build, named as the records name it.
+type System struct {
+	Name      string `json:"name" yaml:"name"`
+	Installed string `json:"installed" yaml:"installed"`
 }
 
 // Vulnerability is one vulnerability of a package: its identifier, a CVE or,
@@ -231,7 +243,9 @@ func (p PackageMatches) counts() statusCounts {
 }
 
 // WriteText writes v as the vulnerabilities section of a text report: the
-// dataset, or why no match was made; the counts; the EPSS scores file, or why
+// dataset, or why no match was made; each unit of the host's system on its own
+// line, and the packages' counts, left out when the match judged the system
+// alone; the EPSS scores file, or why
 // it was not read; every vulnerability known to be exploited, fixed or not, or
 // why that was not read; the rest of those with a fix available, one a line
 // led by its severity and, when the scores were read, its EPSS score; and for
@@ -257,12 +271,17 @@ func WriteText(w io.Writer, v View) error {
 			ew.Printf("  %s\n", render.HostText(also.Attribution))
 		}
 	}
+	for _, s := range v.Systems {
+		ew.Printf("%s\n", render.HostText(systemLine(v, s)))
+	}
 	c := v.Counts
-	ew.Printf("%s\n", render.HostText(fmt.Sprintf("%s matched: %s with a fix available in %s, %s in %s, %s not matched, %s no record covers",
-		render.Count(c.Packages, "package", "packages"),
-		render.Count(c.FixAvailable, "vulnerability", "vulnerabilities"), render.Count(c.PackagesWithFix, "package", "packages"),
-		render.Count(c.Unfixed, "unfixed", "unfixed"), render.Count(c.PackagesWithUnfixed, "package", "packages"),
-		render.Count(c.NotMatched, "pair", "pairs"), render.Count(c.NotCovered, "package", "packages"))))
+	if c.Packages > 0 || len(v.Systems) == 0 {
+		ew.Printf("%s\n", render.HostText(fmt.Sprintf("%s matched: %s with a fix available in %s, %s in %s, %s not matched, %s no record covers",
+			render.Count(c.Packages, "package", "packages"),
+			render.Count(c.FixAvailable, "vulnerability", "vulnerabilities"), render.Count(c.PackagesWithFix, "package", "packages"),
+			render.Count(c.Unfixed, "unfixed", "unfixed"), render.Count(c.PackagesWithUnfixed, "package", "packages"),
+			render.Count(c.NotMatched, "pair", "pairs"), render.Count(c.NotCovered, "package", "packages"))))
+	}
 
 	writePredicted(ew, v)
 	writeKnownExploited(ew, v)
@@ -284,6 +303,23 @@ func WriteText(w io.Writer, v View) error {
 	}
 	ew.Printf("\nEvery match, the unfixed included, is in the JSON and YAML reports and the results browser.\n")
 	return ew.Err()
+}
+
+// systemLine is a unit of the host's system on the line the text report gives
+// it: what was found in it, or that nothing was, which does not say it has
+// nothing.
+func systemLine(v View, s System) string {
+	for _, pkg := range v.Packages {
+		if pkg.System && pkg.Package == s.Name && pkg.Installed == s.Installed {
+			c := pkg.counts()
+			found := render.Count(c.fixable, "vulnerability", "vulnerabilities") + " with a fix available, " + render.Count(c.unfixed, "unfixed", "unfixed")
+			if c.tracked > 0 {
+				found += ", " + render.Count(c.tracked, "tracking bug open", "tracking bugs open")
+			}
+			return fmt.Sprintf("The system, %s %s: %s", s.Name, s.Installed, found)
+		}
+	}
+	return fmt.Sprintf("The system, %s %s: no vulnerability matched; this does not say it has none", s.Name, s.Installed)
 }
 
 // Summary is the match on one line, as a run's account of its modules states

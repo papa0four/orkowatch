@@ -160,6 +160,9 @@ func TestMatchSystem(t *testing.T) {
 	if len(v.Packages) != 1 || !v.Packages[0].System || v.Counts.Packages != 0 || v.Counts.NotCovered != 0 || v.Counts.PackagesWithFix != 0 || v.Counts.FixAvailable != 2 {
 		t.Fatalf("got %+v; want the system alone, with two fixes available and no package counted", v)
 	}
+	if !slices.Equal(v.Systems, []System{{Name: windows, Installed: "10.0.26300.9711"}}) || len(v.Packages[0].Binaries) != 0 {
+		t.Errorf("systems %+v, binaries %v; want the Windows unit judged, built from nothing", v.Systems, v.Packages[0].Binaries)
+	}
 	if got := statuses(v); got[windows+" CVE-2026-1"] != "fix available 10.0.26300.9974 CVE-2026-1" || got[windows+" CVE-2026-2"] != "fix available 10.0.26300.10075 CVE-2026-2" || len(got) != 2 {
 		t.Errorf("got %v; want the fixes at 9974 and 10075 above 9711, and 9000 cleared", got)
 	}
@@ -167,7 +170,7 @@ func TestMatchSystem(t *testing.T) {
 	kernel := softwarelist.SoftwareEntry{Name: "linux-image-6.8.0-1-generic", Version: "6.8.0-1.1", Manager: softwarelist.ManagerDpkg, Source: "linux", SourceVersion: "6.8.0-1.1"}
 	v = matchedWith(t, softwarelist.ManagerDpkg, []softwarelist.SoftwareEntry{kernel}, []softwarelist.SoftwareEntry{kernel},
 		record("CVE-2026-4", []string{"CVE-2026-4"}, "linux", events("introduced", vulnrecord.First, "fixed", "6.8.0-2.1")))
-	if len(v.Packages) != 2 || !v.Packages[0].System || v.Packages[1].System || v.Counts.Packages != 1 || v.Counts.PackagesWithFix != 1 || v.Counts.FixAvailable != 2 {
+	if len(v.Packages) != 2 || !v.Packages[0].System || v.Packages[1].System || v.Counts.Packages != 1 || v.Counts.PackagesWithFix != 1 || v.Counts.FixAvailable != 2 || len(v.Systems) != 1 {
 		t.Errorf("got %+v; want the system and the package apart, the package alone counted", v)
 	}
 
@@ -315,6 +318,37 @@ func TestWriteText(t *testing.T) {
 	b.Reset()
 	if err := WriteText(&b, View{Use: dataset.Use{NotDone: "no OSV dataset is held for this host; run owatch data refresh"}}); err != nil || !strings.HasPrefix(b.String(), "Matching was not done: no OSV dataset") {
 		t.Errorf("a match not made wrote %q, %v", b.String(), err)
+	}
+}
+
+// The text report gives each unit of the host's system its own line, with
+// what was found in it or that nothing was, and leaves out the packages' line
+// when the match judged the system alone.
+func TestWriteTextSystem(t *testing.T) {
+	const windows = "Microsoft Windows 11 Home"
+	use := dataset.Use{Provenance: dataset.Provenance{ID: "msrc", Version: "Windows 11 Version 26H2 for x64-based Systems", DataDate: "2026-11-10", State: dataset.StateCurrent}}
+	affected := View{Use: use, Order: "windows", Systems: []System{{Name: windows, Installed: "10.0.26300.9711"}},
+		Packages: []PackageMatches{{Package: windows, Installed: "10.0.26300.9711", System: true, Vulnerabilities: []Vulnerability{
+			{ID: "CVE-2026-1", Status: StatusFixAvailable, Fixed: "10.0.26300.9974", Severity: Severity{Label: "Important", Level: LevelHigh, Basis: "Microsoft severity"}},
+		}}}}
+	affected.count()
+	clean := View{Use: use, Order: "windows", Systems: []System{{Name: windows, Installed: "10.0.26300.10075"}}, Packages: []PackageMatches{}}
+	clean.count()
+	for _, tt := range []struct {
+		name string
+		v    View
+		want string
+	}{
+		{"affected", affected, "The system, Microsoft Windows 11 Home 10.0.26300.9711: 1 vulnerability with a fix available, 0 unfixed"},
+		{"clean", clean, "The system, Microsoft Windows 11 Home 10.0.26300.10075: no vulnerability matched; this does not say it has none"},
+	} {
+		var b strings.Builder
+		if err := WriteText(&b, tt.v); err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(b.String(), tt.want) || strings.Contains(b.String(), "packages matched") {
+			t.Errorf("%s: the text lacks %q or counts packages:\n%s", tt.name, tt.want, b.String())
+		}
 	}
 }
 

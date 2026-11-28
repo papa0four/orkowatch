@@ -52,7 +52,7 @@ func vulnerabilitiesTab(v vulnmatch.View) tui.Tab {
 			Title:    safeLines(n.ID + "  " + n.Package),
 			Subtitle: tui.Plain(statusNotMatched),
 			Fields: []tui.SummaryLine{
-				{Label: "package", Value: safeLines(n.Package)},
+				{Label: unitLabel(n.System), Value: safeLines(n.Package)},
 				{Label: "installed", Value: safeLines(n.Installed)},
 				{Label: "not matched", Value: safeLines(n.Reason)},
 				{Label: "matched against", Value: against},
@@ -186,7 +186,7 @@ func vulnerabilityRecord(pkg vulnmatch.PackageMatches, found vulnmatch.Vulnerabi
 		}
 		subtitle = append(subtitle, part)
 	}
-	fields := []tui.SummaryLine{{Label: "package", Value: safeLines(pkg.Package)}}
+	fields := []tui.SummaryLine{{Label: unitLabel(pkg.System), Value: safeLines(pkg.Package)}}
 	if len(pkg.Binaries) > 0 {
 		fields = append(fields, tui.SummaryLine{Label: "installed packages built from it", Value: safeLines(strings.Join(pkg.Binaries, ", "))})
 	}
@@ -229,6 +229,15 @@ func vulnerabilityRecord(pkg vulnmatch.PackageMatches, found vulnmatch.Vulnerabi
 		record.Filters = append(record.Filters, []string{record.Band})
 	}
 	return record
+}
+
+// unitLabel is what a record calls the unit a vulnerability is of: the host's
+// system, or a package.
+func unitLabel(system bool) string {
+	if system {
+		return "system"
+	}
+	return "package"
 }
 
 // severityText is a severity with what it rests on: the source's label and

@@ -104,7 +104,8 @@ func New(manager string, combining vulnrecord.Combining, entries, systems []soft
 }
 
 // include adds e to the unit it is named as: a unit of the host's system when
-// system is set, an installed package otherwise.
+// system is set, an installed package otherwise. A system unit names no
+// installed packages built from it.
 func (m *Matcher) include(e softwarelist.SoftwareEntry, system bool) {
 	name, version := Named(e)
 	at := slices.IndexFunc(m.installed[name], func(u *unit) bool { return u.version == version && u.system == system })
@@ -113,7 +114,7 @@ func (m *Matcher) include(e softwarelist.SoftwareEntry, system bool) {
 		at = len(m.installed[name]) - 1
 	}
 	u := m.installed[name][at]
-	if !slices.Contains(u.binaries, e.Name) {
+	if !system && !slices.Contains(u.binaries, e.Name) {
 		u.binaries = append(u.binaries, e.Name)
 	}
 	if e.Source != "" && !slices.Contains(m.bySource[e.Source], u) {
@@ -211,6 +212,7 @@ func (m *Matcher) Result() View {
 	for _, units := range m.installed {
 		for _, u := range units {
 			if u.system {
+				v.Systems = append(v.Systems, System{Name: u.name, Installed: u.version})
 				continue
 			}
 			v.Installed++
@@ -246,6 +248,9 @@ func (m *Matcher) Result() View {
 	})
 	slices.SortFunc(v.NotMatched, func(a, b NotMatched) int {
 		return cmp.Or(systemFirst(a.System, b.System), strings.Compare(a.Package, b.Package), strings.Compare(a.Installed, b.Installed), strings.Compare(a.ID, b.ID))
+	})
+	slices.SortFunc(v.Systems, func(a, b System) int {
+		return cmp.Or(strings.Compare(a.Name, b.Name), strings.Compare(a.Installed, b.Installed))
 	})
 	v.count()
 	return v

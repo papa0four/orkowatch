@@ -96,6 +96,24 @@ func TestVulnerabilitiesTab(t *testing.T) {
 	}
 }
 
+// A vulnerability of the host's system names the system, not a package, and
+// no installed packages built from it.
+func TestVulnerabilitiesTabSystem(t *testing.T) {
+	v := vulnmatch.View{Use: dataset.Use{Provenance: dataset.Provenance{ID: "msrc", DataDate: "2026-11-10", State: dataset.StateCurrent}},
+		Packages: []vulnmatch.PackageMatches{{Package: "Microsoft Windows 11 Home", Installed: "10.0.26300.9711", System: true, Vulnerabilities: []vulnmatch.Vulnerability{
+			{ID: "CVE-2026-1", Status: vulnmatch.StatusFixAvailable, Fixed: "10.0.26300.9974", Severity: vulnmatch.Severity{Level: vulnmatch.LevelNone}, Records: []string{"CVE-2026-1"}},
+		}}},
+		NotMatched: []vulnmatch.NotMatched{{ID: "CVE-2026-2", Package: "Microsoft Windows 11 Home", Installed: "10.0.26300.9711", System: true, Reason: "x"}},
+		Counts:     vulnmatch.Counts{FixAvailable: 1, NotMatched: 1},
+	}
+	tab := vulnerabilitiesTab(v)
+	for _, r := range tab.Records {
+		if field(r, "system") != "Microsoft Windows 11 Home" || field(r, "package") != "" || field(r, "installed packages built from it") != "" {
+			t.Errorf("%s: system %q, package %q", r.Title, field(r, "system"), field(r, "package"))
+		}
+	}
+}
+
 // With the catalog read, the vulnerabilities it lists come first under their
 // own band, the most severe first and whether fixed or not, marked on the row
 // with the entry and the catalog in the detail; the rest follow under theirs;
