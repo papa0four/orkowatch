@@ -13,7 +13,7 @@ func newOsinfoCmd() *cobra.Command {
 	return newInventoryCmd(standaloneModule{
 		use:   selection.NameOS,
 		short: "Gather OS Fingerprint information",
-		long: `osinfo will scan the host machine and retrieve basic OS fingerprint information such as platform, version, and kernel details.
+		long: `osinfo will scan the host machine and retrieve basic OS fingerprint information such as platform, version, kernel, and the host's own architecture, and on Windows the release, edition, and installation type.
 
 The Target line names this host as owatch data refresh --for takes it, to fetch
 on another host the datasets this one needs.

@@ -48,13 +48,13 @@ const (
 	// of one record, and maxExpanded what one dump may expand to. Ubuntu's
 	// dump of 2026-11-24 held 75,722 records, the largest 5.9 MB, expanding
 	// to 8.86 GB, the most of the five.
-	maxEntries  = 1_000_000
-	maxRecord   = 64 << 20
-	maxExpanded = 64 << 30
+	maxEntries        = 1_000_000
+	maxRecord         = 64 << 20
+	maxExpanded int64 = 64 << 30
 
 	// maxKeptExpanded bounds what kept data may expand to. Ubuntu 22.04's
 	// records expanded to 110 MB on 2026-11-24.
-	maxKeptExpanded = 2 << 30
+	maxKeptExpanded int64 = 2 << 30
 
 	// maxEcosystemsNamed bounds how many releases a refusal names.
 	maxEcosystemsNamed = 10

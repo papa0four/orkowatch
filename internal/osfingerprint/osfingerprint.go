@@ -9,7 +9,6 @@ package osfingerprint
 import (
 	"fmt"
 	"io"
-	"runtime"
 	"slices"
 	"sort"
 	"strings"
@@ -18,11 +17,16 @@ import (
 )
 
 // targetParts is the number of parts a target holds: an operating system, a
-// platform, and a platform version.
-const targetParts = 3
+// platform, a platform version, and an architecture.
+const targetParts = 4
 
 // supportedOS are the operating systems a target can name, as OS holds them.
 var supportedOS = []string{"darwin", "freebsd", "linux", "netbsd", "openbsd", "windows"}
+
+// supportedArch are the architectures a host is named by, in Go's names. Each
+// system's reading of its machine gives one of them, so a target written on
+// one system is read alike on every other.
+var supportedArch = []string{"386", "amd64", "arm", "arm64"}
 
 type (
 	// OSInfo holds operating system fingerprint details retrieved from the host.
@@ -86,14 +90,15 @@ func (o *OSInfo) DistinctKernelVersion() string {
 	return o.KernelVersion
 }
 
-// Target returns o named as os/platform/version, with trailing empty parts
-// dropped, so that ParseTarget on another host reads back the fields a
-// dataset decides by as this host reports them. It returns the empty string
-// when o cannot be named that way: an operating system a target cannot name,
-// or a part that holds a slash.
+// Target returns o named as os/platform/version/architecture, with trailing
+// empty parts dropped, so that ParseTarget on another host reads back the
+// fields a dataset decides by as this host reports them. It returns the empty
+// string when o cannot be named that way: an operating system or architecture
+// a target cannot name, or a part that holds a slash.
 func (o *OSInfo) Target() string {
-	parts := []string{o.OS, o.Platform, o.PlatformVersion}
-	if !slices.Contains(supportedOS, o.OS) || slices.ContainsFunc(parts, func(p string) bool { return strings.Contains(p, "/") }) {
+	parts := []string{o.OS, o.Platform, o.PlatformVersion, o.Architecture}
+	if !slices.Contains(supportedOS, o.OS) || (o.Architecture != "" && !slices.Contains(supportedArch, o.Architecture)) ||
+		slices.ContainsFunc(parts, func(p string) bool { return strings.Contains(p, "/") }) {
 		return ""
 	}
 	for parts[len(parts)-1] == "" {
@@ -102,22 +107,26 @@ func (o *OSInfo) Target() string {
 	return strings.Join(parts, "/")
 }
 
-// ParseTarget reads a target as Target writes it: os, os/platform, or
-// os/platform/version. The operating system is read in any case. The platform
-// and version are kept as given, since a dataset compares them with what the
-// named host reports.
+// ParseTarget reads a target as Target writes it, os/platform/version/architecture,
+// or the shorter forms that leave the later parts out. The operating system
+// and architecture are read in any case. The platform and version are kept as
+// given, since a dataset compares them with what the named host reports.
 func ParseTarget(value string) (*OSInfo, error) {
 	parts := strings.Split(value, "/")
-	parts[0] = strings.ToLower(parts[0])
-	if len(parts) > targetParts || !slices.Contains(supportedOS, parts[0]) {
-		return nil, fmt.Errorf("%q does not name a host: give it as owatch osinfo prints Target there, os/platform/version, where os is one of %s",
-			value, strings.Join(supportedOS, ", "))
+	if len(parts) < targetParts {
+		parts = append(parts, make([]string, targetParts-len(parts))...)
 	}
-	parts = append(parts, make([]string, targetParts-len(parts))...)
-	return &OSInfo{OS: parts[0], Platform: parts[1], PlatformVersion: parts[2]}, nil
+	system, arch := strings.ToLower(parts[0]), strings.ToLower(parts[targetParts-1])
+	if len(parts) > targetParts || !slices.Contains(supportedOS, system) || (arch != "" && !slices.Contains(supportedArch, arch)) {
+		return nil, fmt.Errorf("%q does not name a host: give it as owatch osinfo prints Target there, os/platform/version/architecture, where os is one of %s and architecture one of %s",
+			value, strings.Join(supportedOS, ", "), strings.Join(supportedArch, ", "))
+	}
+	return &OSInfo{OS: system, Platform: parts[1], PlatformVersion: parts[2], Architecture: arch}, nil
 }
 
-// GetOSFingerprint retrieves OS-Specific fingerprinting information
+// GetOSFingerprint reads the running host's identity. What gopsutil cannot
+// read exactly is read by platformDetails, which each build of owatch
+// defines for the systems it runs on.
 func GetOSFingerprint() (*OSInfo, error) {
 	info, err := host.Info()
 	if err != nil {
@@ -130,26 +139,11 @@ func GetOSFingerprint() (*OSInfo, error) {
 		PlatformVersion: info.PlatformVersion,
 		KernelVersion:   info.KernelVersion,
 		Hostname:        info.Hostname,
-		Architecture:    runtime.GOARCH,
 		AdditionalInfo:  make(map[string]string),
 	}
-
-	// Check the platform (Windows, Unix, MacOS, etc.)
-	switch runtime.GOOS {
-	case "windows":
-		osInfo.AdditionalInfo["ProductName"] = "Windows"
-		osInfo.AdditionalInfo["EditionID"] = info.PlatformFamily // Windows-specific details
-	case "darwin":
-		osInfo.AdditionalInfo["ProductName"] = "MacOS"
-		osInfo.AdditionalInfo["HardwareModel"] = runtime.GOARCH // Specific to MacOS
-	case "linux":
-		osInfo.AdditionalInfo["DistroFamily"] = info.PlatformFamily // Linux/Unix distribution
-	case "freebsd":
-		osInfo.AdditionalInfo["ProductName"] = "FreeBSD"
-	default:
-		osInfo.AdditionalInfo["ProductName"] = "Unknown"
+	if err := platformDetails(osInfo, info); err != nil {
+		return nil, err
 	}
-
 	return osInfo, nil
 }
 

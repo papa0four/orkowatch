@@ -125,8 +125,8 @@ func ordered(t *testing.T, scheme string, compare Compare, total bool) {
 		if must(a, a) != 0 {
 			t.Errorf("%q is not the same as itself", a)
 		}
-		b := versions[(i*orderStride+1)%len(versions)]
-		c := versions[(i*orderStride*orderStride+2)%len(versions)]
+		b := versions[(int64(i)*orderStride+1)%int64(len(versions))]
+		c := versions[(int64(i)*orderStride*orderStride+2)%int64(len(versions))]
 		ab, ba := must(a, b), must(b, a)
 		if ab != -ba {
 			t.Errorf("%q against %q is %d and the reverse is %d", a, b, ab, ba)
