@@ -9,7 +9,6 @@ package osfingerprint
 import (
 	"fmt"
 	"io"
-	"runtime"
 	"slices"
 	"sort"
 	"strings"
@@ -132,7 +131,6 @@ func GetOSFingerprint() (*OSInfo, error) {
 		PlatformVersion: info.PlatformVersion,
 		KernelVersion:   info.KernelVersion,
 		Hostname:        info.Hostname,
-		Architecture:    runtime.GOARCH,
 		AdditionalInfo:  make(map[string]string),
 	}
 	if err := platformDetails(osInfo, info); err != nil {

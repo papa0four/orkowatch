@@ -5,11 +5,14 @@
 package osfingerprint
 
 import (
+	"debug/pe"
 	"errors"
 	"fmt"
+	"runtime"
 	"strconv"
 
 	"github.com/shirou/gopsutil/host"
+	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/registry"
 )
 
@@ -22,6 +25,18 @@ const currentVersionKey = `SOFTWARE\Microsoft\Windows NT\CurrentVersion`
 // shown value that is absent is left out rather than refused.
 var shownValues = []string{"DisplayVersion", "EditionID", "InstallationType"}
 
+// nativeMachines names the machines IsWow64Process2 reports as Go names
+// their architectures.
+var nativeMachines = map[uint16]string{
+	pe.IMAGE_FILE_MACHINE_AMD64: "amd64",
+	pe.IMAGE_FILE_MACHINE_ARM64: "arm64",
+	pe.IMAGE_FILE_MACHINE_I386:  "386",
+	pe.IMAGE_FILE_MACHINE_ARMNT: "arm",
+}
+
+// isWow64Process2 is IsWow64Process2, which only some Windows releases have.
+var isWow64Process2 = windows.NewLazySystemDLL("kernel32.dll").NewProc("IsWow64Process2")
+
 // values reads named values of one registry key, as registry.Key does, so
 // the reading can be tested without the host's registry.
 type values interface {
@@ -29,41 +44,37 @@ type values interface {
 	GetIntegerValue(name string) (uint64, uint32, error)
 }
 
-// platformDetails reads the Windows build to its update revision, which is
-// what Microsoft's fixed builds are ordered by, and the release, edition, and
-// installation type, which gopsutil does not read.
+// platformDetails reads the host's machine, the Windows version to its update
+// revision, which Microsoft's fixed builds are ordered by, and the release,
+// edition, and installation type, which gopsutil does not read.
 func platformDetails(o *OSInfo, _ *host.InfoStat) error {
+	arch, err := nativeArchitecture()
+	if err != nil {
+		return err
+	}
+	o.Architecture = arch
+
 	key, err := registry.OpenKey(registry.LOCAL_MACHINE, currentVersionKey, registry.QUERY_VALUE|registry.WOW64_64KEY)
 	if err != nil {
 		return fmt.Errorf("osfingerprint: open %s: %w", currentVersionKey, err)
 	}
 	defer key.Close() //nolint:errcheck // read-only registry handle; close error does not affect the fingerprint
-	return readWindows(key, o)
+	return readWindows(key, windows.RtlGetVersion(), o)
 }
 
-// readWindows sets o's version, as 10.0.26300.10075, and the shown values
-// key holds. The version and kernel version are one build string on Windows.
-func readWindows(key values, o *OSInfo) error {
-	major, err := integerValue(key, "CurrentMajorVersionNumber")
-	if err != nil {
-		return err
-	}
-	minor, err := integerValue(key, "CurrentMinorVersionNumber")
-	if err != nil {
-		return err
-	}
-	build, err := stringValue(key, "CurrentBuildNumber")
-	if err != nil {
-		return err
-	}
-	if _, err := strconv.ParseUint(build, 10, 32); err != nil {
-		return fmt.Errorf("osfingerprint: CurrentBuildNumber %q is not a build number", build)
-	}
+// readWindows sets o's version from version and the update revision key
+// holds, as 10.0.26300.10075, and the shown values key holds. A release whose
+// key holds no update revision is versioned to its build, as 6.1.7601. The
+// version and kernel version are one build string on Windows.
+func readWindows(key values, version *windows.OsVersionInfoEx, o *OSInfo) error {
+	o.PlatformVersion = fmt.Sprintf("%d.%d.%d", version.MajorVersion, version.MinorVersion, version.BuildNumber)
 	revision, err := integerValue(key, "UBR")
-	if err != nil {
+	switch {
+	case err == nil:
+		o.PlatformVersion += "." + strconv.FormatUint(revision, 10)
+	case !errors.Is(err, registry.ErrNotExist):
 		return err
 	}
-	o.PlatformVersion = fmt.Sprintf("%d.%d.%s.%d", major, minor, build, revision)
 	o.KernelVersion = o.PlatformVersion
 
 	for _, name := range shownValues {
@@ -99,4 +110,42 @@ func stringValue(key values, name string) (string, error) {
 		return "", fmt.Errorf("osfingerprint: %s is empty", name)
 	}
 	return value, nil
+}
+
+// nativeArchitecture is the host's machine. IsWow64Process2 names it even to
+// a process the host emulates, as the amd64 owatch released for Windows is on
+// an ARM64 host, where runtime.GOARCH names the build instead.
+func nativeArchitecture() (string, error) {
+	if isWow64Process2.Find() != nil {
+		return wow64Architecture()
+	}
+	var process, native uint16
+	if err := windows.IsWow64Process2(windows.CurrentProcess(), &process, &native); err != nil {
+		return "", fmt.Errorf("osfingerprint: read the host's machine: %w", err)
+	}
+	return machineArchitecture(native)
+}
+
+// wow64Architecture is the host's machine on a release without
+// IsWow64Process2, which predates ARM64 Windows: a process WOW64 runs there
+// is a 32-bit x86 build on an x64 host, and any other runs natively.
+func wow64Architecture() (string, error) {
+	var wow64 bool
+	if err := windows.IsWow64Process(windows.CurrentProcess(), &wow64); err != nil {
+		return "", fmt.Errorf("osfingerprint: read whether WOW64 runs owatch: %w", err)
+	}
+	if wow64 {
+		return "amd64", nil
+	}
+	return runtime.GOARCH, nil
+}
+
+// machineArchitecture names machine as Go names its architecture, refusing
+// one owatch does not name.
+func machineArchitecture(machine uint16) (string, error) {
+	arch, ok := nativeMachines[machine]
+	if !ok {
+		return "", fmt.Errorf("osfingerprint: the host's machine %#04x is not one owatch names", machine)
+	}
+	return arch, nil
 }
