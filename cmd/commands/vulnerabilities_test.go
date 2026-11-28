@@ -45,6 +45,9 @@ func (testRecords) Combining() vulnrecord.Combining { return vulnrecord.FixClear
 // them carries.
 func (testRecords) Release(*osfingerprint.OSInfo) (string, error) { return "Debian:12", nil }
 
+// Systems is none: the test records name packages alone.
+func (testRecords) Systems(*osfingerprint.OSInfo) []softwarelist.SoftwareEntry { return nil }
+
 func (r testRecords) Records(data io.Reader, host *osfingerprint.OSInfo, each func(vulnrecord.Record) error) (dataset.Facts, error) {
 	facts, err := r.Check(data, host)
 	if err != nil {
@@ -65,7 +68,7 @@ func matching(t *testing.T) (inventoryMatching, *held.Run, store.Store) {
 	records := testRecords{datasettest.Dataset{Name: "records", Applies: true}}
 	return inventoryMatching{
 		host:     func() (*osfingerprint.OSInfo, error) { return debian, nil },
-		matched:  []dataset.Dataset{records},
+		matched:  []held.Source{records},
 		coverage: "Debian",
 	}, heldIn(s, records), s
 }
@@ -319,12 +322,16 @@ func TestKnownHoldsWhatIsMatched(t *testing.T) {
 
 // testTracking is a second source of records for Debian hosts, which tracks
 // CVE-2026-0002 against openssl's source and, when it fails, gives that one
-// record and then stops with an error; manager is the manager it names.
+// record and then stops with an error; manager is the manager it names, and
+// systems the units of the host's system it names.
 type testTracking struct {
 	datasettest.Dataset
 	manager string
 	fails   bool
+	systems []softwarelist.SoftwareEntry
 }
+
+func (t testTracking) Systems(*osfingerprint.OSInfo) []softwarelist.SoftwareEntry { return t.systems }
 
 func (testTracking) AppliesTo(host *osfingerprint.OSInfo) bool { return host.Platform == "debian" }
 func (t testTracking) Manager() string                         { return t.manager }
@@ -361,7 +368,7 @@ func TestMatchingReadsEveryDatasetOfTheHost(t *testing.T) {
 		s := store.At(filepath.Join(t.TempDir(), "store"))
 		records := testRecords{datasettest.Dataset{Name: "records", Applies: true}}
 		tracking.Dataset = datasettest.Dataset{Name: "tracking", Applies: true}
-		return inventoryMatching{matched: []dataset.Dataset{records, tracking}, coverage: "Debian"}, heldIn(s, records, tracking), s
+		return inventoryMatching{matched: []held.Source{records, tracking}, coverage: "Debian"}, heldIn(s, records, tracking), s
 	}
 
 	m, data, s := both(testTracking{manager: softwarelist.ManagerDpkg})
@@ -395,6 +402,24 @@ func TestMatchingReadsEveryDatasetOfTheHost(t *testing.T) {
 	put(s, "records", "tracking")
 	if v := m.run(context.Background(), data, debian, installed("3.0.11-1")); !strings.Contains(v.NotDone, "records and tracking cannot be matched together") {
 		t.Errorf("datasets of different managers gave %+v", v)
+	}
+}
+
+// The units of the host's system every source names reach the match, each
+// once, and the view names them.
+func TestMatchingGivesTheSystem(t *testing.T) {
+	system := []softwarelist.SoftwareEntry{{Name: "debian", Version: "12", Manager: softwarelist.ManagerDpkg}}
+	s := store.At(filepath.Join(t.TempDir(), "store"))
+	records := testRecords{datasettest.Dataset{Name: "records", Applies: true}}
+	one := testTracking{Dataset: datasettest.Dataset{Name: "tracking", Applies: true}, manager: softwarelist.ManagerDpkg, systems: system}
+	two := testTracking{Dataset: datasettest.Dataset{Name: "tracking-two", Applies: true}, manager: softwarelist.ManagerDpkg, systems: system}
+	for _, name := range []string{"records", "tracking", "tracking-two"} {
+		datasettest.Put(t, s.Root(), datasettest.Dataset{Name: name}, datasettest.Content, dataNow.Add(-time.Hour), nil)
+	}
+	m := inventoryMatching{matched: []held.Source{records, one, two}, coverage: "Debian"}
+	v := m.run(context.Background(), heldIn(s, records, one, two), debian, installed("3.0.11-1"))
+	if v.NotDone != "" || !slices.Equal(v.Systems, []vulnmatch.System{{Name: "debian", Installed: "12"}}) {
+		t.Errorf("systems %+v, not done %q", v.Systems, v.NotDone)
 	}
 }
 

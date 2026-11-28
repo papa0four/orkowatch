@@ -16,26 +16,13 @@ import (
 	"github.com/papa0four/orkowatch/internal/vulnrecord"
 )
 
-// recordSource is a dataset of a distribution's security records that the
-// installed packages are matched against: the manager whose packages it
-// names, how its records of one vulnerability combine, its records given one
-// at a time as they are checked, and the release whose records a match of a
-// host reads, which a match carries as its Version.
-type recordSource interface {
-	dataset.Dataset
-	Manager() string
-	Combining() vulnrecord.Combining
-	Records(data io.Reader, host *osfingerprint.OSInfo, each func(vulnrecord.Record) error) (dataset.Facts, error)
-	Release(host *osfingerprint.OSInfo) (string, error)
-}
-
 // inventoryMatching is what matching the software inventory reads from the
 // host, held apart so a test can give each its own: the host's identity when
 // the run did not read it, and the datasets the inventory is matched against,
 // with the distributions they cover.
 type inventoryMatching struct {
 	host     func() (*osfingerprint.OSInfo, error)
-	matched  []dataset.Dataset
+	matched  []held.Source
 	coverage string
 }
 
@@ -75,7 +62,7 @@ func (m inventoryMatching) run(ctx context.Context, data *held.Run, host *osfing
 		return failed
 	}
 	first := sources[0]
-	matcher, err := vulnmatch.New(first.Manager(), first.Combining(), entries, nil)
+	matcher, err := vulnmatch.New(first.Manager(), first.Combining(), entries, systemsOf(sources, host))
 	if err != nil {
 		return notDone(first.ID(), err.Error())
 	}
@@ -97,33 +84,37 @@ func (m inventoryMatching) run(ctx context.Context, data *held.Run, host *osfing
 }
 
 // recordSources are the datasets host's inventory is matched against, or the
-// view of a match that cannot be made and why: none applies to host, one
-// holds no records, or they name packages of different managers or combine
-// their records differently, which one matcher cannot judge together.
-func (m inventoryMatching) recordSources(host *osfingerprint.OSInfo) ([]recordSource, *vulnmatch.View) {
-	chosen := m.sources(host)
-	if len(chosen) == 0 {
+// view of a match that cannot be made and why: none applies to host, or they
+// name packages of different managers or combine their records differently,
+// which one matcher cannot judge together.
+func (m inventoryMatching) recordSources(host *osfingerprint.OSInfo) ([]held.Source, *vulnmatch.View) {
+	sources := m.sources(host)
+	if len(sources) == 0 {
 		return nil, notDone("", fmt.Sprintf("no dataset owatch knows covers this host's packages; matching covers %s", m.coverage))
 	}
-	var sources []recordSource
-	for _, d := range chosen {
-		source, ok := d.(recordSource)
-		if !ok {
-			return nil, notDone(d.ID(), "the dataset holds no records to match against")
-		}
-		if len(sources) > 0 && (source.Manager() != sources[0].Manager() || source.Combining() != sources[0].Combining()) {
+	for _, source := range sources[1:] {
+		if source.Manager() != sources[0].Manager() || source.Combining() != sources[0].Combining() {
 			return nil, notDone(sources[0].ID(), fmt.Sprintf("%s and %s cannot be matched together: they name packages of different managers or combine their records differently", sources[0].ID(), source.ID()))
 		}
-		sources = append(sources, source)
 	}
 	return sources, nil
+}
+
+// systemsOf is the units of host's system the sources name. A unit two
+// sources name is one unit of the match, which holds each unit once.
+func systemsOf(sources []held.Source, host *osfingerprint.OSInfo) []softwarelist.SoftwareEntry {
+	var systems []softwarelist.SoftwareEntry
+	for _, s := range sources {
+		systems = append(systems, s.Systems(host)...)
+	}
+	return systems
 }
 
 // readAlso reads source, a dataset matched against beside the first, and
 // gives its records to matcher only once it was read whole, so a dataset
 // that fails partway adds nothing; it returns what was read or why nothing
 // was.
-func readAlso(ctx context.Context, data *held.Run, source recordSource, host *osfingerprint.OSInfo, matcher *vulnmatch.Matcher) dataset.Use {
+func readAlso(ctx context.Context, data *held.Run, source held.Source, host *osfingerprint.OSInfo, matcher *vulnmatch.Matcher) dataset.Use {
 	var records []vulnrecord.Record
 	use := data.Read(ctx, source, host, func(r io.Reader) (dataset.Facts, error) {
 		records = records[:0]
@@ -146,11 +137,11 @@ func readAlso(ctx context.Context, data *held.Run, source recordSource, host *os
 // sources are the datasets owatch knows that host's inventory is matched
 // against, in the order owatch lists them; the first is the one a match is
 // of.
-func (m inventoryMatching) sources(host *osfingerprint.OSInfo) []dataset.Dataset {
-	var out []dataset.Dataset
-	for _, d := range m.matched {
-		if d.AppliesTo(host) {
-			out = append(out, d)
+func (m inventoryMatching) sources(host *osfingerprint.OSInfo) []held.Source {
+	var out []held.Source
+	for _, s := range m.matched {
+		if s.AppliesTo(host) {
+			out = append(out, s)
 		}
 	}
 	return out
@@ -158,7 +149,7 @@ func (m inventoryMatching) sources(host *osfingerprint.OSInfo) []dataset.Dataset
 
 // source is the dataset a match of host's inventory is of, or nil when none
 // owatch knows applies to host.
-func (m inventoryMatching) source(host *osfingerprint.OSInfo) dataset.Dataset {
+func (m inventoryMatching) source(host *osfingerprint.OSInfo) held.Source {
 	if s := m.sources(host); len(s) > 0 {
 		return s[0]
 	}
@@ -168,13 +159,9 @@ func (m inventoryMatching) source(host *osfingerprint.OSInfo) dataset.Dataset {
 // release is the dataset and the release a match of host reads, the ID and
 // Version that match carries, or why no match of host is made.
 func (m inventoryMatching) release(host *osfingerprint.OSInfo) (id, release string, err error) {
-	chosen := m.source(host)
-	if chosen == nil {
+	source := m.source(host)
+	if source == nil {
 		return "", "", fmt.Errorf("no dataset owatch knows covers this host's packages; matching covers %s", m.coverage)
-	}
-	source, ok := chosen.(recordSource)
-	if !ok {
-		return chosen.ID(), "", fmt.Errorf("%s holds no records to match against", chosen.ID())
 	}
 	release, err = source.Release(host)
 	return source.ID(), release, err
@@ -188,7 +175,7 @@ func (m inventoryMatching) reads(host *osfingerprint.OSInfo) []dataset.Dataset {
 	if len(sources) == 0 {
 		return nil
 	}
-	return append(sources, held.Catalog(), epss.Scores{})
+	return append(held.Datasets(sources), held.Catalog(), epss.Scores{})
 }
 
 // predicted reads the EPSS scores file through data, keeping the predictions

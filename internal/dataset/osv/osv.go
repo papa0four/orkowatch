@@ -94,17 +94,17 @@ type Dump struct {
 
 // Datasets returns the distributions whose OSV data owatch keeps, in name
 // order.
-func Datasets() []dataset.Dataset {
-	return []dataset.Dataset{
-		Dump{id: "osv-almalinux", directory: "AlmaLinux", platform: "almalinux", manager: softwarelist.ManagerRPM, license: "MIT",
+func Datasets() []Dump {
+	return []Dump{
+		{id: "osv-almalinux", directory: "AlmaLinux", platform: "almalinux", manager: softwarelist.ManagerRPM, license: "MIT",
 			fetchMax: 256 << 20, keptMax: 32 << 20, release: major("AlmaLinux")},
-		Dump{id: "osv-alpine", directory: "Alpine", platform: "alpine", manager: softwarelist.ManagerAPK, license: "CC-BY-SA 4.0",
+		{id: "osv-alpine", directory: "Alpine", platform: "alpine", manager: softwarelist.ManagerAPK, license: "CC-BY-SA 4.0",
 			fetchMax: 256 << 20, keptMax: 32 << 20, release: alpine},
-		Dump{id: "osv-redhat", directory: "Red Hat", platform: "redhat", manager: softwarelist.ManagerRPM, license: "CC-BY 4.0",
+		{id: "osv-redhat", directory: "Red Hat", platform: "redhat", manager: softwarelist.ManagerRPM, license: "CC-BY 4.0",
 			fetchMax: 512 << 20, keptMax: 32 << 20, release: redHat},
-		Dump{id: "osv-rocky", directory: "Rocky Linux", platform: "rocky", manager: softwarelist.ManagerRPM, license: "BSD",
+		{id: "osv-rocky", directory: "Rocky Linux", platform: "rocky", manager: softwarelist.ManagerRPM, license: "BSD",
 			fetchMax: 256 << 20, keptMax: 32 << 20, release: major("Rocky Linux")},
-		Dump{id: "osv-ubuntu", directory: "Ubuntu", platform: "ubuntu", manager: softwarelist.ManagerDpkg, license: "CC-BY-SA 4.0",
+		{id: "osv-ubuntu", directory: "Ubuntu", platform: "ubuntu", manager: softwarelist.ManagerDpkg, license: "CC-BY-SA 4.0",
 			fetchMax: 4 << 30, keptMax: 64 << 20, release: ubuntu},
 	}
 }
@@ -148,6 +148,11 @@ func (d Dump) Origin(*osfingerprint.OSInfo) dataset.Origin {
 		Attribution: attribution,
 	}
 }
+
+// Systems is none yet: the running kernel is a unit of the system the
+// distribution's records name, and it is given here by the work that matches
+// the operating system release and kernel.
+func (Dump) Systems(*osfingerprint.OSInfo) []softwarelist.SoftwareEntry { return nil }
 
 // Release is the name of the release whose records a match of host reads,
 // the Version that match carries, so a saved match can be judged against the

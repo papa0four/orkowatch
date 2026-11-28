@@ -16,7 +16,6 @@ import (
 
 	"github.com/papa0four/orkowatch/cmd/commands/delivery"
 	"github.com/papa0four/orkowatch/cmd/commands/held"
-	"github.com/papa0four/orkowatch/internal/dataset"
 	"github.com/papa0four/orkowatch/internal/dataset/datasettest"
 	"github.com/papa0four/orkowatch/internal/dataset/store"
 	"github.com/papa0four/orkowatch/internal/osfingerprint"
@@ -58,11 +57,11 @@ func browsing(t *testing.T, result *ScanResult) (*browserRefresh, *liveRun, *ser
 	t.Helper()
 	d, s, origins := refreshing(t, false, "")
 	m, _, _ := matching(t)
-	m.matched = []dataset.Dataset{testRecords{datasettest.Dataset{Name: "records", Applies: true, From: at("records")}}}
+	m.matched = []held.Source{testRecords{datasettest.Dataset{Name: "records", Applies: true, From: at("records")}}}
 	origins.sizes["records"] = int64(len(datasettest.Content))
-	d.known = m.matched
-	d.run = func() *held.Run { return heldIn(s, m.matched...) }
-	refresh, live := newLiveRefresh(d, m, heldIn(s, m.matched...), result, "owatch all", "", textOut(t))
+	d.known = held.Datasets(m.matched)
+	d.run = func() *held.Run { return heldIn(s, held.Datasets(m.matched)...) }
+	refresh, live := newLiveRefresh(d, m, heldIn(s, held.Datasets(m.matched)...), result, "owatch all", "", textOut(t))
 	if refresh == nil {
 		t.Fatalf("no refresh for %+v", result.Vulns)
 	}
@@ -185,14 +184,14 @@ func savedFile(t *testing.T, version string) (path string, d *dataCmd, m invento
 	t.Helper()
 	d, s, origins = refreshing(t, false, "")
 	m, _, _ = matching(t)
-	m.matched = []dataset.Dataset{testRecords{datasettest.Dataset{Name: "records", Applies: true, From: at("records")}}}
+	m.matched = []held.Source{testRecords{datasettest.Dataset{Name: "records", Applies: true, From: at("records")}}}
 	origins.sizes["records"] = int64(len(datasettest.Content))
-	d.known = m.matched
+	d.known = held.Datasets(m.matched)
 	d.host = func() (*osfingerprint.OSInfo, error) { return debian, nil }
-	d.run = func() *held.Run { return heldIn(s, m.matched...) }
+	d.run = func() *held.Run { return heldIn(s, held.Datasets(m.matched)...) }
 
 	datasettest.Put(t, s.Root(), datasettest.Dataset{Name: "records"}, datasettest.Content, dataNow.Add(-time.Hour), nil)
-	v := m.run(context.Background(), heldIn(s, m.matched...), debian, installed("3.0.11-1"))
+	v := m.run(context.Background(), heldIn(s, held.Datasets(m.matched)...), debian, installed("3.0.11-1"))
 	v.Version = version
 	view := softwarelist.View(installed("3.0.11-1"))
 	all := allResult{
@@ -228,7 +227,7 @@ func openedRefresh(t *testing.T, path string, d *dataCmd, m inventoryMatching, s
 	if err != nil || !saved.isAll() {
 		t.Fatalf("read %v, all %v", err, saved.isAll())
 	}
-	return savedRefreshFor(d, m, heldIn(s, m.matched...), path, saved.all(), delivery.FormatText)
+	return savedRefreshFor(d, m, heldIn(s, held.Datasets(m.matched)...), path, saved.all(), delivery.FormatText)
 }
 
 // A saved report matched against this host's dataset and release is matched

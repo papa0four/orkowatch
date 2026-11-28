@@ -139,6 +139,10 @@ func (Document) Manager() string { return softwarelist.ManagerPkg }
 // package in two places.
 func (Document) Combining() vulnrecord.Combining { return vulnrecord.AnyRange }
 
+// Systems is none: the document names ports, not the base system, and no
+// machine-readable source of the base system's vulnerabilities is chosen.
+func (Document) Systems(*osfingerprint.OSInfo) []softwarelist.SoftwareEntry { return nil }
+
 // Release is the name of what a match of host reads, the Version that match
 // carries: the one document of every FreeBSD release.
 func (d Document) Release(host *osfingerprint.OSInfo) (string, error) {

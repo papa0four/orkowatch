@@ -26,7 +26,24 @@ import (
 	"github.com/papa0four/orkowatch/internal/dataset/vuxml"
 	"github.com/papa0four/orkowatch/internal/osfingerprint"
 	"github.com/papa0four/orkowatch/internal/render"
+	"github.com/papa0four/orkowatch/internal/softwarelist"
+	"github.com/papa0four/orkowatch/internal/vulnrecord"
 )
+
+// Source is a dataset of security records that a host's installed packages,
+// and the units of its system, are matched against: the manager whose
+// packages it names, how its records of one vulnerability combine, its
+// records given one at a time as they are checked, the release whose records
+// a match of a host reads, which a match carries as its Version, and the
+// units of host's system its records name.
+type Source interface {
+	dataset.Dataset
+	Manager() string
+	Combining() vulnrecord.Combining
+	Records(data io.Reader, host *osfingerprint.OSInfo, each func(vulnrecord.Record) error) (dataset.Facts, error)
+	Release(host *osfingerprint.OSInfo) (string, error)
+	Systems(host *osfingerprint.OSInfo) []softwarelist.SoftwareEntry
+}
 
 // Opener opens the store a process reads, made ready to read for host at now,
 // with known the datasets it may install from the operator's store.
@@ -62,7 +79,7 @@ type Run struct {
 // and the store read every source through that interface and name none. They
 // are listed in name order, which is the order status shows them in.
 func Known() []dataset.Dataset {
-	known := append([]dataset.Dataset{epss.Scores{}, kev.Catalog{}}, Matched()...)
+	known := append([]dataset.Dataset{epss.Scores{}, kev.Catalog{}}, Datasets(Matched())...)
 	slices.SortFunc(known, func(a, b dataset.Dataset) int { return strings.Compare(a.ID(), b.ID()) })
 	return known
 }
@@ -70,9 +87,24 @@ func Known() []dataset.Dataset {
 // Matched lists the datasets installed packages are matched against, of
 // which a host reads those that apply to it, the first the one its match is
 // of: OSV's for each distribution it covers, Fedora's updates and then its
-// tracking bugs, and VuXML on FreeBSD.
-func Matched() []dataset.Dataset {
-	return append(osv.Datasets(), fedora.Updates{}, fedora.TrackingBugs{}, vuxml.Document{})
+// tracking bugs, and VuXML on FreeBSD. Each is a Source, so a dataset that
+// does not give all of what matching reads does not build.
+func Matched() []Source {
+	var sources []Source
+	for _, d := range osv.Datasets() {
+		sources = append(sources, d)
+	}
+	return append(sources, fedora.Updates{}, fedora.TrackingBugs{}, vuxml.Document{})
+}
+
+// Datasets is sources as the datasets they are, for what reads or installs
+// any dataset.
+func Datasets(sources []Source) []dataset.Dataset {
+	out := make([]dataset.Dataset, 0, len(sources))
+	for _, s := range sources {
+		out = append(out, s)
+	}
+	return out
 }
 
 // ForHost is a run that reads this process's store, with the datasets owatch

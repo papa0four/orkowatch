@@ -58,7 +58,7 @@ func dump(t *testing.T, id string) Dump {
 	t.Helper()
 	for _, d := range Datasets() {
 		if d.ID() == id {
-			return d.(Dump)
+			return d
 		}
 	}
 	t.Fatalf("no dataset %s", id)
@@ -117,8 +117,7 @@ func TestDatasets(t *testing.T) {
 		"osv-rocky": 6_138_920, "osv-ubuntu": 845_016_925,
 	}
 	var ids []string
-	for _, ds := range Datasets() {
-		d := ds.(Dump)
+	for _, d := range Datasets() {
 		ids = append(ids, d.ID())
 		if !dataset.ValidID(d.ID()) || d.FetchMaxBytes() < 4*measured[d.ID()] || d.MaxBytes() <= 0 {
 			t.Errorf("%s: id %q may fetch %d and keep %d bytes", d.ID(), d.ID(), d.FetchMaxBytes(), d.MaxBytes())

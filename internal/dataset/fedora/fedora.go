@@ -199,6 +199,11 @@ func (Updates) Manager() string { return softwarelist.ManagerRPM }
 // earlier one named and ship a later build.
 func (Updates) Combining() vulnrecord.Combining { return vulnrecord.AnyRange }
 
+// Systems is none yet: the running kernel is a unit of the system the
+// updates name, and it is given here by the work that matches the operating
+// system release and kernel.
+func (Updates) Systems(*osfingerprint.OSInfo) []softwarelist.SoftwareEntry { return nil }
+
 // Release is the release a match of host reads, the Version that match
 // carries.
 func (u Updates) Release(host *osfingerprint.OSInfo) (string, error) {

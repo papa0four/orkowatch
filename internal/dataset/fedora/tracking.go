@@ -156,6 +156,12 @@ func (TrackingBugs) Manager() string { return softwarelist.ManagerRPM }
 // fix the updates give, whichever way records combine.
 func (TrackingBugs) Combining() vulnrecord.Combining { return Updates{}.Combining() }
 
+// Systems is the units of host's system the updates name, which the bugs are
+// filed against alike.
+func (TrackingBugs) Systems(host *osfingerprint.OSInfo) []softwarelist.SoftwareEntry {
+	return Updates{}.Systems(host)
+}
+
 // Release is the release a match of host reads.
 func (TrackingBugs) Release(host *osfingerprint.OSInfo) (string, error) {
 	return Updates{}.Release(host)
