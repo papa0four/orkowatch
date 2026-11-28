@@ -84,12 +84,20 @@ RELEASE_TARGETS := \
 # here must build, but it ships only once its modules are implemented
 SUPPORTED_TARGETS := \
 	linux/amd64 \
+	linux/386 \
+	linux/arm \
 	darwin/amd64 \
 	darwin/arm64 \
 	windows/amd64 \
+	windows/386 \
 	freebsd/amd64 \
+	freebsd/386 \
+	freebsd/arm \
 	openbsd/amd64 \
-	netbsd/amd64
+	openbsd/386 \
+	netbsd/amd64 \
+	netbsd/386 \
+	netbsd/arm
 
 # The distinct operating systems in SUPPORTED_TARGETS. Build constraints in this
 # tree split on GOOS alone, so linting once per GOOS reaches every build-tagged
